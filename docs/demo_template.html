@@ -1,0 +1,968 @@
+<title>Redstone Calculator — Voxel Simulator</title>
+<style>
+:root{
+  --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --line:#252b34;
+  --ink:#e8e6e3; --muted:#8b9099; --dim:#5c636d;
+  --redstone:#ff3b30; --redstone-deep:#a81f18; --torch:#ffab40;
+  --stone:#7d8590; --pass:#4ade80; --fail:#fb7185;
+  --viewport:#07090c;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:light){
+  :root{
+    --void:#e9ebee; --panel:#f7f8f9; --panel2:#eef0f3; --line:#d6dae0;
+    --ink:#14171c; --muted:#5f666f; --dim:#8b9099;
+    --redstone:#d92b1f; --redstone-deep:#f0b4ae; --torch:#b4700a;
+    --stone:#6d747d; --pass:#15803d; --fail:#be123c; --viewport:#dbdfe5;
+  }
+}
+:root[data-theme="dark"]{
+  --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --line:#252b34;
+  --ink:#e8e6e3; --muted:#8b9099; --dim:#5c636d;
+  --redstone:#ff3b30; --redstone-deep:#a81f18; --torch:#ffab40;
+  --stone:#7d8590; --pass:#4ade80; --fail:#fb7185; --viewport:#07090c;
+}
+:root[data-theme="light"]{
+  --void:#e9ebee; --panel:#f7f8f9; --panel2:#eef0f3; --line:#d6dae0;
+  --ink:#14171c; --muted:#5f666f; --dim:#8b9099;
+  --redstone:#d92b1f; --redstone-deep:#f0b4ae; --torch:#b4700a;
+  --stone:#6d747d; --pass:#15803d; --fail:#be123c; --viewport:#dbdfe5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--void);color:var(--ink);font-family:var(--sans);
+  height:100vh;overflow:hidden;display:flex;flex-direction:column}
+header{display:flex;align-items:baseline;gap:1.25rem;padding:.7rem 1.1rem;
+  border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+h1{margin:0;font-size:1.05rem;font-weight:800;letter-spacing:-.02em}
+h1 em{font-style:normal;color:var(--redstone)}
+.sub{font-family:var(--mono);font-size:.68rem;color:var(--muted);
+  letter-spacing:.08em;text-transform:uppercase}
+.spacer{flex:1}
+.hstat{font-family:var(--mono);font-size:.7rem;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.hstat b{color:var(--ink);font-weight:600}
+
+main{flex:1;display:flex;min-height:0}
+#view{flex:1;position:relative;min-width:0;background:var(--viewport)}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas:active{cursor:grabbing}
+.overlay{position:absolute;left:0;bottom:0;padding:.6rem .8rem;font-family:var(--mono);
+  font-size:.66rem;color:var(--dim);letter-spacing:.06em;pointer-events:none;line-height:1.6}
+.legend{position:absolute;right:.8rem;top:.7rem;display:flex;flex-direction:column;gap:.3rem;
+  font-family:var(--mono);font-size:.64rem;color:var(--muted);pointer-events:none}
+.legend span{display:flex;align-items:center;gap:.45rem}
+.sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+
+aside{width:352px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel);
+  overflow-y:auto;display:flex;flex-direction:column}
+section{border-bottom:1px solid var(--line);padding:.85rem 1rem;display:flex;
+  flex-direction:column;gap:.6rem}
+.lbl{font-family:var(--mono);font-size:.63rem;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--dim)}
+select,button,input{font-family:var(--mono);font-size:.75rem;color:var(--ink);
+  background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:.42rem .55rem}
+select{width:100%}
+button{cursor:pointer}
+button:hover:not(:disabled){border-color:var(--redstone);color:var(--redstone)}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible,
+.opbtn:focus-visible,.bit:focus-visible{outline:2px solid var(--redstone);outline-offset:2px}
+.row{display:flex;gap:.4rem;align-items:center}
+.row>*{flex:1}
+.ops{display:grid;grid-template-columns:repeat(4,1fr);gap:.3rem}
+.opbtn{font-family:var(--mono);font-size:.7rem;padding:.4rem 0;text-align:center;
+  border:1px solid var(--line);border-radius:5px;background:var(--panel2);cursor:pointer;
+  color:var(--muted)}
+.opbtn[aria-pressed="true"]{background:var(--redstone);border-color:var(--redstone);
+  color:#fff;font-weight:600}
+.bits{display:flex;gap:.22rem;direction:rtl}
+.bit{width:100%;aspect-ratio:1;border:1px solid var(--line);border-radius:4px;
+  background:var(--panel2);cursor:pointer;font-family:var(--mono);font-size:.7rem;
+  color:var(--dim);display:flex;align-items:center;justify-content:center;padding:0}
+.bit[aria-pressed="true"]{background:var(--redstone);border-color:var(--redstone);
+  color:#fff;font-weight:700}
+.opnd{display:flex;align-items:center;gap:.55rem}
+.opnd .nm{font-family:var(--mono);font-size:.75rem;color:var(--muted);width:1.2rem}
+.opnd .bits{flex:1}
+.opnd .val{font-family:var(--mono);font-size:.8rem;width:2.6rem;text-align:right;
+  font-variant-numeric:tabular-nums}
+.readout{background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+  padding:.6rem .7rem;display:flex;flex-direction:column;gap:.45rem}
+.big{font-family:var(--mono);font-size:1.7rem;font-weight:700;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:.5rem}
+.big small{font-size:.66rem;color:var(--dim);font-weight:400;letter-spacing:.1em}
+.flags{display:flex;gap:.3rem;flex-wrap:wrap}
+.flag{font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;padding:.2rem .42rem;
+  border-radius:3px;border:1px solid var(--line);color:var(--dim)}
+.flag.on{background:var(--torch);border-color:var(--torch);color:#1a1206;font-weight:700}
+.kv{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.7rem;
+  font-variant-numeric:tabular-nums}
+.kv span:first-child{color:var(--muted)}
+.slider{width:100%;accent-color:var(--redstone)}
+.verdict{font-family:var(--mono);font-size:.72rem;padding:.5rem .6rem;border-radius:5px;
+  border:1px solid var(--line);background:var(--panel2);line-height:1.5}
+.verdict.ok{border-color:var(--pass);color:var(--pass)}
+.verdict.bad{border-color:var(--fail);color:var(--fail)}
+.bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--redstone);width:0}
+.note{font-size:.72rem;color:var(--muted);line-height:1.55}
+@media (max-width:860px){
+  body{overflow:auto;height:auto}
+  main{flex-direction:column}
+  #view{height:56vh;flex:none}
+  aside{width:100%;border-left:none;border-top:1px solid var(--line)}
+}
+</style>
+
+<header>
+  <h1>Redstone <em>Calculator</em></h1>
+  <span class="sub">Minecraft Java 26.2 · tick-accurate voxel simulation</span>
+  <span class="spacer"></span>
+  <span class="hstat">BLOCKS <b id="hBlocks">—</b></span>
+  <span class="hstat">GATES <b id="hGates">—</b></span>
+  <span class="hstat">DEPTH <b id="hDepth">—</b></span>
+  <span class="hstat">SIM TICK <b id="hTick">0</b></span>
+</header>
+
+<main>
+  <div id="view">
+    <canvas id="cv"></canvas>
+    <div class="legend">
+      <span><i class="sw" style="background:#ff3b30"></i>dust 15</span>
+      <span><i class="sw" style="background:#7a1c17"></i>dust 1</span>
+      <span><i class="sw" style="background:#2a2d33"></i>dust 0</span>
+      <span><i class="sw" style="background:#ffab40"></i>torch lit</span>
+      <span><i class="sw" style="background:#8b6fd6"></i>repeater</span>
+      <span><i class="sw" style="background:#7d8590"></i>block</span>
+    </div>
+    <div class="overlay" id="ov">drag to orbit · scroll to zoom</div>
+  </div>
+
+  <aside>
+    <section>
+      <span class="lbl">Circuit</span>
+      <select id="sel"></select>
+      <p class="note" id="desc"></p>
+    </section>
+
+    <section id="inputs">
+      <span class="lbl">Operands</span>
+      <div id="operands"></div>
+    </section>
+
+    <section id="opsec">
+      <span class="lbl">Operation</span>
+      <div class="ops" id="ops"></div>
+    </section>
+
+    <section>
+      <span class="lbl">Result — read off the output dust</span>
+      <div class="readout">
+        <div class="big"><span id="rDec">0</span><small id="rBin">0000</small></div>
+        <div class="flags" id="rFlags"></div>
+        <div class="kv"><span>expected</span><span id="rExp">0</span></div>
+        <div class="kv"><span>settled in</span><span id="rTicks">0 gt</span></div>
+      </div>
+      <div class="row">
+        <button id="bStep">Step 1 gt</button>
+        <button id="bRun">Run</button>
+        <button id="bSettle">Settle</button>
+      </div>
+    </section>
+
+    <section>
+      <span class="lbl">Cutaway — hide everything above layer <b id="lyVal"></b></span>
+      <input class="slider" type="range" id="ly" min="0" max="10" value="10">
+      <div class="kv"><span>visible blocks</span><span id="lyN">—</span></div>
+    </section>
+
+    <section>
+      <span class="lbl">Verification</span>
+      <p class="note">Every vector is applied to the levers and read back off the
+        output dust after the circuit settles — the simulator is the judge.</p>
+      <div class="row"><button id="bVerify">Run test vectors</button></div>
+      <div class="bar"><i id="prog"></i></div>
+      <div class="verdict" id="verdict">Not run yet.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+const BUNDLE = __CIRCUIT_DATA__;
+
+/* ---------------------------------------------------------------- engine --
+   Port of the Python simulator: strong vs weak power, dust decay of one level
+   per block, torch inversion at 2 game ticks with burnout, repeater diodes at
+   2/4/6/8 game ticks with side locking. Dust propagation is instantaneous and
+   resolved to a fixed point within the tick, as in the game.                */
+
+const KINDS=["solid","redstone_wire","redstone_torch","repeater","comparator",
+             "lever","lamp","redstone_block","glass"];
+const K_SOLID=0,K_WIRE=1,K_TORCH=2,K_REP=3,K_CMP=4,K_LEVER=5,K_LAMP=6,K_RBLOCK=7,K_GLASS=8;
+const DIRV=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]]; // n s w e u d
+const OPP=[1,0,3,2,5,4];
+const HORIZ=[0,1,2,3];
+const AXIS=[1,1,0,0,2,2];  // z z x x y y
+const CONDUCT=k=>k===K_SOLID||k===K_LAMP;
+
+async function inflate(b64){
+  const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+  const ds=new DecompressionStream("gzip");
+  const buf=await new Response(new Blob([bin]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+class World{
+  constructor(n,dims,raw){
+    this.n=n; this.dims=dims;
+    const [DX,DY,DZ]=dims;
+    this.DY=DY; this.DZ=DZ;
+    this.bx=new Int16Array(n); this.by=new Int16Array(n); this.bz=new Int16Array(n);
+    this.kind=new Uint8Array(n); this.meta=new Uint8Array(n);
+    this.power=new Uint8Array(n);   // dust strength / comparator out / lamp
+    this.lit=new Uint8Array(n);     // torch lit, repeater powered, lever on
+    const dv=new DataView(raw.buffer,raw.byteOffset,raw.byteLength);
+    for(let i=0;i<n;i++){
+      this.bx[i]=dv.getUint16(i*2,true);
+      this.by[i]=dv.getUint16(n*2+i*2,true);
+      this.bz[i]=dv.getUint16(n*4+i*2,true);
+    }
+    this.kind.set(raw.subarray(n*6,n*7));
+    this.meta.set(raw.subarray(n*7,n*8));
+    this.map=new Map();
+    for(let i=0;i<n;i++) this.map.set(this.key(this.bx[i],this.by[i],this.bz[i]),i);
+    for(let i=0;i<n;i++){
+      if(this.kind[i]===K_TORCH) this.lit[i]=1;
+      if(this.kind[i]===K_LEVER) this.lit[i]=(this.meta[i]>>3)&1;
+    }
+  }
+  key(x,y,z){return (x*this.DY+y)*this.DZ+z;}
+  at(x,y,z){
+    if(x<0||y<0||z<0||x>=this.dims[0]||y>=this.dims[1]||z>=this.dims[2])return -1;
+    const v=this.map.get(this.key(x,y,z)); return v===undefined?-1:v;
+  }
+  step(i,d){const v=DIRV[d];return this.at(this.bx[i]+v[0],this.by[i]+v[1],this.bz[i]+v[2]);}
+  kindAt(i){return i<0?-1:this.kind[i];}
+  facing(i){return this.meta[i]&7;}
+  delay(i){return (this.meta[i]>>3)+1;}
+  attach(i){return this.meta[i]&7;}
+}
+
+class Engine{
+  constructor(w){
+    this.w=w; this.now=0; this.queue=[]; this.pending=new Map(); this.burned=new Set();
+    this.compile();
+  }
+  /* ---- static topology ---- */
+  compile(){
+    const w=this.w,n=w.n;
+    this.links=new Map();          // dust index -> [dust indices]
+    this.points=new Uint8Array(n); // 4-bit mask of horizontal directions
+    for(let i=0;i<n;i++){
+      if(w.kind[i]!==K_WIRE) continue;
+      const conns=[],targets=[];
+      for(const d of HORIZ){
+        const t=this.connectTarget(i,d);
+        if(t>=0){conns.push(d);targets.push(t);}
+      }
+      let mask=0;
+      if(conns.length===1) mask=(1<<conns[0])|(1<<OPP[conns[0]]);
+      else if(conns.length>1) for(const d of conns) mask|=1<<d;
+      this.points[i]=mask;
+      this.links.set(i,targets.filter(t=>w.kind[t]===K_WIRE));
+    }
+    // connected components of dust
+    this.netOf=new Int32Array(n).fill(-1); this.nets=[];
+    for(let i=0;i<n;i++){
+      if(w.kind[i]!==K_WIRE||this.netOf[i]>=0) continue;
+      const id=this.nets.length,mem=[],stack=[i];
+      this.netOf[i]=id;
+      while(stack.length){
+        const c=stack.pop(); mem.push(c);
+        for(const t of this.links.get(c)) if(this.netOf[t]<0){this.netOf[t]=id;stack.push(t);}
+      }
+      this.nets.push(mem);
+    }
+    // strong power sources per block
+    this.strong=new Map();
+    const push=(m,k,v)=>{const a=m.get(k);a?a.push(v):m.set(k,[v]);};
+    for(let i=0;i<n;i++){
+      const k=w.kind[i];
+      if(k===K_TORCH){const t=w.step(i,4); if(t>=0)push(this.strong,t,i);}
+      else if(k===K_REP||k===K_CMP){const t=w.step(i,w.facing(i)); if(t>=0)push(this.strong,t,i);}
+      else if(k===K_LEVER){const t=w.step(i,w.attach(i)); if(t>=0)push(this.strong,t,i);}
+    }
+    this.comps=[];
+    for(let i=0;i<n;i++){const k=w.kind[i];
+      if(k===K_TORCH||k===K_REP||k===K_CMP||k===K_LAMP) this.comps.push(i);}
+    // net sources and reverse maps
+    this.netSrc=new Map(); this.netsBy=new Map();
+    for(let id=0;id<this.nets.length;id++){
+      const src=[];
+      for(const dp of this.nets[id]) for(let d=0;d<6;d++){
+        const nb=w.step(dp,d); if(nb<0) continue;
+        const k=w.kind[nb];
+        if(k===K_TORCH||k===K_REP||k===K_CMP||k===K_LEVER||k===K_RBLOCK){
+          src.push([dp,d]); push(this.netsBy,nb,id);
+        } else if(CONDUCT(k)){
+          src.push([dp,d]);
+          for(const s of (this.strong.get(nb)||[])) push(this.netsBy,s,id);
+        }
+      }
+      this.netSrc.set(id,src);
+    }
+    this.byNet=new Map(); this.byComp=new Map();
+    for(const c of this.comps){
+      for(const p of this.inputsOf(c)){
+        if(p<0) continue;
+        const k=w.kind[p];
+        if(k===K_WIRE) push(this.byNet,this.netOf[p],c);
+        else if(k===K_TORCH||k===K_REP||k===K_CMP||k===K_LEVER||k===K_RBLOCK) push(this.byComp,p,c);
+        else if(CONDUCT(k)){
+          for(const s of (this.strong.get(p)||[])) push(this.byComp,s,c);
+          // dust that weakly powers this block
+          const a=w.step(p,4);
+          if(a>=0&&w.kind[a]===K_WIRE) push(this.byNet,this.netOf[a],c);
+          for(const d of HORIZ){
+            const nb=w.step(p,d);
+            if(nb>=0&&w.kind[nb]===K_WIRE&&(this.points[nb]>>OPP[d]&1)) push(this.byNet,this.netOf[nb],c);
+          }
+        }
+      }
+    }
+  }
+  connectTarget(i,d){
+    const w=this.w,nb=w.step(i,d);
+    if(nb<0){
+      const bx=w.bx[i]+DIRV[d][0],bz=w.bz[i]+DIRV[d][2];
+      const dn=w.at(bx,w.by[i]-1,bz);
+      return (dn>=0&&w.kind[dn]===K_WIRE)?dn:-1;
+    }
+    const k=w.kind[nb];
+    if(k===K_WIRE) return nb;
+    if(k===K_REP||k===K_CMP) return AXIS[w.facing(nb)]===AXIS[d]?nb:-1;
+    if(k===K_TORCH||k===K_LEVER||k===K_RBLOCK) return nb;
+    if(CONDUCT(k)){
+      const up=w.at(w.bx[nb],w.by[nb]+1,w.bz[nb]);
+      const above=w.at(w.bx[i],w.by[i]+1,w.bz[i]);
+      if(up>=0&&w.kind[up]===K_WIRE&&!(above>=0&&CONDUCT(w.kind[above]))) return up;
+      return -1;
+    }
+    const dn=w.at(w.bx[nb],w.by[nb]-1,w.bz[nb]);
+    return (dn>=0&&w.kind[dn]===K_WIRE)?dn:-1;
+  }
+  /* ---- power ---- */
+  strongPower(b){
+    const w=this.w; let p=0;
+    for(const s of (this.strong.get(b)||[])){
+      const k=w.kind[s];
+      if(k===K_TORCH){if(w.lit[s])p=15;}
+      else if(k===K_REP){if(w.lit[s])p=15;}
+      else if(k===K_CMP){p=Math.max(p,w.power[s]);}
+      else if(k===K_LEVER){if(w.lit[s])p=15;}
+      if(p===15)break;
+    }
+    return p;
+  }
+  weakPower(b){
+    const w=this.w; let p=0;
+    const a=w.step(b,4);
+    if(a>=0&&w.kind[a]===K_WIRE) p=Math.max(p,w.power[a]);
+    for(const d of HORIZ){
+      const nb=w.step(b,d);
+      if(nb>=0&&w.kind[nb]===K_WIRE&&w.power[nb]>0&&(this.points[nb]>>OPP[d]&1))
+        p=Math.max(p,w.power[nb]);
+    }
+    return p;
+  }
+  blockPower(b){return Math.max(this.strongPower(b),this.weakPower(b));}
+  dustSource(dp,d){
+    const w=this.w,nb=w.step(dp,d);
+    if(nb<0)return 0;
+    const k=w.kind[nb];
+    if(k===K_TORCH)return w.lit[nb]?15:0;
+    if(k===K_LEVER)return w.lit[nb]?15:0;
+    if(k===K_RBLOCK)return 15;
+    if(k===K_REP)return (w.lit[nb]&&w.step(nb,w.facing(nb))===dp)?15:0;
+    if(k===K_CMP)return w.step(nb,w.facing(nb))===dp?w.power[nb]:0;
+    if(CONDUCT(k))return this.strongPower(nb);
+    return 0;
+  }
+  recomputeNet(id){
+    const w=this.w,mem=this.nets[id],best=new Map();
+    for(const [dp,d] of this.netSrc.get(id)){
+      const v=this.dustSource(dp,d);
+      if(v>(best.get(dp)||0)) best.set(dp,v);
+    }
+    const heap=[...best.entries()].sort((a,b)=>b[1]-a[1]);
+    while(heap.length){
+      const [dp,v]=heap.shift();
+      if(v<(best.get(dp)||0)||v<=1) continue;
+      for(const nx of this.links.get(dp)){
+        if(v-1>(best.get(nx)||0)){best.set(nx,v-1);
+          let j=0; while(j<heap.length&&heap[j][1]>v-1)j++;
+          heap.splice(j,0,[nx,v-1]);}
+      }
+    }
+    let changed=false;
+    for(const dp of mem){const v=best.get(dp)||0; if(w.power[dp]!==v){w.power[dp]=v;changed=true;}}
+    return changed;
+  }
+  inputsOf(c){
+    const w=this.w,k=w.kind[c];
+    if(k===K_TORCH) return [w.step(c,w.attach(c))];
+    if(k===K_REP||k===K_CMP){
+      const f=w.facing(c),out=[w.step(c,OPP[f])];
+      for(const d of HORIZ) if(AXIS[d]!==AXIS[f]) out.push(w.step(c,d));
+      return out;
+    }
+    if(k===K_LAMP) return [0,1,2,3,4,5].map(d=>w.step(c,d));
+    return [];
+  }
+  inputPower(p){
+    if(p<0)return 0;
+    const w=this.w,k=w.kind[p];
+    if(k===K_WIRE)return w.power[p];
+    if(k===K_TORCH)return w.lit[p]?15:0;
+    if(k===K_LEVER)return w.lit[p]?15:0;
+    if(k===K_RBLOCK)return 15;
+    if(k===K_REP)return w.lit[p]?15:0;
+    if(k===K_CMP)return w.power[p];
+    if(CONDUCT(k))return this.blockPower(p);
+    return 0;
+  }
+  sidePower(c,d){
+    const w=this.w,nb=w.step(c,d);
+    if(nb<0)return 0;
+    const k=w.kind[nb];
+    if(k===K_WIRE)return w.power[nb];
+    if(k===K_RBLOCK)return 15;
+    if(k===K_TORCH)return w.lit[nb]?15:0;
+    if(k===K_REP)return (w.lit[nb]&&w.step(nb,w.facing(nb))===c)?15:0;
+    if(k===K_CMP)return w.step(nb,w.facing(nb))===c?w.power[nb]:0;
+    return 0;
+  }
+  desired(c){
+    const w=this.w,k=w.kind[c];
+    if(k===K_TORCH) return this.blockPower(w.step(c,w.attach(c)))===0?1:0;
+    if(k===K_REP)   return this.inputPower(w.step(c,OPP[w.facing(c)]))>0?1:0;
+    if(k===K_CMP){
+      const f=w.facing(c),rear=this.inputPower(w.step(c,OPP[f]));
+      let side=0;
+      for(const d of HORIZ) if(AXIS[d]!==AXIS[f]) side=Math.max(side,this.sidePower(c,d));
+      return ((w.meta[c]>>3)&1)?Math.max(rear-side,0):(side<=rear?rear:0);
+    }
+    if(k===K_LAMP){
+      for(let d=0;d<6;d++){
+        const nb=w.step(c,d); if(nb<0)continue;
+        const kk=w.kind[nb];
+        if(kk===K_WIRE&&w.power[nb]>0&&(d===4||(d<4&&(this.points[nb]>>OPP[d]&1))))return 1;
+        if(kk===K_TORCH&&w.lit[nb])return 1;
+        if(kk===K_LEVER&&w.lit[nb])return 1;
+        if(kk===K_RBLOCK)return 1;
+        if(kk===K_REP&&w.lit[nb]&&w.step(nb,w.facing(nb))===c)return 1;
+        if(CONDUCT(kk)&&this.blockPower(nb)>0)return 1;
+      }
+      return 0;
+    }
+    return 0;
+  }
+  current(c){
+    const w=this.w,k=w.kind[c];
+    if(k===K_CMP)return w.power[c];
+    if(k===K_LAMP)return w.power[c]>0?1:0;
+    return w.lit[c];
+  }
+  apply(c,v){
+    const w=this.w,k=w.kind[c];
+    if(k===K_CMP)w.power[c]=v;
+    else if(k===K_LAMP)w.power[c]=v?15:0;
+    else w.lit[c]=v;
+  }
+  delayOf(c){
+    const w=this.w,k=w.kind[c];
+    if(k===K_TORCH)return 2;
+    if(k===K_REP)return 2*w.delay(c);
+    if(k===K_CMP)return 2;
+    return 0;
+  }
+  locked(c){
+    const w=this.w,f=w.facing(c);
+    for(const d of HORIZ){
+      if(AXIS[d]===AXIS[f])continue;
+      const nb=w.step(c,d); if(nb<0)continue;
+      if(w.kind[nb]===K_REP&&w.lit[nb]&&w.step(nb,w.facing(nb))===c)return true;
+      if(w.kind[nb]===K_CMP&&w.power[nb]>0&&w.step(nb,w.facing(nb))===c)return true;
+    }
+    return false;
+  }
+  schedule(c,t){
+    const cur=this.pending.has(c)?this.pending.get(c):this.current(c);
+    if(cur===t)return;
+    const d=this.delayOf(c);
+    if(d===0){this.apply(c,t);this.dirtyFrom(c);return;}
+    this.pending.set(c,t);
+    this.queue.push([this.now+d,c,t]);
+    this.queue.sort((a,b)=>a[0]-b[0]);
+  }
+  dirtyFrom(c){
+    for(const n of (this.netsBy.get(c)||[])) this.dn.add(n);
+    for(const k of (this.byComp.get(c)||[])) this.dc.add(k);
+  }
+  settle(changed){
+    this.dn=new Set(); this.dc=new Set();
+    const full=!changed;
+    if(full){for(let i=0;i<this.nets.length;i++)this.dn.add(i); for(const c of this.comps)this.dc.add(c);}
+    else for(const c of changed) this.dirtyFrom(c);
+    let guard=0;
+    while(this.dn.size||this.dc.size){
+      if(++guard>20000) throw new Error("failed to settle");
+      const nets=this.dn; this.dn=new Set();
+      for(const id of nets){
+        const ch=this.recomputeNet(id);
+        if(ch||full) for(const c of (this.byNet.get(id)||[])) this.dc.add(c);
+      }
+      const cs=this.dc; this.dc=new Set();
+      for(const c of cs){
+        if(this.w.kind[c]===K_REP&&this.locked(c))continue;
+        if(this.w.kind[c]===K_TORCH&&this.burned.has(c))continue;
+        this.schedule(c,this.desired(c));
+      }
+    }
+  }
+  initializeSteady(){
+    for(let it=0;it<4000;it++){
+      let changed=false;
+      for(let i=0;i<this.nets.length;i++) if(this.recomputeNet(i)) changed=true;
+      for(const c of this.comps){
+        if(this.w.kind[c]===K_REP&&this.locked(c))continue;
+        const want=this.desired(c);
+        if(this.current(c)!==want){this.apply(c,want);changed=true;}
+      }
+      if(!changed)break;
+    }
+    this.queue.length=0; this.pending.clear(); this.burned.clear();
+    this.toggles=new Map(); this.now=0;
+  }
+  tick(){
+    this.now++;
+    const fired=[];
+    while(this.queue.length&&this.queue[0][0]<=this.now){
+      const [,c,t]=this.queue.shift();
+      if(this.pending.get(c)!==t)continue;
+      this.pending.delete(c);
+      if(this.current(c)===t)continue;
+      if(this.w.kind[c]===K_TORCH){
+        let a=this.toggles.get(c)||[];
+        a=a.filter(x=>x>this.now-60); a.push(this.now); this.toggles.set(c,a);
+        if(a.length>8){this.burned.add(c);this.w.lit[c]=0;fired.push(c);continue;}
+      }
+      this.apply(c,t); fired.push(c);
+    }
+    if(fired.length) this.settle(fired);
+    return fired.length;
+  }
+  runUntilStable(max=40000){
+    const s=this.now; let n=0;
+    while(this.queue.length&&n<max){this.tick();n++;}
+    return this.now-s;
+  }
+  setLever(i,on){
+    if(this.w.lit[i]===(on?1:0))return;
+    this.w.lit[i]=on?1:0;
+    this.settle([i]);
+  }
+  high(i){
+    const w=this.w,k=w.kind[i];
+    if(k===K_WIRE)return w.power[i]>0;
+    if(k===K_TORCH||k===K_REP||k===K_LEVER)return !!w.lit[i];
+    if(k===K_CMP||k===K_LAMP)return w.power[i]>0;
+    if(CONDUCT(k))return this.blockPower(i)>0;
+    return false;
+  }
+}
+
+/* --------------------------------------------------------------- renderer */
+const cv=document.getElementById("cv");
+const gl=cv.getContext("webgl",{antialias:true,alpha:false,preserveDrawingBuffer:true});
+const VS=`
+attribute vec3 aPos; attribute vec3 aNorm;
+attribute vec3 iOff; attribute vec3 iScale; attribute vec3 iCol;
+uniform mat4 uMVP; uniform float uYMax;
+varying vec3 vN; varying vec3 vC;
+void main(){
+  vN=aNorm; vC=iCol;
+  if(iOff.y>uYMax){ gl_Position=vec4(2.0,2.0,2.0,1.0); return; }
+  vec3 p=aPos*iScale+iOff;
+  gl_Position=uMVP*vec4(p,1.0);
+}`;
+const FS=`
+precision mediump float; varying vec3 vN; varying vec3 vC;
+void main(){
+  vec3 L=normalize(vec3(0.45,0.85,0.28));
+  float d=max(dot(normalize(vN),L),0.0);
+  float amb=0.42;
+  gl_FragColor=vec4(vC*(amb+0.72*d),1.0);
+}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog); gl.useProgram(prog);
+const ext=gl.getExtension("ANGLE_instanced_arrays");
+const A={pos:gl.getAttribLocation(prog,"aPos"),norm:gl.getAttribLocation(prog,"aNorm"),
+  off:gl.getAttribLocation(prog,"iOff"),scale:gl.getAttribLocation(prog,"iScale"),
+  col:gl.getAttribLocation(prog,"iCol")};
+const U={mvp:gl.getUniformLocation(prog,"uMVP"),ymax:gl.getUniformLocation(prog,"uYMax")};
+
+// unit cube centred on origin
+const CV=[],CN=[],CI=[];
+const faces=[[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
+             [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
+             [[1,0,0],[[.5,-.5,.5],[.5,-.5,-.5],[.5,.5,-.5],[.5,.5,.5]]],
+             [[-1,0,0],[[-.5,-.5,-.5],[-.5,-.5,.5],[-.5,.5,.5],[-.5,.5,-.5]]],
+             [[0,1,0],[[-.5,.5,.5],[.5,.5,.5],[.5,.5,-.5],[-.5,.5,-.5]]],
+             [[0,-1,0],[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,-.5,.5],[-.5,-.5,.5]]]];
+faces.forEach(([nrm,vs],f)=>{vs.forEach(v=>{CV.push(...v);CN.push(...nrm);});
+  const b=f*4; CI.push(b,b+1,b+2,b,b+2,b+3);});
+const vbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(CV),gl.STATIC_DRAW);
+const nbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,nbo);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(CN),gl.STATIC_DRAW);
+const ibo=gl.createBuffer(); gl.bindElementArrayBuffer=0;
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(CI),gl.STATIC_DRAW);
+const offBuf=gl.createBuffer(),scaleBuf=gl.createBuffer(),colBuf=gl.createBuffer();
+gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+
+function mul(a,b){const o=new Float32Array(16);
+  for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;
+    for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k]; o[i*4+j]=s;} return o;}
+function persp(f,ar,n,fr){const t=1/Math.tan(f/2);
+  return new Float32Array([t/ar,0,0,0, 0,t,0,0, 0,0,(fr+n)/(n-fr),-1, 0,0,2*fr*n/(n-fr),0]);}
+function lookAt(e,c,u){
+  const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
+  const x=norm(cross(u,z)), y=cross(z,x);
+  return new Float32Array([x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0,
+    -dot(x,e),-dot(y,e),-dot(z,e),1]);}
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const norm=a=>{const l=Math.hypot(...a)||1;return [a[0]/l,a[1]/l,a[2]/l];};
+
+/* ------------------------------------------------------------------ state */
+let world,eng,circ,inst,offs,scales,cols,dyn,yMax,cam={az:-0.75,el:0.72,dist:1.02,tx:0,ty:0};
+let running=false,operands={},op=0,lastTicks=0;
+const OPS=["ADD","SUB","AND","OR","XOR","NOT","SHL","SHR"];
+
+function styleOf(i){
+  const k=world.kind[i];
+  if(k===K_WIRE) return {s:[0.98,0.09,0.98],dyn:true};
+  if(k===K_TORCH)return {s:[0.26,0.72,0.26],dyn:true};
+  if(k===K_REP)  return {s:[0.9,0.16,0.9],dyn:true};
+  if(k===K_CMP)  return {s:[0.9,0.16,0.9],dyn:true};
+  if(k===K_LEVER)return {s:[0.34,0.5,0.34],dyn:true};
+  if(k===K_LAMP) return {s:[1,1,1],dyn:true};
+  if(k===K_RBLOCK)return {s:[1,1,1],dyn:false};
+  return {s:[1,1,1],dyn:false};
+}
+function colorOf(i){
+  const k=world.kind[i];
+  if(k===K_WIRE){
+    const p=world.power[i];
+    if(p===0)return [0.16,0.17,0.20];
+    const t=p/15;
+    return [0.30+0.70*t,0.07+0.16*t,0.06+0.13*t];
+  }
+  if(k===K_TORCH)return world.lit[i]?[1.0,0.67,0.25]:[0.28,0.22,0.18];
+  if(k===K_REP)  return world.lit[i]?[0.62,0.50,0.92]:[0.30,0.28,0.38];
+  if(k===K_CMP)  return world.power[i]?[0.45,0.80,0.85]:[0.26,0.32,0.36];
+  if(k===K_LEVER)return world.lit[i]?[0.95,0.35,0.30]:[0.40,0.40,0.44];
+  if(k===K_LAMP) return world.power[i]?[1.0,0.90,0.55]:[0.32,0.30,0.26];
+  if(k===K_RBLOCK)return [0.75,0.10,0.10];
+  return [0.36,0.39,0.44];
+}
+function buildInstances(){
+  const n=world.n,keep=[];
+  for(let i=0;i<n;i++){
+    if(world.kind[i]===K_SOLID){          // drop fully buried stone
+      let hidden=true;
+      for(let d=0;d<6;d++){const nb=world.step(i,d);
+        if(nb<0||!CONDUCT(world.kind[nb])){hidden=false;break;}}
+      if(hidden)continue;
+    }
+    keep.push(i);
+  }
+  inst=keep; const m=keep.length;
+  offs=new Float32Array(m*3); scales=new Float32Array(m*3); cols=new Float32Array(m*3);
+  dyn=[];
+  const [dx,dy,dz]=world.dims;
+  for(let j=0;j<m;j++){
+    const i=keep[j],st=styleOf(i);
+    offs[j*3]=world.bx[i]-dx/2; offs[j*3+1]=world.by[i]-dy/2; offs[j*3+2]=world.bz[i]-dz/2;
+    scales.set(st.s,j*3);
+    if(world.kind[i]===K_WIRE) offs[j*3+1]-=0.45;   // dust lies on the floor
+    if(st.dyn) dyn.push([j,i]);
+  }
+  refreshColors(true);
+  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.STATIC_DRAW);
+  document.getElementById("lyN").textContent=m.toLocaleString()+" drawn";
+}
+function refreshColors(all){
+  if(all){for(let j=0;j<inst.length;j++)cols.set(colorOf(inst[j]),j*3);}
+  else for(const [j,i] of dyn) cols.set(colorOf(i),j*3);
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
+}
+function draw(){
+  const w=cv.clientWidth,h=cv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);
+  if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
+  gl.viewport(0,0,cv.width,cv.height);
+  const cssV=getComputedStyle(document.getElementById("view")).backgroundColor.match(/\d+/g).map(Number);
+  gl.clearColor(cssV[0]/255,cssV[1]/255,cssV[2]/255,1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  const [dx,dy,dz]=world.dims, R=Math.max(dx,dy,dz);
+  const d=R*cam.dist;
+  const eye=[Math.cos(cam.el)*Math.sin(cam.az)*d+cam.tx,
+             Math.sin(cam.el)*d+cam.ty,
+             Math.cos(cam.el)*Math.cos(cam.az)*d];
+  const P=persp(0.85,w/h,R*0.02,R*8);
+  const V=lookAt(eye,[cam.tx,cam.ty,0],[0,1,0]);
+  gl.uniformMatrix4fv(U.mvp,false,mul(P,V));
+  gl.uniform1f(U.ymax,yMax-dy/2+0.5);
+  const bind=(buf,loc,div)=>{gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(loc,div);};
+  bind(vbo,A.pos,0); bind(nbo,A.norm,0);
+  bind(offBuf,A.off,1); bind(scaleBuf,A.scale,1); bind(colBuf,A.col,1);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+  ext.drawElementsInstancedANGLE(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0,inst.length);
+}
+function loop(){draw();requestAnimationFrame(loop);}
+
+/* ------------------------------------------------------------------- refs */
+function refModel(kind,width,vals,opcode){
+  const mask=(1<<width)-1,sign=1<<(width-1);
+  if(kind==="adder"){
+    const a=vals.A,b=vals.B,c=vals.C||0,t=a+b+c;
+    return {r:t&mask,carry:t>mask?1:0};
+  }
+  const a=vals.A,b=vals.B; let r=0,carry=0,ovf=0;
+  if(opcode===0||opcode===1){
+    const bb=opcode===0?b:(~b&mask),cin=opcode===0?0:1,t=a+bb+cin;
+    r=t&mask; carry=t>mask?1:0;
+    ovf=((a^r)&(bb^r)&sign)?1:0;
+  } else if(opcode===2)r=a&b; else if(opcode===3)r=a|b;
+  else if(opcode===4)r=a^b; else if(opcode===5)r=~a&mask;
+  else if(opcode===6)r=(a<<1)&mask; else r=a>>1;
+  return {r,carry,zero:r===0?1:0,neg:(r&sign)?1:0,ovf};
+}
+
+/* -------------------------------------------------------------------- app */
+function setLevers(){
+  const w=circ.width;
+  for(const [name,pos] of Object.entries(circ.levers)){
+    let v=0;
+    const m=name.match(/^([AB])(\d+)$/);
+    if(m) v=(operands[m[1]]>>(+m[2]))&1;
+    else if(name==="A"||name==="B"||name==="C") v=operands[name]?1:0;
+    else if(name.startsWith("OP")) v=(op>>(+name.slice(2)))&1;
+    eng.setLever(world.at(...pos),v);
+  }
+}
+function readResult(){
+  const isAlu=circ.kind==="alu",w=circ.width;
+  let r=0;
+  if(isAlu){
+    for(let i=0;i<w;i++){ if(eng.high(world.at(...circ.outputs["R"+i]))) r|=1<<i; }
+  } else if(w===1){
+    if(eng.high(world.at(...circ.outputs.S))) r|=1;
+    if(eng.high(world.at(...circ.outputs.COUT))) r|=2;
+  } else {
+    for(let i=0;i<w;i++){ if(eng.high(world.at(...circ.outputs["S"+i]))) r|=1<<i; }
+    if(eng.high(world.at(...circ.outputs.COUT))) r|=1<<w;
+  }
+  const flags={};
+  for(const f of ["CARRY","ZERO","NEG","OVF"])
+    if(circ.outputs[f]) flags[f]=eng.high(world.at(...circ.outputs[f]))?1:0;
+  return {r,flags};
+}
+function expected(){
+  if(circ.kind==="alu") return refModel("alu",circ.width,operands,op);
+  const m=refModel("adder",circ.width,operands,0);
+  return {r:m.r|(m.carry<<circ.width),carry:m.carry};
+}
+function updateReadout(){
+  const {r,flags}=readResult(),exp=expected();
+  const w=circ.width,isAlu=circ.kind==="alu";
+  document.getElementById("rDec").textContent=r;
+  document.getElementById("rBin").textContent=
+    r.toString(2).padStart(isAlu?w:w+1,"0");
+  document.getElementById("rExp").textContent=exp.r;
+  document.getElementById("rDec").style.color=(r===exp.r)?"":"var(--fail)";
+  const fl=document.getElementById("rFlags");
+  fl.innerHTML="";
+  const list=isAlu?["CARRY","ZERO","NEG","OVF"]:["COUT"];
+  for(const f of list){
+    const on=isAlu?flags[f]:(r>>w)&1;
+    const el=document.createElement("span");
+    el.className="flag"+(on?" on":""); el.textContent=f;
+    fl.appendChild(el);
+  }
+  document.getElementById("rTicks").textContent=lastTicks+" gt";
+  document.getElementById("hTick").textContent=eng.now;
+}
+function settleNow(){
+  lastTicks=eng.runUntilStable();
+  refreshColors(false); updateReadout();
+}
+
+function buildOperandUI(){
+  const host=document.getElementById("operands"); host.innerHTML="";
+  const w=circ.width, names=circ.kind==="alu"?["A","B"]:(w===1?["A","B","C"]:["A","B"]);
+  for(const nm of names){
+    if(operands[nm]===undefined) operands[nm]=0;
+    const row=document.createElement("div"); row.className="opnd";
+    const lab=document.createElement("span"); lab.className="nm"; lab.textContent=nm;
+    const bits=document.createElement("div"); bits.className="bits";
+    const val=document.createElement("span"); val.className="val";
+    const nb=(circ.kind==="alu"||w>1)?w:1;
+    for(let i=0;i<nb;i++){
+      const b=document.createElement("button");
+      b.className="bit"; b.type="button"; b.textContent=i;
+      b.setAttribute("aria-pressed",((operands[nm]>>i)&1)?"true":"false");
+      b.setAttribute("aria-label",nm+" bit "+i);
+      b.onclick=()=>{operands[nm]^=1<<i;
+        b.setAttribute("aria-pressed",((operands[nm]>>i)&1)?"true":"false");
+        val.textContent=operands[nm]; setLevers(); settleNow();};
+      bits.appendChild(b);
+    }
+    val.textContent=operands[nm];
+    row.append(lab,bits,val); host.appendChild(row);
+  }
+}
+function buildOpUI(){
+  const sec=document.getElementById("opsec"),host=document.getElementById("ops");
+  sec.style.display=circ.kind==="alu"?"":"none";
+  host.innerHTML="";
+  OPS.forEach((nm,k)=>{
+    const b=document.createElement("button");
+    b.className="opbtn"; b.type="button"; b.textContent=nm;
+    b.setAttribute("aria-pressed",k===op?"true":"false");
+    b.onclick=()=>{op=k;[...host.children].forEach((c,j)=>
+      c.setAttribute("aria-pressed",j===k?"true":"false"));
+      setLevers(); settleNow();};
+    host.appendChild(b);
+  });
+}
+
+async function load(name){
+  const c=BUNDLE.circuits.find(x=>x.name===name); circ=c;
+  document.getElementById("ov").textContent="inflating "+c.n.toLocaleString()+" blocks…";
+  const raw=await inflate(c.data);
+  world=new World(c.n,c.dims,raw);
+  eng=new Engine(world); eng.initializeSteady();
+  yMax=c.dims[1]-1;
+  const ly=document.getElementById("ly");
+  ly.max=c.dims[1]-1; ly.value=yMax;
+  document.getElementById("lyVal").textContent=yMax;
+  operands={}; buildOperandUI(); buildOpUI();
+  setLevers(); lastTicks=eng.runUntilStable();
+  buildInstances(); updateReadout();
+  document.getElementById("hBlocks").textContent=c.n.toLocaleString();
+  document.getElementById("hGates").textContent=c.gates;
+  document.getElementById("hDepth").textContent=c.depth;
+  document.getElementById("desc").textContent=
+    `${c.title} — ${c.gates} gates over ${c.depth} logic stages, `+
+    `${c.dims[0]}×${c.dims[1]}×${c.dims[2]} blocks, ${c.stats.repeaters} repeaters, `+
+    `${c.stats.taps} crossbar taps.`;
+  document.getElementById("ov").textContent="drag to orbit · scroll to zoom";
+  document.getElementById("verdict").textContent="Not run yet.";
+  document.getElementById("verdict").className="verdict";
+}
+
+/* --------------------------------------------------------- verification */
+async function verify(){
+  const btn=document.getElementById("bVerify"); btn.disabled=true;
+  const bar=document.getElementById("prog"), out=document.getElementById("verdict");
+  const w=circ.width, cases=[];
+  if(circ.kind==="alu"){
+    const vals=w===4?[0,1,3,5,7,9,12,15]:[0,1,2,127,128,200,254,255];
+    for(let k=0;k<8;k++) for(const a of vals) for(const b of vals) cases.push([k,a,b]);
+  } else if(w===1){
+    for(let a=0;a<2;a++)for(let b=0;b<2;b++)for(let c=0;c<2;c++)cases.push([0,a,b,c]);
+  } else {
+    for(let a=0;a<(1<<w);a++)for(let b=0;b<(1<<w);b++)cases.push([0,a,b]);
+  }
+  let bad=0,first=null,worst=0;
+  const t0=performance.now();
+  for(let n=0;n<cases.length;n++){
+    const [k,a,b,c]=cases[n];
+    op=k; operands.A=a; operands.B=b; if(c!==undefined)operands.C=c;
+    setLevers();
+    worst=Math.max(worst,eng.runUntilStable());
+    const got=readResult(), exp=expected();
+    let ok=got.r===exp.r;
+    if(ok&&circ.kind==="alu"){
+      const m=refModel("alu",w,{A:a,B:b},k);
+      ok=got.flags.CARRY===m.carry&&got.flags.ZERO===m.zero&&
+         got.flags.NEG===m.neg&&got.flags.OVF===m.ovf;
+    }
+    if(!ok){bad++; if(!first)first=`${circ.kind==="alu"?OPS[k]:"ADD"} ${a},${b}`
+      +` → ${got.r}, expected ${exp.r}`;}
+    if((n&31)===0){
+      bar.style.width=(100*n/cases.length)+"%";
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  bar.style.width="100%";
+  const secs=((performance.now()-t0)/1000).toFixed(1);
+  if(bad===0){
+    out.className="verdict ok";
+    out.textContent=`${cases.length} vectors, all correct. Worst-case settle `+
+      `${worst} game ticks (${(worst/20).toFixed(2)} s in-game). `+
+      `${eng.burned.size} torches burned out. Simulated in ${secs}s.`;
+  } else {
+    out.className="verdict bad";
+    out.textContent=`${bad} of ${cases.length} vectors wrong. First: ${first}.`;
+  }
+  buildOperandUI(); buildOpUI(); refreshColors(false); updateReadout();
+  btn.disabled=false;
+}
+
+/* ------------------------------------------------------------------- wire */
+const sel=document.getElementById("sel");
+BUNDLE.circuits.forEach(c=>{const o=document.createElement("option");
+  o.value=c.name;o.textContent=c.title;sel.appendChild(o);});
+sel.value="alu4";
+sel.onchange=()=>load(sel.value);
+document.getElementById("bStep").onclick=()=>{eng.tick();refreshColors(false);updateReadout();};
+document.getElementById("bSettle").onclick=settleNow;
+const bRun=document.getElementById("bRun");
+bRun.onclick=()=>{running=!running;bRun.textContent=running?"Pause":"Run";
+  if(running)pump();};
+function pump(){
+  if(!running)return;
+  eng.tick(); refreshColors(false); updateReadout();
+  if(!eng.queue.length){running=false;bRun.textContent="Run";return;}
+  setTimeout(pump,50);
+}
+document.getElementById("bVerify").onclick=verify;
+document.getElementById("ly").oninput=e=>{yMax=+e.target.value;
+  document.getElementById("lyVal").textContent=yMax;};
+
+let drag=null;
+cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,s:e.shiftKey};
+  cv.setPointerCapture(e.pointerId);});
+cv.addEventListener("pointermove",e=>{
+  if(!drag)return;
+  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  if(drag.s){cam.tx-=dx*world.dims[0]*0.002;cam.ty+=dy*world.dims[1]*0.006;}
+  else{cam.az-=dx*0.008;cam.el=Math.max(-1.5,Math.min(1.5,cam.el+dy*0.006));}
+  drag.x=e.clientX;drag.y=e.clientY;});
+cv.addEventListener("pointerup",()=>drag=null);
+cv.addEventListener("wheel",e=>{e.preventDefault();
+  cam.dist=Math.max(0.12,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));},{passive:false});
+
+load("alu4").then(loop);
+</script>
