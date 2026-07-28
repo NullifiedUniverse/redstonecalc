@@ -197,10 +197,17 @@ Real bugs, in the order they were found:
    before simulating.
 5. **Torch burnout during operation, at 8 bits.** This one is real, not an
    artefact: hazard glitching in the deep unbalanced network trips the rule on
-   one torch, giving 107 wrong answers out of 1,120. The standard redstone
-   remedy — longer repeater delays, which spread the transitions out — fixes it
-   completely (peak toggles 9 → 4), at 2× the latency. The 8-bit build ships
-   with delay-2 repeaters; the 4-bit build does not need them.
+   one torch. It hits both carry designs at 8 bits — 107 wrong out of 1,120 for
+   CLA, 69 out of 648 for ripple. The standard redstone remedy, longer repeater
+   delays that spread the transitions out, fixes it completely (peak toggles
+   9 → 3) at 1.8× the latency. The 8-bit build ships with delay-2 repeaters;
+   the 4-bit build does not need them.
+
+   Worth knowing when reproducing this: burnout depends on how much changes
+   between *consecutive* input vectors, not on any single vector. Sweeping
+   operands in sorted order moves a bit or two at a time and never provokes it;
+   a shuffled order does, reliably. An early version of this test walked the
+   operands in order and reported the circuit as clean when it was not.
 
 ---
 
