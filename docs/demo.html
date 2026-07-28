@@ -652,7 +652,7 @@ const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const norm=a=>{const l=Math.hypot(...a)||1;return [a[0]/l,a[1]/l,a[2]/l];};
 
 /* ------------------------------------------------------------------ state */
-let world,eng,circ,inst,offs,scales,cols,dyn,yMax,cam={az:-0.75,el:0.72,dist:1.02,tx:0,ty:0};
+let world,eng,circ,inst,offs,scales,cols,dyn,instY,yMax,cam={az:-0.75,el:0.72,dist:1.02,tx:0,ty:0};
 let running=false,operands={},op=0,lastTicks=0;
 const OPS=["ADD","SUB","AND","OR","XOR","NOT","SHL","SHR"];
 
@@ -696,19 +696,24 @@ function buildInstances(){
   }
   inst=keep; const m=keep.length;
   offs=new Float32Array(m*3); scales=new Float32Array(m*3); cols=new Float32Array(m*3);
-  dyn=[];
+  instY=new Int16Array(m); dyn=[];
   const [dx,dy,dz]=world.dims;
   for(let j=0;j<m;j++){
     const i=keep[j],st=styleOf(i);
     offs[j*3]=world.bx[i]-dx/2; offs[j*3+1]=world.by[i]-dy/2; offs[j*3+2]=world.bz[i]-dz/2;
-    scales.set(st.s,j*3);
+    scales.set(st.s,j*3); instY[j]=world.by[i];
     if(world.kind[i]===K_WIRE) offs[j*3+1]-=0.45;   // dust lies on the floor
     if(st.dyn) dyn.push([j,i]);
   }
   refreshColors(true);
   gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.STATIC_DRAW);
-  document.getElementById("lyN").textContent=m.toLocaleString()+" drawn";
+  updateVisibleCount();
+}
+function updateVisibleCount(){
+  let v=0; for(let j=0;j<instY.length;j++) if(instY[j]<=yMax) v++;
+  document.getElementById("lyN").textContent=
+    v.toLocaleString()+" of "+instY.length.toLocaleString()+" drawn";
 }
 function refreshColors(all){
   if(all){for(let j=0;j<inst.length;j++)cols.set(colorOf(inst[j]),j*3);}
@@ -949,7 +954,7 @@ function pump(){
 }
 document.getElementById("bVerify").onclick=verify;
 document.getElementById("ly").oninput=e=>{yMax=+e.target.value;
-  document.getElementById("lyVal").textContent=yMax;};
+  document.getElementById("lyVal").textContent=yMax; updateVisibleCount();};
 
 let drag=null;
 cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,s:e.shiftKey};
