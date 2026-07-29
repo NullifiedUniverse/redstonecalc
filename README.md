@@ -43,6 +43,47 @@ the 8-bit ALU from 234 to 186 game ticks with no change to the logic at all.
 See [docs/DESIGN.md](docs/DESIGN.md) for the layer-by-layer design, the
 carry-lookahead derivation, and the troubleshooting log.
 
+## The console: a machine you operate
+
+`rscalc/console.py` builds a complete calculator in **one world** — no
+co-simulation, no software glue between the parts:
+
+```
+two 10-key pads -> one-hot latches -> BCD encode -> decimal adder
+                -> seven-segment decoders -> wiring loom -> two lamp digits
+```
+
+| | |
+|---|---|
+| Blocks | 36,045 |
+| Extent | 224 x 97 x 461 |
+| Gates / depth | 191 / 17 |
+| Loom | 9 nets, 27 risers, no crossings |
+| Settle, worst case | 384 gt from keypress to lamps |
+| Verified | **all 100 single-digit sums**, pressed as buttons and read off the lamps |
+
+Three parts of it are worth calling out:
+
+- **The keypad latches with no torches.** Each key drives a locked repeater;
+  every button also feeds a shared *any key is down* bus, and each latch's lock
+  is that bus inverted. While nothing is pressed all ten latches hold; the
+  moment a key goes down they all go transparent at once, so the pressed key
+  stores a 1 and the other nine store a 0. That is a one-hot register with no
+  reset logic and no cross-coupling — and, having no torch in the cell, it
+  cannot burn out.
+- **Releasing a key is a race, and the data has to lose it.** Letting go drops
+  the key's data and re-asserts the lock in the same moment. The lock travels
+  through a single torch; the data crawls through three delay-4 repeaters, so
+  the latch is always shut before its input falls away.
+- **The tens digit has no decoder.** It is only ever blank or `1`, so two
+  segments driven straight off the carry are the whole of it — and leaving it
+  blank rather than showing a leading zero is what a calculator does.
+
+`docs/preview.html` runs this machine in the browser, on the same
+tick-accurate simulator: press a key, the button is held for 40 game ticks and
+released, and the readout is one HTML cell per lamp block coloured by the power
+the simulator computed for it. The page reproduces all 100 sums.
+
 ## Mk II
 
 `tools/profile_path.py` attributes every tick on the critical path to a cause:
@@ -54,11 +95,8 @@ at delay-2 repeaters, which doubles latency. A comparator in subtract mode
 inverts just as fast and has no burnout rule, so a torch-free build should be
 ~1.7x faster and impossible to burn out.
 
-[docs/PLAN.md](docs/PLAN.md) is the plan for the next build — a 3-digit decimal
-(BCD) machine with a keypad, a lectern menu and a seven-segment display. Two of
-its modules are already built and verified: a 17-gate BCD-to-seven-segment
-decoder, and a 168-block seven-segment display that renders every numeral in 4
-game ticks. `docs/preview.html` drives both live.
+[docs/PLAN.md](docs/PLAN.md) is the plan for the rest — widening the console to
+three digits, a lectern menu for the operation, and the torch-free tap.
 
 ## Running it
 
@@ -66,6 +104,12 @@ game ticks. `docs/preview.html` drives both live.
 python3 tests/test_mechanics.py    # redstone rules
 python3 tests/test_cells.py        # the NOR cell and gates built from it
 python3 tests/test_pla.py          # place-and-route correctness
+python3 tests/test_display.py      # the lamp digit and the torch-free latch
+python3 tests/test_console.py      # the whole console, driven by its buttons
 python3 tests/test_alu.py          # the calculator (exhaustive at 4 bits)
+
+python3 tools/build_preview.py     # rebuild out/preview.json
+python3 tools/build_pages.py       # inject it into docs/*.html
 node tests/browser_check.js        # the demo, in a real browser
+node tools/check_preview.mjs       # the console page: all 100 sums in-browser
 ```

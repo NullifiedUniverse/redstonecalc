@@ -9,7 +9,14 @@ from rscalc.display import (build_digit, lit_segments, DIGIT_SEGMENTS, SEGS)
 
 def test_seven_segment_digit():
     """Every numeral 0-9 renders, and nothing renders when blank."""
-    w, levers, lamps = build_digit()
+    w, entries, lamps = build_digit()
+    # build_digit hands back the far end of each feed lane, which is what a
+    # harness delivers to; on its own the digit needs a lever there to drive it
+    levers = {}
+    for s, (ex, ey, ez) in entries.items():
+        w.solid((ex - 1, ey - 1, ez))
+        w.lever((ex - 1, ey, ez), attach="down", on=False)
+        levers[s] = (ex - 1, ey, ez)
     problems = w.lint()
     assert not problems, problems[:4]
     e = Engine(w)

@@ -264,3 +264,63 @@ it points at, and dust only points where it connects*:
 Both left the block, and everything past it, silently unpowered. The router now
 refuses both placements and falls back to a bare repeater, which reads dust
 directly and so does not care about pointing.
+
+## 10. The console: one world, keypad to lamps
+
+The modules were joined into a single machine (`rscalc/console.py`, 36,045
+blocks, 224 x 97 x 461, verified on all 100 single-digit sums by pressing the
+buttons and reading the lamps). Four problems had to be solved to do it.
+
+**Latching a keypress without a torch.** A button pops back out, so the key has
+to be remembered. Each key drives a repeater held from the side by a lock, and
+that lock is one shared signal: every button feeds an *any key is down* bus, and
+each latch's lock is that bus inverted. While nothing is pressed all ten latches
+hold; the instant any key goes down every latch goes transparent at once, so the
+pressed key stores a 1 and the other nine store a 0. One-hot, with no reset
+logic, no cross-coupling and no torch in the cell — burnout is structurally
+impossible there.
+
+**The release race.** Letting go of a key drops its data and re-asserts the lock
+in the same moment, and if the data arrives first the latch stores 0 — the
+display would blank the instant you let go. So the data path is made
+deliberately the slower one: the lock passes through a single torch (2 gt) while
+the data crawls through three delay-4 repeaters (24 gt). This is the same
+lock-before-data ordering the D-latch test documents, arranged in geometry
+rather than in a protocol.
+
+**Two keypads that do not talk to each other.** Declared back to back, the two
+pads' *any key is down* buses ran close enough in Z to merge, and pressing a B
+key wiped the A latches. Three never-driven spacer rails between the bands fixed
+it; the symptom — B clearing A — is what named the cause.
+
+**Key 0 has to exist even though it encodes to nothing.** One-hot key 0 sets no
+BCD bit, so the optimiser deleted its rail — but pressing 0 is exactly what
+*clears* the other nine, so the latch must be built. A `READY` output ORing every
+key keeps them all in the netlist, and is worth having anyway: it lights a lamp
+once both operands are in.
+
+Two smaller results fell out of building it:
+
+- The **tens digit needs no decoder**. It is only ever blank or `1`, so segments
+  b and c driven straight off the carry are the whole of it. The first attempt
+  ran the constant through the full decoder, which produced a gate tapping one
+  rail through both polarities — a constant 1 that cannot be built, since a tap
+  occupies one fixed cell beside the collector. `Netlist.gate()` now rejects
+  that explicitly instead of emitting something unbuildable.
+- The **bars are five lamps tall, for a routing reason rather than a visual
+  one**. Feeds arrive as dust lanes in the plane below, and two lanes one block
+  apart merge. Three-tall bars cannot give seven Z values at least two apart;
+  five-tall bars give exactly 0, 2, 4, 6, 8, 10, 12, so all seven feeds enter
+  from one side without a single crossing.
+
+The two digits sit on **different feed levels** — tens above units — so the
+units digit's lanes pass beneath the tens digit without meeting it, while the
+differing feed drops still land both sets of lamps on one plane, where they read
+as a single number.
+
+### What it costs
+
+At delay-1 repeaters the machine burns torches out, as every large build does;
+at delay 2 it is clean, and a keypress settles in at most **384 game ticks**
+(19.2 s) from button to lamps. That is the honest number for a machine you
+operate, and the torch-free tap in the plan is what should halve it.

@@ -4,9 +4,13 @@ Laid flat in the X-Z plane so it reads from above, one lamp per cell::
 
      . a a a .        x ->
      f . . . b
-     f . . . b
+     f . . . b        z
+     f . . . b        |
+     f . . . b        v
      f . . . b
      . g g g .
+     e . . . c
+     e . . . c
      e . . . c
      e . . . c
      e . . . c
@@ -17,10 +21,16 @@ weakly powers it, and the run carries along the whole bar, so one feed lights
 every lamp in the segment.
 
 The centre bar is boxed in on all four sides by the other segments, so feeding
-it from the side is impossible — every segment is therefore fed *from below*
-by a two-torch tower, which is non-inverting and strongly powers the lamp it
-sits under. The dust cap then picks that up as a full 15 and spreads it.
-Feeding all seven the same way keeps the module symmetric.
+it from the side is impossible. Every segment is therefore fed *from below* by
+a torch tower, which is non-inverting in pairs and strongly powers the lamp it
+sits under; the dust cap picks that up as a full 15 and spreads it.
+
+The bars are five lamps tall rather than three for a routing reason, not a
+visual one. Feeds arrive as dust lanes in the plane below, and two lanes one
+block apart would merge, so the seven towers need seven Z values at least two
+apart. Three-tall bars cannot do that — the two vertical bars share too narrow
+a band — but five-tall bars give exactly ``0 2 4 6 8 10 12``, so all seven
+feeds can arrive from the same side without a single crossing.
 """
 
 from __future__ import annotations
@@ -29,18 +39,18 @@ from .engine import World
 
 SEGMENTS = {
     "a": [(1, 0), (2, 0), (3, 0)],
-    "f": [(0, 1), (0, 2), (0, 3)],
-    "b": [(4, 1), (4, 2), (4, 3)],
-    "g": [(1, 4), (2, 4), (3, 4)],
-    "e": [(0, 5), (0, 6), (0, 7)],
-    "c": [(4, 5), (4, 6), (4, 7)],
-    "d": [(1, 8), (2, 8), (3, 8)],
+    "f": [(0, z) for z in range(1, 6)],
+    "b": [(4, z) for z in range(1, 6)],
+    "g": [(1, 6), (2, 6), (3, 6)],
+    "e": [(0, z) for z in range(7, 12)],
+    "c": [(4, z) for z in range(7, 12)],
+    "d": [(1, 12), (2, 12), (3, 12)],
 }
-#: cell each segment is driven through, and which side its feed lane runs off to
+#: cell each segment is driven through — chosen so the seven Z values are
+#: 0,2,4,6,8,10,12 and every feed lane can come in from -X without crossing
 FEED = {
-    "a": ((2, 0), -1), "f": ((0, 2), -1), "b": ((4, 2), +1),
-    "g": ((2, 4), -1), "e": ((0, 6), -1), "c": ((4, 6), +1),
-    "d": ((2, 8), -1),
+    "a": (2, 0), "f": (0, 2), "b": (4, 4), "g": (2, 6),
+    "e": (0, 8), "c": (4, 10), "d": (2, 12),
 }
 DIGIT_SEGMENTS = {
     0: "abcdef", 1: "bc",     2: "abdeg",   3: "abcdg", 4: "bcfg",
@@ -50,13 +60,23 @@ SEGS = "abcdefg"
 
 LAMP_Y = 0        # the lamps themselves
 DUST_Y = 1        # dust cap that spreads power along a bar
-FEED_Y = -4       # plane the seven feeds run in
+WIDTH = 5
+HEIGHT = 13
 
 
-def build_digit(world: World | None = None, origin=(0, 0, 0), lane=6):
-    """Place one digit. Returns (levers, lamps) keyed by segment."""
+def build_digit(world: World | None = None, origin=(0, 0, 0), feed_drop=4,
+                lane_len=6):
+    """Place one digit.
+
+    `feed_drop` is how far below the lamps the feed lanes run; it must be even,
+    since each torch pair in the tower is what makes the riser non-inverting.
+    Returns (world, feed_entry, lamps) where `feed_entry` gives, per segment,
+    the far end of its lane — the point a harness has to deliver to.
+    """
+    assert feed_drop % 4 == 0, "each non-inverting torch pair spans four levels"
     w = world or World()
     ox, oy, oz = origin
+    feed_y = -feed_drop
 
     def P(x, y, z):
         return (ox + x, oy + y, oz + z)
@@ -69,33 +89,43 @@ def build_digit(world: World | None = None, origin=(0, 0, 0), lane=6):
             w.wire(P(x, DUST_Y, z))          # dust rests on the lamp
             lamps[seg].append(P(x, LAMP_Y, z))
 
-    levers = {}
-    for seg, ((fx, fz), side) in FEED.items():
-        # two-torch tower: non-inverting, strongly powers the lamp above it
-        w.solid(P(fx, FEED_Y, fz))                       # base
-        w.torch(P(fx, FEED_Y + 1, fz), attach="down")
-        w.solid(P(fx, FEED_Y + 2, fz))
-        w.torch(P(fx, FEED_Y + 3, fz), attach="down")    # powers the lamp
+    entries = {}
+    for seg, (fx, fz) in FEED.items():
+        # torch tower: each pair of torches is non-inverting and climbs 4
+        y = feed_y
+        w.solid(P(fx, y, fz))                            # base
+        while y < LAMP_Y - 1:
+            w.torch(P(fx, y + 1, fz), attach="down")
+            if y + 2 < LAMP_Y:
+                w.solid(P(fx, y + 2, fz))
+            y += 2
+        # the topmost torch strongly powers the lamp itself, so the tower needs
+        # no block of its own up there
 
-        # feed lane out to a lever, running away from the digit
-        x = fx
-        for _ in range(lane):
-            x += side
-            w.solid(P(x, FEED_Y - 1, fz))
-            w.wire(P(x, FEED_Y, fz))
-        x += side
-        w.solid(P(x, FEED_Y - 1, fz))
-        w.lever(P(x, FEED_Y, fz), attach="down", on=False)
-        levers[seg] = P(x, FEED_Y, fz)
-    return w, levers, lamps
+        # feed lane running out to -X
+        for i in range(1, lane_len + 1):
+            w.solid(P(fx - i, feed_y - 1, fz))
+            w.wire(P(fx - i, feed_y, fz))
+        entries[seg] = P(fx - lane_len, feed_y, fz)
+    return w, entries, lamps
 
 
 def lit_segments(engine, lamps):
     """Which segments are actually glowing, read off the lamps."""
     out = ""
     for seg in SEGS:
-        if all(engine.read(p) > 0 for p in lamps[seg]):
+        vals = [engine.read(p) > 0 for p in lamps[seg]]
+        if all(vals):
             out += seg
-        elif any(engine.read(p) > 0 for p in lamps[seg]):
+        elif any(vals):
             out += seg.upper()      # partially lit: a bug, and visible as one
     return out
+
+
+def read_digit(engine, lamps):
+    """The numeral the lamps are showing, or None if it is not a numeral."""
+    shown = lit_segments(engine, lamps)
+    for d, pat in DIGIT_SEGMENTS.items():
+        if shown == pat:
+            return d
+    return None

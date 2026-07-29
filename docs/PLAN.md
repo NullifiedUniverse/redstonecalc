@@ -187,17 +187,50 @@ are the two assumptions to test, in that order.
 
 ## 9. Build order
 
+Steps 5 and 6 are **done** — see §10. The rest stands.
+
 1. **Torch-free inverting tap** — comparator plus repeater. Biggest single win:
    removes burnout structurally and lets everything run at delay 1.
 2. **One bit-sliced digit tile.** Profile it. If rail wire has not collapsed,
    §4 is wrong and stops there.
 3. Add copper bulbs and observers to the simulator.
 4. Clone the tile three times; wire the digit-lookahead carry chain.
-5. Keypad, lectern menu, note blocks.
-6. Join decoder and display in one world — the 21-net corridor: seven feeds per
-   digit, each a two-torch riser to its own transport level, digits kept in
-   separate tiles so nets never need to cross.
+5. ~~Keypad~~ **built** — ten buttons, one-hot locked-repeater latches, no
+   torches in the latch cell. Lectern menu and note blocks still to do.
+6. ~~Join decoder and display in one world~~ **built** — the loom carries nine
+   nets over 27 risers with no crossings, and the two digits sit on different
+   feed levels so the units lanes pass beneath the tens digit.
 7. Re-run the full vector sweep and the burnout check.
+
+---
+
+## 10. The console, as built — **measured**
+
+One world, keypad to lamps, no software glue anywhere in the path:
+
+```
+two 10-key pads -> one-hot latches -> BCD encode -> decimal adder
+                -> seven-segment decoders -> wiring loom -> two lamp digits
+```
+
+| | |
+|---|---|
+| Blocks | 36,045 |
+| Extent | 224 x 97 x 461 |
+| Gates / depth | 191 / 17 |
+| Loom | 9 nets, 27 risers, no crossings |
+| Repeater delay | 2 — at delay 1 it burns torches out, as every large build does |
+| Settle, worst case | **384 gt** (19.2 s) from button to lamps |
+| Verified | **100/100** sums, pressed as buttons and read off the lamps, in Python *and* in the browser |
+
+This is the first build that is genuinely *operated* rather than configured: no
+lever is set by hand anywhere in the datapath. It also confirms the plan's
+central claim from the other direction — the machine is 191 gates and depth 17,
+yet still takes 384 game ticks, because the loom and the rails are most of it.
+The torch-free tap (§5) remains the highest-value item left.
+
+What is still open from §7: the lectern menu (the machine only adds), note-block
+feedback, and widening from one digit to three.
 
 ---
 
@@ -209,7 +242,9 @@ python3 tests/test_cells.py       #  5/5   NOR cell and gates
 python3 tests/test_pla.py         #  4/4   place-and-route
 python3 tests/test_alu.py         #  4/4   Mk I ALU, exhaustive at 4 bits
 python3 tests/test_display.py     #  2/2   seven-segment display, latch
+python3 tests/test_console.py     #  2/2   the whole console, driven by buttons
 node   tests/browser_check.js     #        the demo, in a real browser
+node   tools/check_preview.mjs    #        the console page: 100 sums in-browser
 python3 tools/profile_path.py     #        critical-path breakdown
-python3 -m tools.build_preview    #        build and verify the preview modules
+python3 -m tools.build_preview    #        build and verify the preview bundle
 ```

@@ -48,32 +48,56 @@ header.top{border-bottom:1px solid var(--line);background:var(--panel);
   text-transform:uppercase;color:var(--dim);margin-top:.9rem}
 
 /* ---- live console ---- */
-.console{display:grid;grid-template-columns:1fr 300px;gap:0;
+.console{display:grid;grid-template-columns:1fr 340px;gap:0;
   border:1px solid var(--line);border-radius:10px;overflow:hidden;
   background:var(--panel);margin:1.6rem 0 0}
-#view{position:relative;background:var(--viewport);min-height:340px}
+#view{position:relative;background:var(--viewport);min-height:380px}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 canvas:active{cursor:grabbing}
 .hint{position:absolute;left:.75rem;bottom:.6rem;font-family:var(--mono);
   font-size:.63rem;color:#5c636d;letter-spacing:.06em;pointer-events:none}
+.look{position:absolute;left:.7rem;top:.7rem;display:flex;gap:.3rem}
+.look button{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;
+  text-transform:uppercase;padding:.25rem .5rem;border-radius:4px;cursor:pointer;
+  border:1px solid #2b323c;background:#11151b;color:#8b9099}
+.look button[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone)}
 .pad{padding:.9rem;border-left:1px solid var(--line);display:flex;
-  flex-direction:column;gap:.7rem}
-.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem}
-.key{font-family:var(--mono);font-size:.95rem;font-weight:600;padding:.55rem 0;
+  flex-direction:column;gap:.65rem}
+
+/* the readout: one cell per redstone lamp, coloured by its simulated power */
+.readout{display:flex;gap:.9rem;justify-content:center;align-items:flex-start;
+  background:#07090c;border:1px solid var(--line);border-radius:8px;
+  padding:.75rem .8rem}
+.digit{display:grid;grid-template-columns:repeat(5,11px);
+  grid-template-rows:repeat(13,7px);gap:1px}
+.px{border-radius:1px;background:#14171c}
+.px.on{background:var(--lamp);box-shadow:0 0 5px rgba(255,215,122,.75)}
+.ready{display:flex;align-items:center;gap:.45rem;font-family:var(--mono);
+  font-size:.63rem;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.bulb{width:9px;height:9px;border-radius:50%;background:#22262c;
+  border:1px solid #2f353d}
+.bulb.on{background:var(--lamp);border-color:var(--lamp);
+  box-shadow:0 0 6px rgba(255,215,122,.8)}
+
+.padlabel{font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--dim);display:flex;
+  justify-content:space-between;align-items:baseline}
+.padlabel b{color:var(--redstone);font-size:.8rem;letter-spacing:.02em}
+.keys{display:grid;grid-template-columns:repeat(5,1fr);gap:.3rem}
+.key{font-family:var(--mono);font-size:.9rem;font-weight:600;padding:.42rem 0;
   border:1px solid var(--line);border-radius:6px;background:var(--panel2);
   color:var(--ink);cursor:pointer}
-.key:hover{border-color:var(--redstone);color:var(--redstone)}
-.key:active{background:var(--redstone);color:#fff}
-.key.wide{grid-column:span 2}
-.key.alt{color:var(--muted)}
+.key:hover:not(:disabled){border-color:var(--redstone);color:var(--redstone)}
+.key:active:not(:disabled){background:var(--redstone);color:#fff}
+.key[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone);
+  background:rgba(255,59,48,.10)}
+.key:disabled{opacity:.45;cursor:progress}
 button:focus-visible,.key:focus-visible{outline:2px solid var(--redstone);
   outline-offset:2px}
-.entry{font-family:var(--mono);font-size:1.85rem;font-weight:700;text-align:right;
-  letter-spacing:.06em;font-variant-numeric:tabular-nums;background:var(--panel2);
-  border:1px solid var(--line);border-radius:6px;padding:.35rem .6rem;color:var(--lamp)}
 .stat{display:flex;justify-content:space-between;font-family:var(--mono);
   font-size:.68rem;color:var(--muted);font-variant-numeric:tabular-nums}
 .stat b{color:var(--ink);font-weight:600}
+.stat b.bad{color:var(--redstone)}
 
 /* ---- tables ---- */
 .tw{overflow-x:auto;margin:.9rem 0}
@@ -119,10 +143,10 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     <p class="eyebrow">Design preview · Minecraft Java 26.2</p>
     <h1>Redstone Calculator <em>Mk II</em></h1>
     <p class="lede">The first build works and is verified. It was also 88%
-      wire; a transmission-line rewrite took it to 85% and 20% faster.
-      This is the plan for the rest — a decimal machine you can operate,
-      a display that costs almost nothing, and no torches left to burn
-      out.</p>
+      wire; a transmission-line rewrite took it to 85% and 20% faster. The
+      decimal machine below is now built and operable end to end — keypad to
+      lamps, in one world. This is that machine, and the plan for what is
+      left.</p>
     <p class="mono-note">Everything tagged <span class="tag m">measured</span>
       was simulated on placed blocks. Everything tagged
       <span class="tag p">projected</span> is an estimate and says so.</p>
@@ -132,27 +156,46 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 <div class="wrap">
 
   <h2>The console, running for real</h2>
-  <p class="prose">Type a number. Each digit is fed to a redstone
-    BCD&rarr;seven-segment decoder, and the seven segment lines it produces
-    drive a display made of redstone lamps. Both modules are simulated block by
-    block, at Minecraft's tick rate — the numerals below are lamps being lit by
-    redstone, not styled HTML.</p>
+  <p class="prose">Press a key on pad A, then one on pad B. Every key is a
+    button in the world; pressing one holds it for 40 game ticks and lets it pop
+    back out, exactly as a player would. What happens next is redstone all the
+    way down: the button latches one-hot into a locked repeater, the latches
+    encode to BCD, a decimal adder sums them, decoders drive fourteen segment
+    lines, a wiring loom carries those to two digits, and the lamps light. The
+    numerals below are those lamps — one cell per lamp block, coloured by the
+    power the simulator computed for it.</p>
 
   <div class="console">
     <div id="view"><canvas id="cv"></canvas>
+      <div class="look">
+        <button type="button" id="lookAll" aria-pressed="true">whole machine</button>
+        <button type="button" id="lookDisp" aria-pressed="false">display</button>
+        <button type="button" id="lookPads" aria-pressed="false">keypads</button>
+      </div>
       <div class="hint">drag to orbit · scroll to zoom</div></div>
     <div class="pad">
-      <div class="entry" id="entry">0</div>
-      <div class="keys" id="keys"></div>
-      <div class="stat"><span>decoder settle</span><b id="sDec">—</b></div>
-      <div class="stat"><span>display settle</span><b id="sDis">—</b></div>
+      <div class="readout">
+        <div class="digit" id="dig1"></div>
+        <div class="digit" id="dig0"></div>
+      </div>
+      <div class="ready"><i class="bulb" id="bReady"></i>
+        <span id="tReady">no operands entered</span></div>
+
+      <div class="padlabel"><span>operand A</span><b id="valA">—</b></div>
+      <div class="keys" id="keysA"></div>
+      <div class="padlabel"><span>operand B</span><b id="valB">—</b></div>
+      <div class="keys" id="keysB"></div>
+
+      <div class="stat"><span>last keypress settled in</span><b id="sSet">—</b></div>
       <div class="stat"><span>lamps lit</span><b id="sLit">—</b></div>
+      <div class="stat"><span>torches burned out</span><b id="sBurn">—</b></div>
       <div class="stat"><span>blocks simulated</span><b id="sBlk">—</b></div>
     </div>
   </div>
-  <p class="mono-note">Two verified modules, co-simulated: the decoder's seven
-    outputs are read and applied to the display's seven inputs. Joining them in
-    one world needs a 21-net corridor, specified below but not yet built.</p>
+  <p class="mono-note">One world, 36,045 blocks, no software shortcuts:
+    keypads, latches, adder, decoders, loom and lamps are all placed redstone,
+    and the page runs the same tick-accurate simulator the test suite uses. All
+    100 single-digit sums verified this way. <span class="tag m">measured</span></p>
 
   <div class="rule"></div>
 
@@ -206,8 +249,11 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
         <td class="n">2</td><td class="n">2,647</td><td class="n">24 gt</td>
         <td>all 10 digits</td></tr>
     <tr><td>Seven-segment display, one digit</td><td class="n">—</td>
-        <td class="n">—</td><td class="n">168</td><td class="n">4 gt</td>
+        <td class="n">—</td><td class="n">184</td><td class="n">4 gt</td>
         <td>all 10 digits</td></tr>
+    <tr class="hi"><td><b>The console</b> <small>(keypads + adder + loom + display)</small></td>
+        <td class="n">191</td><td class="n">17</td><td class="n">36,045</td>
+        <td class="n">384 gt</td><td>all 100 sums, off the lamps</td></tr>
     <tr><td>3-digit BCD adder + display, ripple digit carry</td><td class="n">963</td>
         <td class="n">32</td><td class="n">94,660</td><td class="n">386 gt</td>
         <td>14 sums, digits + segments</td></tr>
@@ -336,28 +382,38 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
       register and the screen stop being two different things. Latch the result
       into the bulbs and the datapath behind them is free to start the next sum
       immediately, with no separate register bank to build, power, or route.</p>
-    <p>The seven-segment module already verified here is 168 blocks and settles
+    <p>The seven-segment module already verified here is 184 blocks and settles
       in 4 game ticks; swapping lamps for waxed bulbs keeps the geometry and
       adds the memory for free <span class="tag p">projected</span>. Waxing
       matters: unwaxed copper oxidises, which changes the light level it emits
       but not its redstone behaviour.</p>
   </div>
 
-  <h2>Decision 6 — player control worth using</h2>
+  <h2>Decision 6 — player control worth using
+    <span class="tag m">keypad measured</span></h2>
   <div class="cards">
-    <div class="card"><h4>0–9 keypad</h4>
-      <p>Stone buttons, one per digit, feeding a shift register. Entry is typing
-        a number, not flipping twelve levers and doing binary in your head.</p></div>
-    <div class="card"><h4>Lectern as the menu</h4>
+    <div class="card"><h4>0–9 keypad <span class="tag m">built</span></h4>
+      <p>Ten buttons per operand, latching one-hot. Entry is typing a number,
+        not flipping twelve levers and doing binary in your head. This is what
+        the console above is driving.</p></div>
+    <div class="card"><h4>Latches with no torches <span class="tag m">built</span></h4>
+      <p>Every button feeds a shared <em>any key is down</em> bus, and each
+        latch's lock is that bus inverted. All ten go transparent together, so
+        the pressed key stores 1 and the rest store 0 — a one-hot register with
+        no reset logic and nothing that can burn out.</p></div>
+    <div class="card"><h4>Lectern as the menu <span class="tag p">to build</span></h4>
       <p>A comparator reads the open page, so turning to page 2 selects SUB.
         The menu is a physical book you can label.</p></div>
-    <div class="card"><h4>Note-block feedback</h4>
+    <div class="card"><h4>Note-block feedback <span class="tag p">to build</span></h4>
       <p>One pitch on keypress, another when the answer latches. You can operate
         it without watching the display.</p></div>
-    <div class="card"><h4>Clear and enter</h4>
-      <p>Two buttons. Clear resets the entry register; enter latches the operand
-        and starts the sum.</p></div>
   </div>
+  <p class="prose">Releasing a key is a race, and the data has to lose it:
+    letting go drops the key's data and re-asserts the lock in the same moment.
+    So the lock travels through a single torch while the data crawls through
+    three delay-4 repeaters — the latch is always shut before its input falls
+    away. Getting that backwards blanks the display the instant you let go, and
+    did. <span class="tag m">measured</span></p>
 
   <h2>What it should come to</h2>
   <div class="tw"><table>
@@ -372,7 +428,8 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     <tr><td>Wire share of latency</td><td class="n">85% <small>measured</small></td>
         <td class="n">~55% <small>projected</small></td></tr>
     <tr><td>Shows a decimal answer</td><td>no</td><td>yes, 17 gates per digit</td></tr>
-    <tr><td>Input</td><td>19 levers, in binary</td><td>keypad and a lectern</td></tr>
+    <tr><td>Input</td><td>19 levers, in binary</td>
+        <td>keypad <small>built</small>, lectern <small>to build</small></td></tr>
   </table></div>
   <p class="prose">The projections rest on the torch-free tap and on the tile
     change removing most of the remaining rail wire. Those are the two
@@ -390,11 +447,13 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
         the plan is wrong and stops here.</li>
       <li>Add copper bulbs and observers to the simulator.</li>
       <li>Clone the tile three times, wire the carry chain.</li>
-      <li>Keypad, lectern menu, note blocks.</li>
-      <li>Join decoder and display in one world — the 21-net corridor: seven
-        feeds per digit, each a two-torch riser to its own transport level, with
-        digits kept in separate tiles so nets never need to cross.</li>
-      <li>Re-run the whole vector sweep, and the burnout check, on the result.</li>
+      <li><s>Keypad</s> — built and verified. Lectern menu and note blocks
+        still to do.</li>
+      <li><s>Join decoder and display in one world</s> — built: nine nets over
+        27 risers, no crossings, with the two digits on different feed levels so
+        the units lanes pass beneath the tens digit.</li>
+      <li><s>Re-run the whole vector sweep, and the burnout check</s> — 100/100
+        sums, no torches burned, in Python and in this page.</li>
     </ol>
   </div>
 
@@ -461,9 +520,11 @@ function lookAt(e,c,u){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
   return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,
     -dot(x,e),-dot(y,e),-dot(z,e),1]);}
 
-let dispWorld,dispEng,dispCirc,decWorld,decEng,decCirc;
+let world,eng,circ;
 let inst,offs,scales,cols,dyn;
-const cam={az:0.0,el:1.30,dist:0.50};
+const FOV=0.85;
+const cam={az:1.75,el:0.45,dist:1.0};
+let target=[0,0,0];
 
 function colorOf(w,i){
   const k=w.kind[i];
@@ -472,11 +533,12 @@ function colorOf(w,i){
     if(!p)return[0.20,0.21,0.24];const t=p/15;
     return[0.28+0.7*t,0.06+0.15*t,0.05+0.12*t];}
   if(k===K_TORCH) return w.lit[i]?[1.0,0.66,0.24]:[0.26,0.21,0.17];
-  if(k===K_LEVER) return w.lit[i]?[0.95,0.33,0.28]:[0.38,0.38,0.42];
+  if(k===K_REP) return w.lit[i]?[0.72,0.30,0.26]:[0.42,0.44,0.48];
+  if(k===K_LEVER) return w.lit[i]?[0.95,0.33,0.28]:[0.66,0.70,0.76];
   return [0.26,0.29,0.34];
 }
 function buildInstances(){
-  const w=dispWorld,keep=[];
+  const w=world,keep=[];
   for(let i=0;i<w.n;i++){
     if(w.kind[i]===K_SOLID){let hidden=true;
       for(let d=0;d<6;d++){const nb=w.step(i,d);
@@ -494,34 +556,36 @@ function buildInstances(){
     let s=[1,1,1];
     if(k===K_WIRE){s=[0.34,0.07,0.34];offs[j*3+1]-=0.44;}
     else if(k===K_TORCH)s=[0.24,0.7,0.24];
-    else if(k===K_LEVER)s=[0.32,0.46,0.32];
+    else if(k===K_REP||k===K_CMP)s=[0.9,0.22,0.9];
+    else if(k===K_LEVER)s=[0.56,0.34,0.56];
     scales.set(s,j*3);
     if(k!==K_SOLID)dyn.push([j,i]);
   }
   refreshColors(true);
   gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.STATIC_DRAW);
-  document.getElementById("sBlk").textContent=
-    (dispWorld.n+decWorld.n).toLocaleString();
+  document.getElementById("sBlk").textContent=world.n.toLocaleString();
 }
 function refreshColors(all){
-  if(all){for(let j=0;j<inst.length;j++)cols.set(colorOf(dispWorld,inst[j]),j*3);}
-  else for(const[j,i]of dyn)cols.set(colorOf(dispWorld,i),j*3);
+  if(all){for(let j=0;j<inst.length;j++)cols.set(colorOf(world,inst[j]),j*3);}
+  else for(const[j,i]of dyn)cols.set(colorOf(world,i),j*3);
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
+  invalidate();
 }
 function draw(){
-  const w=cv.clientWidth,h=cv.clientHeight||360,dpr=Math.min(devicePixelRatio||1,2);
+  const w=cv.clientWidth,h=cv.clientHeight||380,dpr=Math.min(devicePixelRatio||1,2);
   if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
   gl.viewport(0,0,cv.width,cv.height);
   const bg=getComputedStyle(document.getElementById("view"))
     .backgroundColor.match(/\d+/g).map(Number);
   gl.clearColor(bg[0]/255,bg[1]/255,bg[2]/255,1);
   gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-  const[dx,dy,dz]=dispWorld.dims,R=Math.max(dx,dy,dz),d=R*cam.dist;
-  const eye=[Math.cos(cam.el)*Math.sin(cam.az)*d,Math.sin(cam.el)*d,
-             Math.cos(cam.el)*Math.cos(cam.az)*d];
+  const[dx,dy,dz]=world.dims,R=Math.max(dx,dy,dz),d=R*cam.dist;
+  const eye=[target[0]+Math.cos(cam.el)*Math.sin(cam.az)*d,
+             target[1]+Math.sin(cam.el)*d,
+             target[2]+Math.cos(cam.el)*Math.cos(cam.az)*d];
   gl.uniformMatrix4fv(U.mvp,false,
-    mul(persp(0.85,w/h,R*0.02,R*8),lookAt(eye,[0,0,0],[0,1,0])));
+    mul(persp(FOV,w/h,R*0.01,R*10),lookAt(eye,target,[0,1,0])));
   const bind=(b,l,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
     gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(vbo,A.pos,0);bind(nbo,A.norm,0);
@@ -529,53 +593,176 @@ function draw(){
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
   ext.drawElementsInstancedANGLE(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0,inst.length);
 }
-function loop(){draw();requestAnimationFrame(loop);}
+/* Draw on demand, not every frame. The scene is static between keypresses, and
+   a continuously redrawn 36k-instance world keeps the rAF queue permanently
+   busy — which is what makes a keypress feel slow, not the simulation. */
+let needsDraw=true;
+const invalidate=()=>{needsDraw=true;};
+function loop(){
+  const w=cv.clientWidth,h=cv.clientHeight||380,dpr=Math.min(devicePixelRatio||1,2);
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr))needsDraw=true;
+  if(needsDraw){needsDraw=false;draw();}
+  requestAnimationFrame(loop);
+}
 
 /* ------------------------------------------------------------------- app */
 const SEGS="abcdefg";
-let entry=0,decTicks=0,disTicks=0;
+const NUMERAL={abcdef:0,bc:1,abdeg:2,abcdg:3,bcfg:4,acdfg:5,acdefg:6,abc:7,
+               abcdefg:8,abcdfg:9};
+const DIGITS=["1","0"];          // tens on the left, units on the right
+let cells={},readyIdx=-1,leverIdx={},latchIdx={},busy=true;
+const $=id=>document.getElementById(id);
+const frame=()=>new Promise(r=>requestAnimationFrame(()=>r()));
 
-function showValue(v){
-  decTicks=0;disTicks=0;
-  for(let k=0;k<3;k++){
-    const digit=Math.floor(v/Math.pow(10,k))%10;
-    for(let i=0;i<4;i++)
-      decEng.setLever(decWorld.at(...decCirc.levers["D"+i]),(digit>>i)&1);
-    decTicks+=decEng.runUntilStable();
-    for(const s of SEGS){
-      const on=decEng.high(decWorld.at(...decCirc.outputs["SEG_"+s]));
-      dispEng.setLever(dispWorld.at(...dispCirc.levers[`D${k}_${s}`]),on);
+/* One HTML cell per lamp block, positioned from the block's own coordinates —
+   the readout is a picture of the world, not a font. */
+function buildReadout(){
+  for(const d of DIGITS){
+    const all=[];
+    for(const s of SEGS) for(const p of circ.lamps[d+"_"+s]) all.push([s,p]);
+    const minx=Math.min(...all.map(([,p])=>p[0]));
+    const minz=Math.min(...all.map(([,p])=>p[2]));
+    const host=$("dig"+d);host.innerHTML="";
+    cells[d]=[];
+    for(const [s,p] of all){
+      const el=document.createElement("i");
+      el.className="px";
+      el.style.gridColumn=(p[0]-minx+1);
+      el.style.gridRow=(p[2]-minz+1);
+      host.appendChild(el);
+      cells[d].push([el,world.at(p[0],p[1],p[2]),s]);
     }
   }
-  disTicks=dispEng.runUntilStable();
-  let lit=0;
-  for(let i=0;i<dispWorld.n;i++)
-    if(dispWorld.kind[i]===K_LAMP&&dispWorld.power[i])lit++;
+}
+/* Paint the lamps and decode what they spell. A segment only counts as lit if
+   every one of its lamps is lit — a half-lit bar is a fault, and reads as one. */
+function readDigit(d,blankIsZero){
+  const anyLit=new Set(),anyDark=new Set();
+  for(const [el,i,s] of cells[d]){
+    const lit=world.power[i]>0;
+    el.classList.toggle("on",lit);
+    (lit?anyLit:anyDark).add(s);
+  }
+  for(const s of anyLit) if(anyDark.has(s))return null;   // a half-lit bar
+  const pat=[...SEGS].filter(s=>anyLit.has(s)).join("");
+  if(pat==="")return blankIsZero?0:null;
+  return pat in NUMERAL?NUMERAL[pat]:null;
+}
+/* What operand a pad is holding, read off its one-hot latches — not off a
+   record of what was clicked, which could drift from the hardware. */
+function readPad(pad){
+  let found=null;
+  for(let k=0;k<10;k++){
+    if(!world.lit[latchIdx[pad+k]])continue;
+    if(found!==null)return null;      // two latches set: not one-hot
+    found=k;
+  }
+  return found;
+}
+function refreshPanel(settled){
+  const tens=readDigit("1",true),units=readDigit("0",false);
+  const held={A:readPad("A"),B:readPad("B")};
+  const ready=world.power[readyIdx]>0;
+  $("bReady").classList.toggle("on",ready);
+  const sum=(tens===null||units===null)?null:tens*10+units;
+  const both=held.A!==null&&held.B!==null;
+  $("tReady").textContent=
+    !ready ? (held.A===null&&held.B===null ? "no operands entered"
+                                           : "waiting for the other operand")
+    : sum===null ? "lamps mid-flight"
+    : both ? `${held.A} + ${held.B} = ${sum}` : `showing ${sum}`;
+  let lit=0,lamps=0;
+  for(let i=0;i<world.n;i++) if(world.kind[i]===K_LAMP){lamps++;if(world.power[i])lit++;}
+  $("sLit").textContent=lit+" of "+lamps;
+  const burn=eng.burned.size;
+  const b=$("sBurn");b.textContent=burn?burn+" — a bug":"none";
+  b.classList.toggle("bad",burn>0);
+  if(settled!==undefined)$("sSet").textContent=settled+" gt";
+  for(const pad of "AB"){
+    $("val"+pad).textContent=held[pad]===null?"—":held[pad];
+    for(let k=0;k<10;k++)
+      $("k"+pad+k).setAttribute("aria-pressed",held[pad]===k?"true":"false");
+  }
   refreshColors(false);
-  document.getElementById("entry").textContent=String(v).padStart(3,"0");
-  document.getElementById("sDec").textContent=decTicks+" gt";
-  document.getElementById("sDis").textContent=disTicks+" gt";
-  document.getElementById("sLit").textContent=lit+" of 63";
 }
-function press(d){
-  if(d==="C")entry=0;
-  else if(d==="←")entry=Math.floor(entry/10);
-  else entry=(entry*10+d)%1000;
-  showValue(entry);
+function setBusy(v){
+  busy=v;
+  for(const pad of "AB") for(let k=0;k<10;k++) $("k"+pad+k).disabled=v;
 }
-const keys=document.getElementById("keys");
-[1,2,3,4,5,6,7,8,9].forEach(d=>{
-  const b=document.createElement("button");
-  b.className="key";b.type="button";b.textContent=d;b.onclick=()=>press(d);
-  keys.appendChild(b);});
-[["C","alt"],[0,""],["←","alt"]].forEach(([t,cls])=>{
-  const b=document.createElement("button");
-  b.className="key "+cls;b.type="button";b.textContent=t;
-  b.onclick=()=>press(t===0?0:t);keys.appendChild(b);});
+
+/* A keypress, played out on the blocks: hold the button down for the same
+   number of ticks a stone button stays pressed, then let it pop back out. */
+async function pressKey(pad,k){
+  if(busy)return;
+  setBusy(true);
+  $("tReady").textContent="simulating…";
+  await frame();
+  const i=leverIdx[pad+k],t0=eng.now;
+  eng.setLever(i,true);
+  eng.run(circ.hold);
+  eng.setLever(i,false);
+  eng.runUntilStable();
+  refreshPanel(eng.now-t0);
+  setBusy(false);
+}
+function makeKeys(pad){
+  const host=$("keys"+pad);
+  for(const k of [1,2,3,4,5,6,7,8,9,0]){
+    const b=document.createElement("button");
+    b.className="key";b.type="button";b.id="k"+pad+k;b.textContent=k;
+    b.onclick=()=>pressKey(pad,k);
+    host.appendChild(b);
+  }
+}
+makeKeys("A");makeKeys("B");
 addEventListener("keydown",e=>{
-  if(/^[0-9]$/.test(e.key))press(+e.key);
-  else if(e.key==="Backspace")press("←");
-  else if(e.key.toLowerCase()==="c")press("C");});
+  if(!/^[0-9]$/.test(e.key))return;
+  const a=readPad("A"),b=readPad("B");
+  pressKey(a===null||b!==null?"A":"B",+e.key);
+});
+
+/* camera focus: aim at what the blocks actually occupy, and pull back far
+   enough that the whole of it fits the vertical field of view */
+function frameOn(points,margin){
+  const[dx,dy,dz]=world.dims,n=points.length||1;
+  let cx=0,cy=0,cz=0;
+  for(const p of points){cx+=p[0];cy+=p[1];cz+=p[2];}
+  target=[cx/n-dx/2,cy/n-dy/2,cz/n-dz/2];
+  // measure the cloud along the camera's own axes: the machine is long and
+  // thin, and fitting its bounding sphere would waste most of a wide viewport
+  const f=[Math.cos(cam.el)*Math.sin(cam.az),Math.sin(cam.el),
+           Math.cos(cam.el)*Math.cos(cam.az)];
+  const right=norm(cross([0,1,0],f)),up=cross(f,right);
+  // a point at depth (d - f.q) fits if |up.q| <= t(d - f.q) and
+  // |right.q| <= t*ar(d - f.q); solve each for d and take the worst
+  const ar=(cv.clientWidth||900)/(cv.clientHeight||380),t=Math.tan(FOV/2);
+  let d=1;
+  for(const p of points){
+    const q=[p[0]-dx/2-target[0],p[1]-dy/2-target[1],p[2]-dz/2-target[2]];
+    const fw=dot(q,f);
+    d=Math.max(d,fw+Math.abs(dot(q,up))/t,fw+Math.abs(dot(q,right))/(t*ar));
+  }
+  cam.dist=d*margin/Math.max(dx,dy,dz);
+  invalidate();
+}
+function focus(which){
+  for(const [id,name] of [["lookAll","all"],["lookDisp","disp"],["lookPads","pads"]])
+    $(id).setAttribute("aria-pressed",name===which?"true":"false");
+  const pts=[];
+  if(which==="all"){
+    for(const i of inst) pts.push([world.bx[i],world.by[i],world.bz[i]]);
+    cam.az=1.75;cam.el=0.45;frameOn(pts,1.06);
+  } else if(which==="disp"){
+    for(const d of DIGITS) for(const s of SEGS) pts.push(...circ.lamps[d+"_"+s]);
+    cam.az=0.0;cam.el=1.30;frameOn(pts,1.35);
+  } else {
+    for(const pad of "AB") for(let k=0;k<10;k++) pts.push(circ.levers[pad+k]);
+    cam.az=-1.57;cam.el=1.05;frameOn(pts,1.05);
+  }
+}
+$("lookAll").onclick=()=>focus("all");
+$("lookDisp").onclick=()=>focus("disp");
+$("lookPads").onclick=()=>focus("pads");
 
 let drag=null;
 cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};
@@ -583,21 +770,27 @@ cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};
 cv.addEventListener("pointermove",e=>{if(!drag)return;
   cam.az-=(e.clientX-drag.x)*0.008;
   cam.el=Math.max(0.05,Math.min(1.5,cam.el+(e.clientY-drag.y)*0.006));
-  drag.x=e.clientX;drag.y=e.clientY;});
+  drag.x=e.clientX;drag.y=e.clientY;invalidate();});
 cv.addEventListener("pointerup",()=>drag=null);
 cv.addEventListener("wheel",e=>{e.preventDefault();
-  cam.dist=Math.max(0.2,Math.min(2.5,cam.dist*(1+Math.sign(e.deltaY)*0.12)));},
+  cam.dist=Math.max(0.02,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));
+  invalidate();},
   {passive:false});
 
 (async()=>{
-  decCirc=BUNDLE.circuits.find(c=>c.name==="seg7");
-  dispCirc=BUNDLE.circuits.find(c=>c.name==="disp3");
-  decWorld=new World(decCirc.n,decCirc.dims,await inflate(decCirc.data));
-  decEng=new Engine(decWorld);decEng.initializeSteady();
-  dispWorld=new World(dispCirc.n,dispCirc.dims,await inflate(dispCirc.data));
-  dispEng=new Engine(dispWorld);dispEng.initializeSteady();
-  buildInstances();
-  showValue(0);press(1);press(2);press(3);
+  circ=BUNDLE.circuits.find(c=>c.name==="console");
+  world=new World(circ.n,circ.dims,await inflate(circ.data));
+  eng=new Engine(world);eng.initializeSteady();
+  readyIdx=world.at(...circ.ready);
+  for(const pad of "AB") for(let k=0;k<10;k++){
+    leverIdx[pad+k]=world.at(...circ.levers[pad+k]);
+    latchIdx[pad+k]=world.at(...circ.latches[pad+k]);
+  }
+  buildInstances();buildReadout();
+  focus("all");
   loop();
+  refreshPanel();
+  setBusy(false);
+  window.__ready=true;
 })();
 </script>

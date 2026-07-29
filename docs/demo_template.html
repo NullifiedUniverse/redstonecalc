@@ -206,6 +206,30 @@ const HORIZ=[0,1,2,3];
 const AXIS=[1,1,0,0,2,2];  // z z x x y y
 const CONDUCT=k=>k===K_SOLID||k===K_LAMP;
 
+/* The tick queue is a binary min-heap on the scheduled time, kept in a plain
+   array so `q[0]` is still the next event and `q.length=0` still clears it.
+   Sorting the whole queue on every schedule() is what made a 36k-block world
+   unusable in a browser; this is the same order, at a hundredth of the cost. */
+function qpush(q,it){
+  q.push(it);
+  let i=q.length-1;
+  while(i>0){const p=(i-1)>>1; if(q[p][0]<=q[i][0])break;
+    const t=q[p];q[p]=q[i];q[i]=t;i=p;}
+}
+function qpop(q){
+  const top=q[0],last=q.pop();
+  if(q.length){
+    q[0]=last;
+    let i=0;
+    for(;;){const l=2*i+1,r=l+1;let m=i;
+      if(l<q.length&&q[l][0]<q[m][0])m=l;
+      if(r<q.length&&q[r][0]<q[m][0])m=r;
+      if(m===i)break;
+      const t=q[m];q[m]=q[i];q[i]=t;i=m;}
+  }
+  return top;
+}
+
 async function inflate(b64){
   const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
   const ds=new DecompressionStream("gzip");
@@ -503,8 +527,7 @@ class Engine{
     const d=this.delayOf(c);
     if(d===0){this.apply(c,t);this.dirtyFrom(c);return;}
     this.pending.set(c,t);
-    this.queue.push([this.now+d,c,t]);
-    this.queue.sort((a,b)=>a[0]-b[0]);
+    qpush(this.queue,[this.now+d,c,t]);
   }
   dirtyFrom(c){
     for(const n of (this.netsBy.get(c)||[])) this.dn.add(n);
@@ -549,7 +572,7 @@ class Engine{
     this.now++;
     const fired=[];
     while(this.queue.length&&this.queue[0][0]<=this.now){
-      const [,c,t]=this.queue.shift();
+      const [,c,t]=qpop(this.queue);
       if(this.pending.get(c)!==t)continue;
       this.pending.delete(c);
       if(this.current(c)===t)continue;
@@ -568,6 +591,7 @@ class Engine{
     while(this.queue.length&&n<max){this.tick();n++;}
     return this.now-s;
   }
+  run(n){for(let i=0;i<n;i++)this.tick();return n;}
   setLever(i,on){
     if(this.w.lit[i]===(on?1:0))return;
     this.w.lit[i]=on?1:0;

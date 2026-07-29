@@ -54,6 +54,21 @@ class Netlist:
     def gate(self, taps, name=None):
         """taps: list of (Node, inverted). Result stage = 1 + aligned stage."""
         assert taps, "a gate needs at least one tap"
+        # A rail can only be tapped once per gate: the tap occupies one fixed
+        # cell beside the collector. Repeating a tap is harmless and is folded
+        # away here; tapping one rail through *both* polarities would need two
+        # different structures in that single cell, and is a constant 1 anyway.
+        seen, merged = {}, []
+        for node, inv in taps:
+            if node.idx in seen:
+                if seen[node.idx] != inv:
+                    raise ValueError(
+                        f"gate taps {node.name or node.idx} both ways: that is "
+                        f"constant 1, and cannot be built as a single tap")
+                continue
+            seen[node.idx] = inv
+            merged.append((node, inv))
+        taps = merged
         target = max(t[0].stage for t in taps)
         aligned = [(self.lift(n, target), inv) for n, inv in taps]
         return self._add("gate", target + 1,

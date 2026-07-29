@@ -81,11 +81,17 @@ class Layout:
 
 
 def compile_netlist(nl: Netlist, world: World | None = None,
-                    repeater_delay=1) -> Layout:
+                    repeater_delay=1, drive_inputs=True,
+                    fixed_input_order=False) -> Layout:
     world = world or World()
     L = Layout(world)
     prune(nl)
     order = order_stages(nl)
+    if fixed_input_order:
+        # keep primary inputs in declaration order, so anything hand-built that
+        # has to drive them (a keypad, say) gets a predictable rail layout
+        rank = {id(n): i for i, n in enumerate(nl.inputs.values())}
+        order[0].sort(key=lambda n: rank.get(id(n), len(rank)))
 
     depth = nl.depth()
     y = 0
@@ -130,7 +136,10 @@ def compile_netlist(nl: Netlist, world: World | None = None,
             _place_rail(L, rx, min(xs), max(xs) + 2, y, rz,
                         own_taps, repeater_delay, L.power[r.idx])
             if r.kind == "input" and s == 1:
-                _place_lever(L, r.name, rx, y, rz)
+                if drive_inputs:
+                    _place_lever(L, r.name, rx, y, rz)
+                else:
+                    L.levers[r.name] = (rx, y, rz)   # driven from outside
 
         # ---- collectors, taps and the climb to the next rail plane
         for g in gates:

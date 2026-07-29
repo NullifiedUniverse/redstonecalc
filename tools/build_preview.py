@@ -1,6 +1,7 @@
 """Build and verify the Mk II preview modules, then export them for the demo."""
 
 import sys, os
+from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rscalc.engine import World, Engine
@@ -10,19 +11,27 @@ from rscalc.export import export_circuit, write_bundle
 from rscalc.display import (build_digit, lit_segments, DIGIT_SEGMENTS, SEGS)
 from tools.prototype_decimal import seven_seg, build_decimal_adder
 
-DIGIT_PITCH = 26          # X spacing between digits; feed lanes need the room
+LANE_LEN = 6              # how far the feed lanes reach out to -X
+DIGIT_PITCH = 14          # X spacing between digits; feed lanes need the room
 
 
 def build_display(n_digits=3):
-    """n digits side by side, most significant on the left."""
+    """n digits side by side, most significant on the left.
+
+    Each segment's feed lane ends in a lever, so the digits can be driven by
+    hand — the console wires those same lane ends to the decoder instead.
+    """
     w = World()
     levers, lamps = {}, {}
     for k in range(n_digits):
         # digit 0 is the least significant, so it sits furthest right
         ox = (n_digits - 1 - k) * DIGIT_PITCH
-        _, lv, lp = build_digit(w, origin=(ox, 0, 0))
+        _, entries, lp = build_digit(w, origin=(ox, 0, 0), lane_len=LANE_LEN)
         for s in SEGS:
-            levers[f"D{k}_{s}"] = lv[s]
+            ex, ey, ez = entries[s]
+            w.solid((ex - 1, ey - 1, ez))
+            w.lever((ex - 1, ey, ez), attach="down", on=False)
+            levers[f"D{k}_{s}"] = (ex - 1, ey, ez)
             lamps[f"D{k}_{s}"] = lp[s]
     return w, levers, lamps
 
@@ -98,8 +107,50 @@ def main():
          "lamps": {k: [[p[0]-x0, p[1]-y0, p[2]-z0] for p in v]
                    for k, v in dlamps.items()}}))
 
+    print("building the whole console (this takes a moment)...")
+    cc = export_console()
+    print(f"console: {cc['n']} blocks, dims {cc['dims']}, "
+          f"{len(cc['data'])/1024:.0f} KB")
+    circuits.append(cc)
+
     size = write_bundle("out/preview.json", circuits)
     print(f"bundle: {size/1024:.0f} KB -> out/preview.json")
+
+
+
+
+def export_console():
+    """Export the whole machine so the browser can drive the real thing."""
+    from rscalc.console import build_console
+    from rscalc.display import SEGS
+    from rscalc.keypad import LATCH_X
+    nl, w, L, pads, lamps, stats, ready = build_console(repeater_delay=2)
+    assert not w.lint(), w.lint()[:3]
+    (x0, y0, z0), (x1, y1, z1) = w.bounds()
+
+    def rel(p):
+        return [p[0] - x0, p[1] - y0, p[2] - z0]
+
+    L2 = SimpleNamespace(
+        levers={f"{pad}{k}": pads[pad][k]
+                for pad in ("A", "B") for k in range(10)},
+        outputs={"READY": ready},
+        stats=dict(stats, blocks=len(w.blocks)))
+    # the one-hot latch of each key, so the page can report the operands the
+    # machine is actually holding rather than a JS shadow of what was clicked
+    latches = {f"{pad}{k}": rel((LATCH_X,) + tuple(L.levers[f"K{pad}{k}"][1:]))
+               for pad in ("A", "B") for k in range(10)}
+    meta = {
+        "kind": "console", "width": 1, "depth": nl.depth(),
+        "gates": nl.gate_count(), "delay": 2,
+        "lamps": {f"{d}_{s}": [rel(p) for p in lamps[d][s]]
+                  for d in ("0", "1") for s in SEGS},
+        "ready": rel(ready),
+        "latches": latches,
+        "hold": 40,
+    }
+    return export_circuit("console", "Keypad calculator (whole machine)",
+                          w, L2, meta)
 
 
 if __name__ == "__main__":
