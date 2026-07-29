@@ -25,10 +25,10 @@ redstone — classic mechanics apply.
 
 | Width | Carry | Gates | Depth | Blocks | Worst-case settle |
 |---|---|---|---|---|---|
-| 4 | ripple | 409 | 16 | 36,692 | 134 gt = 6.70 s |
-| 4 | **CLA** | **337** | **12** | 39,542 | **130 gt = 6.50 s** |
-| 8 | ripple | 1,093 | 24 | 115,668 | 246 gt = 12.30 s |
-| 8 | **CLA** | **723** | **14** | 123,354 | **234 gt = 11.70 s** |
+| 4 | ripple | 409 | 16 | 36,692 | 108 gt = 5.40 s |
+| 4 | **CLA** | **337** | **12** | 39,542 | **108 gt = 5.40 s** |
+| 8 | ripple | 1,093 | 24 | 115,668 | 190 gt = 9.50 s |
+| 8 | **CLA** | **723** | **14** | 123,354 | **186 gt = 9.30 s** |
 
 Verified on placed blocks: the 4-bit CLA ALU is correct on **all 2,048
 vectors** (8 operations × 256 operand pairs); the 8-bit on 1,120 vectors.
@@ -36,7 +36,9 @@ vectors** (8 operations × 256 operand pairs); the 8-bit on 1,120 vectors.
 The interesting result: carry-lookahead is 1.7× shallower and uses 1.5× fewer
 gates at 8 bits, but is only 1.05× faster on the clock. **Interconnect, not
 gate depth, dominates redstone latency** — every repeater needed to keep dust
-alive over distance costs a full redstone tick.
+alive over distance costs a full redstone tick. Switching to the wiki's
+block-repeater-block transmission line (18 blocks per tick instead of 12) cut
+the 8-bit ALU from 234 to 186 game ticks with no change to the logic at all.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the layer-by-layer design, the
 carry-lookahead derivation, and the troubleshooting log.
@@ -46,6 +48,11 @@ carry-lookahead derivation, and the troubleshooting log.
 `tools/profile_path.py` attributes every tick on the critical path to a cause:
 **88% of the latency is repeaters keeping dust alive over distance, not gates.**
 On this architecture compact and fast are the same goal.
+
+The next binding constraint is **torch burnout**: every large build has to run
+at delay-2 repeaters, which doubles latency. A comparator in subtract mode
+inverts just as fast and has no burnout rule, so a torch-free build should be
+~1.7x faster and impossible to burn out.
 
 [docs/PLAN.md](docs/PLAN.md) is the plan for the next build — a 3-digit decimal
 (BCD) machine with a keypad, a lectern menu and a seven-segment display. Two of

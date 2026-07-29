@@ -1,131 +1,161 @@
 # Mk II — plan for a compact, operable decimal calculator
 
-Mk I works and is verified. This is the plan for the next one. Figures marked
-**measured** were simulated on placed blocks in this repository; figures marked
-*projected* are estimates and are labelled as such everywhere they appear.
+Revised 2026-07-29 after a research pass and three rounds of measurement.
+Figures marked **measured** were simulated on placed blocks in this repository;
+figures marked *projected* are estimates and say so.
 
 Live preview: `docs/preview.html`.
 
 ---
 
-## 1. The finding that sets the plan
+## 1. What changed in this revision
 
-`tools/profile_path.py` walks the placed blocks of the compiled ALU and
-attributes every game tick on the critical path to a cause.
+Three things were assumed last time and are now settled:
 
-| build | total | logic | rail wire | collector wire |
-|---|---|---|---|---|
-| 4-bit ripple | 138 gt | 32 (23%) | 46 (33%) | 60 (43%) |
-| 4-bit CLA | 136 gt | 24 (18%) | 54 (40%) | 58 (43%) |
-| 8-bit ripple | 250 gt | 48 (19%) | 98 (39%) | 104 (42%) |
-| **8-bit CLA** | **240 gt** | **28 (12%)** | **108 (45%)** | **104 (43%)** |
-
-**88% of the machine's latency is repeaters spent keeping dust alive over
-distance.** Not gates.
-
-Two consequences:
-
-- On this architecture **compact and fast are the same goal**. Every block of
-  wire removed is latency removed. The user's instinct that these were separate
-  asks is, on the evidence, wrong in a useful way — they collapse into one.
-- The obvious lever is the wrong one. Carry-lookahead bought 1.7× the logical
-  depth and returned 1.05× on the clock. More clever arithmetic will not help
-  until the wires are shorter.
+- **The interconnect fix landed.** Repeaters now go in as a block-repeater-block
+  sandwich, the wiki's standard transmission line. Measured span went from 12
+  to 18 blocks per redstone tick, and the 8-bit ALU dropped from **234 to 186
+  game ticks** with 5,179 → 3,996 repeaters. Still correct on all 2,048 4-bit
+  vectors and 1,120 8-bit vectors.
+- **Cross-digit BCD lookahead works**, and cuts the decimal adder from 963
+  gates / depth 32 to **542 gates / depth 18** — but does *not* make it faster
+  on the clock (386 → 400 gt). Same lesson as carry-lookahead: depth is not the
+  constraint.
+- **Burnout is now the binding constraint, not wire.** Every large build burns
+  torches out at delay-1 repeaters and has to run at delay 2, which doubles
+  latency. That is where the next real gain is.
 
 ---
 
-## 2. Decision: work in decimal (BCD), not binary — **measured**
+## 2. Where the latency goes
 
-A binary machine cannot display a decimal answer without a binary→BCD
-conversion, and double-dabble costs roughly an add-and-compare per bit per
-digit. Building the datapath in BCD deletes that stage and makes the display a
-flat 4→7 lookup.
+`tools/profile_path.py` walks the placed blocks and attributes every game tick
+on the critical path.
 
-Both halves were built and simulated rather than estimated
-(`tools/prototype_decimal.py`, `rscalc/display.py`):
+| build | total | logic | rail wire | collector wire |
+|---|---|---|---|---|
+| 4-bit CLA | 108 gt | 24 (22%) | 40 (37%) | 44 (41%) |
+| **8-bit CLA** | **190 gt** | **28 (15%)** | **88 (46%)** | **74 (39%)** |
+
+Wire was 88% of the critical path before this revision and is 85% after. The
+sandwich change bought a real 20%, but the shape of the problem is unchanged:
+**compact and fast are the same goal.**
+
+Two layout rules were learned the hard way and are now enforced in the router,
+both the same root cause — *dust only powers a block it points at, and dust
+only points where it connects*:
+
+- A sandwich's front block may not follow a **tapped** cell. That cell already
+  connects sideways to the tap's riser, so it points along its own run and not
+  at the block.
+- A sandwich's front block may not be a run's **first** cell, because the source
+  cell connects downward to the riser that fed it.
+
+Both left the block, and everything past it, silently dead.
+
+---
+
+## 3. Decision: work in decimal (BCD) — **measured**
+
+A binary machine cannot show a decimal answer without a binary→BCD conversion,
+and double-dabble costs roughly an add-and-compare per bit per digit. A BCD
+datapath deletes that stage and makes the display a flat 4→7 lookup.
 
 | module | gates | depth | blocks | settle | verified |
 |---|---|---|---|---|---|
 | Seven-segment decoder, 1 digit | 17 | 2 | 2,647 | 24 gt | all 10 digits |
 | Seven-segment display, 1 digit | — | — | 168 | 4 gt | all 10 digits |
-| 3-digit BCD adder + display decode | 963 | 32 | 94,660 | 256 gt | 11 sums, digits + segments |
-| *Mk I 8-bit binary ALU (no display at all)* | 723 | 14 | 123,354 | 234 gt | 1,120 vectors |
+| 3-digit BCD adder + display, ripple digit carry | 963 | 32 | 94,660 | 386 gt | 14 sums + segments |
+| 3-digit BCD adder + display, **digit lookahead** | **542** | **18** | 102,290 | 400 gt | 14 sums + segments |
+| *Mk I 8-bit binary ALU (no display at all)* | 723 | 14 | 123,354 | 360 gt | 1,120 vectors |
 
-A 3-digit decimal adder *including its entire display path* is 23% smaller than
-the binary ALU that still cannot show a decimal number.
+All at delay-2 repeaters, which every build this size needs (see §5).
 
-The catch is depth: 32 stages against 14, because the BCD carry ripples from
-digit to digit and each digit is two chained 4-bit adds.
+A digit carries when `a + b + cin > 9`, so it **generates** when `a + b >= 10`
+and **propagates** when `a + b == 9` — both functions of that digit's own
+operands, which is exactly what allows lookahead. The correction folds into the
+same add: `result = (a+b) + cin + 6·cout`, since `−10 ≡ +6 (mod 16)`.
 
-**Fix, and it is the first thing to build.** A digit generates a carry when its
-sum exceeds 9, which is a function of its own operands alone — so the same flat
-lookahead already used inside a digit applies across digits. Depth 32 → ~14
-*projected*.
-
----
-
-## 3. Decision: bit-sliced tiles, not a machine-wide crossbar — *projected*
-
-Mk I routes every stage as a PLA: rails span the whole machine so any gate can
-tap any signal. That generality is exactly what bought the 45% rail cost.
-
-A decimal digit talks almost entirely to itself; only the carry crosses. So:
-one tile per digit, cloned along a row, rails stopping at the tile boundary. A
-tile is ~30 blocks wide instead of 269 — the difference between ten repeaters
-on a rail and one.
-
-This is the assumption most likely to be wrong, so it is tested first: build
-one tile, profile it with `tools/profile_path.py`, and only clone it if the
-rail share has actually collapsed.
+Lookahead nearly halves gates and depth. It does not help the clock, and is
+slightly *larger* in blocks because its flat product terms span more rails and
+so lengthen collectors. Take it for the gate count, not the speed.
 
 ---
 
-## 4. Decision: spend more block types
+## 4. Decision: bit-sliced tiles — *projected*
+
+Wire length is heavily skewed: **rail length median 2, mean 19.5, p90 58, max
+298**. The wires are not uniformly long; a small tail is catastrophic. Long
+rails come from high fanout (the opcode selects feed every bit), long collectors
+from wide fan-in spread across the rail set.
+
+So the fix is targeted, not global: one tile per digit, cloned along a row,
+with rails stopping at the tile boundary and only the carry crossing. Build one
+tile, profile it, and only clone it if the rail share has actually collapsed.
+
+---
+
+## 5. Decision: get rid of the torches — **measured mechanism**, *projected gain*
+
+Every large build burns torches out at delay-1 repeaters:
+
+| build | delay 1 | delay 2 |
+|---|---|---|
+| 8-bit ALU | 186 gt, 1 torch burned, 76/648 wrong | 360 gt, clean |
+| 3-digit BCD, ripple | 216 gt, 26 burned, wrong | 386 gt, clean |
+| 3-digit BCD, lookahead | 208 gt, 37 burned, wrong | 400 gt, clean |
+
+Minecraft kills a torch forced off more than eight times in 60 game ticks, and
+hazard glitching in a deep network does exactly that. Longer repeater delays
+spread the transitions out and fix it completely — at roughly double the
+latency. That is the single largest cost in the machine right now.
+
+**Comparators have no burnout rule at all**, and one inverts: in subtract mode
+with a rear constant, `out = max(rear − side, 0)`. With a rear of 1, any
+nonzero side gives 0 and a zero side gives 1 — an exact logical inverter, no
+torch, and the same 2 game ticks a torch takes. Verified in the simulator.
+
+The catch: its output is only as strong as the rear constant, so a tap built
+this way needs a repeater to restore it — 2 redstone ticks against the torch's
+1. That is the trade:
+
+| | now | torch-free *projected* |
+|---|---|---|
+| 8-bit ALU, safe operation | 360 gt (delay 2) | ~215 gt (delay 1) |
+| Burnout possible | yes, mitigated | **no, structurally** |
+
+Roughly **1.7× faster and impossible to burn out**. This is the highest-value
+item on the list and should be built first.
+
+---
+
+## 6. Decision: spend more block types
+
+Semantics confirmed against the wiki this revision unless noted.
 
 | block | property used | replaces | status |
 |---|---|---|---|
-| **Copper bulb** | Toggles on a rising edge, *keeps* its state, comparator-readable, emits light | A multi-block latch **and** a display lamp, in one block | to confirm |
-| **Repeater locking** | A repeater held from the side freezes its output | Torch latches — and with zero torches, burnout is impossible | **measured**, 44 blocks |
-| **Comparator, subtract** | `out = rear − side` in one redstone tick | Binary compare and subtract trees | **measured** |
-| **Comparator + barrel** | Reads container fullness as 0–15 | Hard-wired constants, small lookup tables | to build |
-| **Lectern** | A comparator reads the open page number | The menu selector — turn a page to pick the operation | to build |
-| **Observer** | 2 gt pulse on a block update, one block | Multi-block pulse shapers and edge detectors | to confirm |
-| **Slabs, stairs, glass** | Non-conductive, but a top slab still supports dust | Part of the 4-block cell pitch that exists only to stop cross-talk | to build |
+| **Comparator, subtract** | `out = max(rear − side, 0)`, 2 gt, no burnout | Torch inverters — see §5 | **measured** |
+| **Copper bulb** | Toggles on a **rising edge**, keeps its state, comparator-readable at 15 when lit, emits light. **Not conductive** | A multi-block latch **and** a display lamp, in one block | confirmed; needs a pulse, not steady power |
+| **Repeater locking** | A repeater held from the side freezes its output | Torch latches; zero torches, so no burnout | **measured**, 44 blocks |
+| **Observer** | 15-strength pulse, 2 gt long, 2 gt delay, one block | Multi-block pulse shapers — and the pulse source copper bulbs need | confirmed |
+| **Lectern** | `signal = floor(1 + (page−1)/(pages−1) × 14)` | The menu selector — turn a page to pick the operation | confirmed |
+| **Comparator + barrel** | Reads container fullness as 0–15 | Constants and small lookup tables | to build |
+| **Slabs, stairs, glass** | Non-conductive; a top slab still supports dust | Part of the cell pitch that exists only to stop cross-talk | to build |
 | **Note block** | Sounds when powered | Nothing — it is there so the keypad answers you | to build |
 
-Two honest caveats:
+The copper bulb's rising-edge rule matters for the design: it cannot be driven
+by a steady level, so latching the answer needs an observer (or a button) to
+produce the edge. That pairs the two blocks naturally.
 
-- **Copper-bulb and observer tick timings could not be verified this session**
-  (web search was rate-limited), so they are marked *to confirm* rather than
-  assumed. Confirm against the wiki before building on them.
-- The locked-repeater latch has a real protocol requirement, found while
-  testing it and now covered by `tests/test_display.py`: **the lock must be
-  asserted a tick before the data changes.** Move both in the same tick and the
-  data wins the race, storing the new value instead of holding the old one.
-
----
-
-## 5. Decision: the display is the memory
-
-A copper bulb holds its own state and is a light source, so the answer register
-and the screen stop being two separate structures. Latch the result into the
-bulbs and the datapath behind them is free to start the next sum, with no
-separate register bank to build, power or route.
-
-The seven-segment module verified here is 168 blocks and settles in 4 game
-ticks; swapping lamps for **waxed** bulbs keeps the geometry and adds the memory
-for free *projected*. Waxing matters — unwaxed copper oxidises, which changes
-the light level emitted but not the redstone behaviour.
-
-Note on the module's shape: the centre bar is boxed in on all four sides by the
-other segments, so it cannot be fed from the side. Every segment is therefore
-fed from *below* by a two-torch tower, which is non-inverting and strongly
-powers the lamp above it; the dust cap then spreads that along the bar. Feeding
-all seven the same way keeps the tile symmetric and clonable.
+The locked-repeater latch has a protocol requirement found while testing it and
+now covered by `tests/test_display.py`: **the lock must be asserted a tick
+before the data changes**, or the data wins the race and the latch stores the
+new value instead of holding the old one.
 
 ---
 
-## 6. Player control and the menu
+## 7. Player control and the menu
 
 - **0–9 keypad** of stone buttons feeding a shift register. Entry is typing a
   number, not flipping nineteen levers and doing binary in your head.
@@ -138,40 +168,40 @@ all seven the same way keeps the tile symmetric and clonable.
 
 ---
 
-## 7. What it should come to
+## 8. What it should come to
 
 | | Mk I, 8-bit binary | Mk II, 3-digit decimal |
 |---|---|---|
 | Range | 0–255 | 0–999 |
 | Blocks | 123,354 **measured** | ~55,000 *projected* |
-| Logic depth | 14 **measured** | ~14 *projected*, with digit lookahead |
-| Settle | 234 gt **measured** | ~70 gt *projected* |
-| Wire share of latency | 88% **measured** | ~55% *projected* |
+| Logic depth | 14 **measured** | 18 **measured**, with digit lookahead |
+| Settle, safe operation | 360 gt **measured** | ~120 gt *projected*, torch-free at delay 1 |
+| Wire share of latency | 85% **measured** | ~55% *projected* |
 | Shows a decimal answer | no | yes, 17 gates per digit |
 | Input | 19 levers, in binary | keypad and a lectern |
 
+The projections rest on the torch-free tap (§5) and the tile change (§4). Those
+are the two assumptions to test, in that order.
+
 ---
 
-## 8. Build order
+## 9. Build order
 
-Each step is checkable alone and can fail loudly before the next is worth
-starting.
-
-1. Cross-digit carry lookahead. Target: BCD depth 32 → ~14.
-2. One bit-sliced digit tile. Profile it. **If rail wire has not collapsed, the
-   plan is wrong and stops here.**
-3. Add copper bulbs and observers to the simulator, confirming their tick
-   behaviour against the wiki first.
-4. Clone the tile three times; wire the carry chain.
+1. **Torch-free inverting tap** — comparator plus repeater. Biggest single win:
+   removes burnout structurally and lets everything run at delay 1.
+2. **One bit-sliced digit tile.** Profile it. If rail wire has not collapsed,
+   §4 is wrong and stops there.
+3. Add copper bulbs and observers to the simulator.
+4. Clone the tile three times; wire the digit-lookahead carry chain.
 5. Keypad, lectern menu, note blocks.
 6. Join decoder and display in one world — the 21-net corridor: seven feeds per
    digit, each a two-torch riser to its own transport level, digits kept in
    separate tiles so nets never need to cross.
-7. Re-run the full vector sweep and the burnout check on the result.
+7. Re-run the full vector sweep and the burnout check.
 
 ---
 
-## Verification already in place
+## Verification in place
 
 ```sh
 python3 tests/test_mechanics.py   # 12/12  redstone rules
@@ -179,7 +209,7 @@ python3 tests/test_cells.py       #  5/5   NOR cell and gates
 python3 tests/test_pla.py         #  4/4   place-and-route
 python3 tests/test_alu.py         #  4/4   Mk I ALU, exhaustive at 4 bits
 python3 tests/test_display.py     #  2/2   seven-segment display, latch
+node   tests/browser_check.js     #        the demo, in a real browser
 python3 tools/profile_path.py     #        critical-path breakdown
-python3 -m tools.prototype_decimal  #      BCD adder + decoder measurements
 python3 -m tools.build_preview    #        build and verify the preview modules
 ```

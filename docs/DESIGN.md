@@ -149,10 +149,13 @@ All figures from the simulator, on placed blocks.
 
 | Width | Carry | Gates | Depth | Blocks | Repeaters | Worst-case settle |
 |---|---|---|---|---|---|---|
-| 4 | ripple | 409 | 16 | 36,692 | 1,558 | 134 gt = 6.70 s |
-| 4 | **CLA** | **337** | **12** | 39,542 | 1,652 | **130 gt = 6.50 s** |
-| 8 | ripple | 1,093 | 24 | 115,668 | 4,976 | 246 gt = 12.30 s |
-| 8 | **CLA** | **723** | **14** | 123,354 | 5,179 | **234 gt = 11.70 s** |
+| 4 | ripple | 409 | 16 | 36,692 | 1,249 | 108 gt = 5.40 s |
+| 4 | **CLA** | **337** | **12** | 39,542 | 1,306 | **108 gt = 5.40 s** |
+| 8 | ripple | 1,093 | 24 | 115,668 | 3,979 | 190 gt = 9.50 s |
+| 8 | **CLA** | **723** | **14** | 123,354 | 3,996 | **186 gt = 9.30 s** |
+
+(After the transmission-line change in §9. Before it: 5,179 repeaters and
+234 gt for the 8-bit CLA.)
 
 Correctness:
 
@@ -164,7 +167,7 @@ Correctness:
 ### The finding that matters
 
 CLA is **1.7× shallower and 1.5× smaller in gate count** at 8 bits, but only
-**1.05× faster on the wall clock**. The logical depth of 14 stages should cost
+**1.02× faster on the wall clock**. The logical depth of 14 stages should cost
 14 redstone ticks; the machine actually takes 117. **Interconnect, not gate
 depth, dominates redstone latency.** Every repeater needed to keep dust alive
 over distance costs a full redstone tick, and a wide stage needs a lot of them.
@@ -226,3 +229,38 @@ docs/demo.html      voxel demo with the engine ported to JavaScript
 
 Run `python3 tests/test_mechanics.py`, `test_cells.py`, `test_pla.py`,
 `test_alu.py`, and `node tests/browser_check.js`.
+
+
+---
+
+## 9. Transmission lines (later revision)
+
+Profiling showed 88% of the critical path was repeaters keeping dust alive over
+distance, so the router was rewritten to spend them properly.
+
+Measured in the simulator: a bare in-line repeater carries a signal **16 blocks
+per redstone tick**; a **block-repeater-block sandwich carries 18**. The block
+in front is weakly powered by the arriving dust, which a repeater reads
+happily, and the block behind is strongly powered so the next run of dust
+restarts at a full 15. That is the wiki's standard transmission line, and it is
+now what the router emits.
+
+Repeaters are also placed against a real signal-strength budget with lookahead
+rather than a fixed spacing, and a rail is only blocked at columns where *it*
+is tapped — other gates read their own rails, at other Z.
+
+Result: 8-bit CLA from 5,179 repeaters and 234 gt to **3,996 and 186 gt**, with
+all 2,048 4-bit and 1,120 8-bit vectors still correct.
+
+Two bugs found on the way, both the same root cause — *dust only powers a block
+it points at, and dust only points where it connects*:
+
+1. A sandwich's front block may not follow a **tapped** cell: that cell already
+   connects sideways to the tap's riser, so it points along its own run and not
+   at the block.
+2. A sandwich's front block may not be a run's **first** cell, because the
+   source cell connects downward to the riser that fed it.
+
+Both left the block, and everything past it, silently unpowered. The router now
+refuses both placements and falls back to a bare repeater, which reads dust
+directly and so does not care about pointing.

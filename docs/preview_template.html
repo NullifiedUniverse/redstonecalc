@@ -118,9 +118,11 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
   <div class="wrap">
     <p class="eyebrow">Design preview · Minecraft Java 26.2</p>
     <h1>Redstone Calculator <em>Mk II</em></h1>
-    <p class="lede">The first build works and is verified. It is also 88% wire.
-      This is the plan for the version that isn't — a decimal machine you can
-      actually operate, with a display that costs almost nothing.</p>
+    <p class="lede">The first build works and is verified. It was also 88%
+      wire; a transmission-line rewrite took it to 85% and 20% faster.
+      This is the plan for the rest — a decimal machine you can operate,
+      a display that costs almost nothing, and no torches left to burn
+      out.</p>
     <p class="mono-note">Everything tagged <span class="tag m">measured</span>
       was simulated on placed blocks. Everything tagged
       <span class="tag p">projected</span> is an estimate and says so.</p>
@@ -156,32 +158,37 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 
   <h2>Why rebuild at all</h2>
   <div class="prose">
-    <p>The Mk I 8-bit ALU settles in 234 game ticks. Its logic is only 14 stages
+    <p>The Mk I 8-bit ALU settles in 186 game ticks. Its logic is only 14 stages
       deep, which should cost 28. Walking the placed blocks and attributing every
       tick on the critical path to a cause explains the gap:</p>
   </div>
 
   <div class="split" title="critical path composition">
-    <i class="logic" style="width:12%"></i>
-    <i class="rail" style="width:45%"></i>
-    <i class="coll" style="width:43%"></i>
+    <i class="logic" style="width:15%"></i>
+    <i class="rail" style="width:46%"></i>
+    <i class="coll" style="width:39%"></i>
   </div>
   <div class="keyline">
-    <span><i class="sw" style="background:var(--pass)"></i>logic 28 gt (12%)</span>
-    <span><i class="sw" style="background:var(--redstone)"></i>rail wire 108 gt (45%)</span>
-    <span><i class="sw" style="background:var(--torch)"></i>collector wire 104 gt (43%)</span>
+    <span><i class="sw" style="background:var(--pass)"></i>logic 28 gt (15%)</span>
+    <span><i class="sw" style="background:var(--redstone)"></i>rail wire 88 gt (46%)</span>
+    <span><i class="sw" style="background:var(--torch)"></i>collector wire 74 gt (39%)</span>
   </div>
 
   <div class="prose">
-    <p><strong>88% of the machine's latency is repeaters spent keeping dust
+    <p><strong>85% of the machine's latency is repeaters spent keeping dust
       alive over distance.</strong> Not gates. That single number sets the whole
       plan, because it collapses three of the goals into one: on this
       architecture, <em>compact is fast</em>. Every block of wire removed is
       latency removed, and every block removed is also a block you don't have to
       look at.</p>
     <p>It also means the obvious lever — a cleverer adder — is the wrong one.
-      Carry-lookahead already bought 1.7&times; the logical depth and returned
-      only 1.05&times; on the clock.</p>
+      Carry-lookahead bought 1.7&times; the logical depth and returned 1.02&times;
+      on the clock. Acting on the wire instead did work: switching to the wiki's
+      block&ndash;repeater&ndash;block transmission line, which carries 18 blocks
+      per redstone tick against a bare repeater's 16, took the 8-bit ALU from 234
+      to <strong>186 game ticks</strong> and 5,179 repeaters to 3,996 — with the
+      logic completely untouched, and all 2,048 four-bit vectors still correct.
+      <span class="tag m">measured</span></p>
   </div>
 
   <h2>Decision 1 — work in decimal, not binary <span class="tag m">measured</span></h2>
@@ -201,23 +208,29 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     <tr><td>Seven-segment display, one digit</td><td class="n">—</td>
         <td class="n">—</td><td class="n">168</td><td class="n">4 gt</td>
         <td>all 10 digits</td></tr>
-    <tr><td>3-digit BCD adder + display decode</td><td class="n">963</td>
-        <td class="n">32</td><td class="n">94,660</td><td class="n">256 gt</td>
-        <td>11 sums, digits + segments</td></tr>
+    <tr><td>3-digit BCD adder + display, ripple digit carry</td><td class="n">963</td>
+        <td class="n">32</td><td class="n">94,660</td><td class="n">386 gt</td>
+        <td>14 sums, digits + segments</td></tr>
+    <tr><td>3-digit BCD adder + display, <b>digit lookahead</b></td>
+        <td class="n">542</td><td class="n">18</td><td class="n">102,290</td>
+        <td class="n">400 gt</td><td>14 sums, digits + segments</td></tr>
     <tr class="hi"><td>Mk I 8-bit binary ALU <small>(no display at all)</small></td>
         <td class="n">723</td><td class="n">14</td><td class="n">123,354</td>
-        <td class="n">234 gt</td><td>1,120 vectors</td></tr>
+        <td class="n">360 gt</td><td>1,120 vectors</td></tr>
   </table></div>
   <div class="prose">
     <p>A 3-digit decimal adder <em>including its whole display path</em> is
       23% smaller than the binary ALU that still cannot display anything. The
       catch is depth: 32 stages against 14, because the BCD carry currently
       ripples from digit to digit and each digit is two chained 4-bit adds.</p>
-    <p><strong>Fix, and it is the first thing to build:</strong> a digit
-      generates a carry when its sum exceeds 9, which is a function of its own
-      operands only — so the same flat lookahead already used inside a digit
-      applies across digits. That should take depth 32 to roughly 14
-      <span class="tag p">projected</span>.</p>
+    <p>That fix is now built <span class="tag m">measured</span>. A digit
+      generates a carry when <code>a+b &ge; 10</code> and propagates when
+      <code>a+b == 9</code> — both functions of that digit's own operands, which
+      is exactly what allows lookahead across digits. The correction folds into
+      the same add, since <code>&minus;10 &equiv; +6 (mod 16)</code>. Result:
+      <strong>963 gates and depth 32 down to 542 and 18</strong> — and no faster
+      on the clock, for the same reason as before. Take it for the gate count,
+      not the speed.</p>
   </div>
 
   <h2>Decision 2 — bit-sliced tiles, not a machine-wide crossbar
@@ -233,35 +246,75 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
       shrinks to a single carry line.</p>
   </div>
 
-  <h2>Decision 3 — spend more block types <span class="tag m">partly measured</span></h2>
+  <h2>Decision 3 — get rid of the torches
+    <span class="tag m">mechanism measured</span></h2>
+  <div class="prose">
+    <p>With the wire partly fixed, the binding constraint moved. Every large
+      build now burns torches out: Minecraft kills a torch forced off more than
+      eight times in 60 game ticks, and hazard glitching in a deep network does
+      exactly that. The remedy is longer repeater delays, which spread the
+      transitions out — at roughly double the latency.</p>
+  </div>
+  <div class="tw"><table>
+    <tr><th>build</th><th>delay 1</th><th>delay 2</th></tr>
+    <tr><td>8-bit ALU</td><td class="n">186 gt, 1 torch burned, 76/648 wrong</td>
+        <td class="n">360 gt, clean</td></tr>
+    <tr><td>3-digit BCD, ripple</td><td class="n">216 gt, 26 burned, wrong</td>
+        <td class="n">386 gt, clean</td></tr>
+    <tr><td>3-digit BCD, lookahead</td><td class="n">208 gt, 37 burned, wrong</td>
+        <td class="n">400 gt, clean</td></tr>
+  </table></div>
+  <div class="prose">
+    <p><strong>Comparators have no burnout rule at all</strong>, and one
+      inverts: in subtract mode, <code>out = max(rear &minus; side, 0)</code>.
+      With a rear constant of 1, any nonzero side gives 0 and a zero side gives
+      1 — an exact logical inverter, no torch, in the same 2 game ticks a torch
+      takes. Verified in the simulator.</p>
+    <p>The catch is that its output is only as strong as the rear constant, so a
+      tap built this way needs a repeater to restore it: two redstone ticks
+      against the torch's one. That is the trade, and it is worth taking —
+      because it buys running the whole machine at delay 1.</p>
+  </div>
+  <div class="tw"><table>
+    <tr><th></th><th>now</th><th>torch-free <span class="tag p">projected</span></th></tr>
+    <tr><td>8-bit ALU, safe operation</td><td class="n">360 gt (delay 2)</td>
+        <td class="n">~215 gt (delay 1)</td></tr>
+    <tr class="hi"><td>Can burn out</td><td>yes, mitigated by slowing it down</td>
+        <td>no — structurally impossible</td></tr>
+  </table></div>
+  <p class="prose">Roughly 1.7&times; faster <em>and</em> impossible to burn
+    out. This is the highest-value item left, and the first thing to build.</p>
+
+  <h2>Decision 4 — spend more block types <span class="tag m">confirmed</span></h2>
   <div class="prose">
     <p>Mk I uses five block types. Each of these earns its place by collapsing
       something that currently costs many blocks:</p>
   </div>
   <div class="tw"><table>
     <tr><th>block</th><th>property used</th><th>what it replaces</th><th>status</th></tr>
+    <tr><td>Comparator, subtract</td>
+        <td><code>out = max(rear &minus; side, 0)</code>, 2 gt, and no burnout rule</td>
+        <td>Torch inverters — see above</td><td>measured</td></tr>
     <tr><td>Copper bulb</td>
-        <td>Toggles on a rising edge, <em>keeps</em> its state, comparator-readable,
-            and emits light</td>
+        <td>Toggles on a <em>rising edge</em>, keeps its state, comparator-readable
+            at 15 when lit, emits light. <em>Not conductive</em></td>
         <td>A multi-block latch <em>and</em> a display lamp — in one block</td>
-        <td>to confirm</td></tr>
+        <td>confirmed</td></tr>
     <tr><td>Repeater locking</td>
         <td>A repeater held from the side freezes its output</td>
         <td>Torch latches. Zero torches means burnout is impossible</td>
         <td>verified, 44 blocks</td></tr>
-    <tr><td>Comparator, subtract</td>
-        <td><code>out = rear − side</code> in one redstone tick</td>
-        <td>Whole binary compare and subtract trees</td><td>verified</td></tr>
     <tr><td>Comparator + barrel</td>
         <td>Reads container fullness as 0–15</td>
         <td>Hard-wired constants and small lookup tables</td><td>to build</td></tr>
     <tr><td>Lectern</td>
-        <td>A comparator reads the open page number</td>
+        <td><code>floor(1 + (page&minus;1)/(pages&minus;1) &times; 14)</code></td>
         <td>The menu selector — turn a page to choose the operation</td>
-        <td>to build</td></tr>
+        <td>confirmed</td></tr>
     <tr><td>Observer</td>
-        <td>Two-tick pulse on a block update, one block</td>
-        <td>Multi-block pulse shapers and edge detectors</td><td>to confirm</td></tr>
+        <td>15-strength pulse, 2 gt long, 2 gt delay, one block</td>
+        <td>Pulse shapers — and the edge a copper bulb needs, since it will not
+            respond to a steady level</td><td>confirmed</td></tr>
     <tr><td>Slabs, stairs, glass</td>
         <td>Non-conductive, but a top slab still supports dust</td>
         <td>Part of the 4-block cell pitch that exists only to stop cross-talk</td>
@@ -269,14 +322,15 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     <tr><td>Note block</td><td>Sounds when powered</td>
         <td>Nothing — it is there so the keypad answers you</td><td>to build</td></tr>
   </table></div>
-  <p class="prose">Two honest caveats. Copper-bulb and observer tick timings could
-    not be checked against the wiki this session, so they are marked <em>to
-    confirm</em> rather than assumed. And the locked-repeater latch has a real
-    protocol requirement found while testing it: <strong>the lock must be
+  <p class="prose">The copper bulb's rising-edge rule shapes the design: it
+    cannot be driven by a steady level, so latching the answer needs an observer
+    (or a button) to produce the edge — which pairs the two blocks naturally.
+    And the locked-repeater latch has a real protocol requirement found while
+    testing it: <strong>the lock must be
     asserted a tick before the data changes</strong>, or the data wins the race
     and the latch stores the new value instead of holding the old one.</p>
 
-  <h2>Decision 4 — the display is the memory</h2>
+  <h2>Decision 5 — the display is the memory</h2>
   <div class="prose">
     <p>A copper bulb holds its own state and is a light source, so the answer
       register and the screen stop being two different things. Latch the result
@@ -289,7 +343,7 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
       but not its redstone behaviour.</p>
   </div>
 
-  <h2>Decision 5 — player control worth using</h2>
+  <h2>Decision 6 — player control worth using</h2>
   <div class="cards">
     <div class="card"><h4>0–9 keypad</h4>
       <p>Stone buttons, one per digit, feeding a shift register. Entry is typing
@@ -312,29 +366,29 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     <tr><td>Blocks</td><td class="n">123,354 <small>measured</small></td>
         <td class="n">~55,000 <small>projected</small></td></tr>
     <tr><td>Logic depth</td><td class="n">14 <small>measured</small></td>
-        <td class="n">~14 <small>projected, with digit lookahead</small></td></tr>
-    <tr><td>Settle</td><td class="n">234 gt <small>measured</small></td>
-        <td class="n">~70 gt <small>projected</small></td></tr>
-    <tr><td>Wire share of latency</td><td class="n">88% <small>measured</small></td>
+        <td class="n">18 <small>measured, with digit lookahead</small></td></tr>
+    <tr><td>Settle, safe operation</td><td class="n">360 gt <small>measured</small></td>
+        <td class="n">~120 gt <small>projected, torch-free at delay 1</small></td></tr>
+    <tr><td>Wire share of latency</td><td class="n">85% <small>measured</small></td>
         <td class="n">~55% <small>projected</small></td></tr>
     <tr><td>Shows a decimal answer</td><td>no</td><td>yes, 17 gates per digit</td></tr>
     <tr><td>Input</td><td>19 levers, in binary</td><td>keypad and a lectern</td></tr>
   </table></div>
-  <p class="prose">The projections rest on the tile change removing most of the
-    rail wire. That is the assumption most likely to be wrong, so it is the one
-    to test first — build one digit tile, measure its critical path with the
-    same profiler, and only then clone it.</p>
+  <p class="prose">The projections rest on the torch-free tap and on the tile
+    change removing most of the remaining rail wire. Those are the two
+    assumptions most likely to be wrong, so they are the two to test first —
+    each measured with the same profiler before anything is cloned.</p>
 
   <h2>Build order</h2>
   <div class="prose">
     <p>Each step is checkable on its own, and each one can fail loudly before
       the next is worth starting.</p>
     <ol>
-      <li>Cross-digit carry lookahead. Target: BCD depth 32 &rarr; ~14.</li>
+      <li><strong>Torch-free inverting tap</strong> — comparator plus repeater.
+        Removes burnout structurally and lets everything run at delay 1.</li>
       <li>One digit tile, bit-sliced. Profile it. If rail wire hasn't collapsed,
         the plan is wrong and stops here.</li>
-      <li>Add copper bulbs and observers to the simulator, confirming their tick
-        behaviour against the wiki first.</li>
+      <li>Add copper bulbs and observers to the simulator.</li>
       <li>Clone the tile three times, wire the carry chain.</li>
       <li>Keypad, lectern menu, note blocks.</li>
       <li>Join decoder and display in one world — the 21-net corridor: seven
