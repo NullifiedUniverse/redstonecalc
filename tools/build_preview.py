@@ -48,6 +48,23 @@ def build_decoder():
 
 
 def main():
+    """Build the bundle the preview page loads.
+
+    The Mk III machine is the page; the smaller circuits are only built when
+    asked for, because each one costs a compile and the page never loads them.
+    """
+    only = sys.argv[1] if len(sys.argv) > 1 else "machine"
+    if only == "machine":
+        delay = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+        print(f"building the Mk III machine at repeater delay {delay} "
+              f"(the first run computes its resting state, which is slow)...")
+        cc = export_machine(delay)
+        print(f"machine: {cc['n']:,} blocks, dims {cc['dims']}, "
+              f"{len(cc['data'])/1024:.0f} KB blocks + "
+              f"{len(cc.get('state',''))/1024:.0f} KB state")
+        size = write_bundle("out/preview.json", [cc])
+        print(f"bundle: {size/1024:.0f} KB -> out/preview.json")
+        return
     circuits = []
 
     # ---------- the 7-segment decoder ----------
@@ -117,6 +134,50 @@ def main():
     print(f"bundle: {size/1024:.0f} KB -> out/preview.json")
 
 
+
+
+def export_machine(delay=3):
+    """The whole Mk III machine, with its settled state, for the live page."""
+    from rscalc.engine import Engine
+    from rscalc.machine import build_machine, FLAGS
+    from rscalc.alu import OPS
+    from rscalc.steady import settled_engine
+    from rscalc.export import encode_world
+
+    m = build_machine(repeater_delay=delay)
+    problems = m.world.lint()
+    assert not problems, problems[:3]
+    e = settled_engine(m.world, Engine, verify=True)
+    (x0, y0, z0), _ = m.world.bounds()
+
+    def rel(p):
+        return [p[0] - x0, p[1] - y0, p[2] - z0]
+
+    enc = encode_world(m.world, engine=e)
+    enc.update({
+        "name": "machine",
+        "title": f"Mk III — {m.width}-bit calculator",
+        "kind": "machine",
+        "width": m.width,
+        "gates": m.stats["gates"],
+        "depth": m.stats["depth"],
+        "delay": delay,
+        "ops": OPS,
+        "flags": FLAGS,
+        "digits": [str(k) for k in reversed(range(m.ndigits))],
+        "switches": {k: rel(v) for k, v in m.levers.items()},
+        "buttons": {str(k): rel(v) for k, v in m.keys.items()},
+        "lamps": {f"{d}_{s}": [rel(p) for p in m.lamps[d][s]]
+                  for d in [str(k) for k in range(m.ndigits)] for s in SEGS},
+        "flaglamps": {f: rel(m.lamps["F"][f]) for f in FLAGS},
+        "ready": rel(m.ready),
+        "hold": 40,
+        "stats": dict(m.stats),
+        "levers": {}, "outputs": {},
+    })
+    for f in FLAGS:
+        enc["lamps"][f"F_{f}"] = [rel(m.lamps["F"][f])]
+    return enc
 
 
 def export_console():

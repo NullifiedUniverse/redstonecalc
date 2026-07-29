@@ -85,14 +85,26 @@ def route(w: World, nets, ya, yb, y_disp, turn_x0):
         tower(w, sx + 3, sy, sz, ya - sy)
         line(w, sx + 4, turn - 1, ya, sz, "x")
 
-        # climb to the Z level and cross to the target's Z
-        tower(w, turn, ya, sz, yb - ya)
-        zstep = 1 if dz >= sz else -1
-        line(w, sz + zstep, dz - zstep, yb, turn, "z")
+        # Climb to the Z level and cross to the target's Z. Source exits sit on
+        # the four-block rail grid and display feeds on a two-block grid, so the
+        # gap is always even: either zero, or at least two, never one — which
+        # matters because a one-cell gap leaves no room for the dust that has to
+        # sit between the two towers.
+        gap = abs(dz - sz)
+        assert gap != 1, f"no room between towers at z={sz} and z={dz}"
+        if gap == 0:
+            # already on the target's Z: one straight climb, no crossing needed
+            tower(w, turn, ya, sz, y_disp - ya)
+            stats["towers"] += 2
+        else:
+            tower(w, turn, ya, sz, yb - ya)
+            zstep = 1 if dz > sz else -1
+            line(w, sz + zstep, dz - zstep, yb, turn, "z")
+            tower(w, turn, yb, dz, y_disp - yb)
+            stats["towers"] += 3
 
-        # climb to the display and run in to its lane
-        tower(w, turn, yb, dz, y_disp - yb)
+        # run in to the display's lane
         line(w, turn + 1, dx, y_disp, dz, "x")
         stats["nets"] += 1
-        stats["towers"] += 3
+        stats["towers"] += 1
     return stats

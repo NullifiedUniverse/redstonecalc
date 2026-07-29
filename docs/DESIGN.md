@@ -324,3 +324,145 @@ At delay-1 repeaters the machine burns torches out, as every large build does;
 at delay 2 it is clean, and a keypress settles in at most **384 game ticks**
 (19.2 s) from button to lamps. That is the honest number for a machine you
 operate, and the torch-free tap in the plan is what should halve it.
+
+## 11. Mk III — ten bits, and four bugs that all looked like nothing
+
+The 10-bit machine (`rscalc/machine.py`) is 590,555 blocks: an 8-operation ALU,
+a combinational binary-to-BCD converter, four seven-segment decoders, a 32-net
+loom and four lamp digits with a flag row, driven by 20 levers and an 8-button
+keypad. It runs at repeater delay 4.
+
+Every fault found while building it had the same shape — the build looked
+healthy and computed nonsense. That is worth recording more than the successes.
+
+### The loom crossed itself, and only in one direction
+
+Each net climbs a torch tower at its own turn column from the shared level up to
+its panel's feed level, then runs east into the digit. Turn columns were handed
+out in order of source Z, which seemed neutral. It is not: **a net's final run
+travels east past every later turn column**, and a tower at a later column
+occupies every level from the shared one up to *its* panel. So a run collides
+with a tower exactly when they share a Z and the run's level is at or below the
+tower's top — and segment `a` of all four digits, plus one flag, share Z by
+construction.
+
+Two segment lines merged. The display showed digits belonging to other digits,
+and the resulting feedback burned 96 torches, which looked like a timing problem
+and was not. Handing out turn columns in **descending feed level** removes it
+completely: every later tower is then shorter than the run passing over it, and
+the only nets left sharing a level are the seven segments of one digit, which
+sit on different Z anyway.
+
+`tests/test_errors.py` now records which build phase writes each cell and
+asserts that no two loom nets ever write the same one. The only overwrites left
+are the 64 intentional hand-over cells where a net's last cell replaces its
+panel's feed-lane entry — two per net.
+
+### A repeater only ever feeds the block in front of it
+
+The keypad's shared bus is a chain of dust with a repeater every twelfth cell,
+and the chain hands its signal sideways and downward to a crossing. With eight
+keys instead of ten, the spacing put a repeater on the chain's **last** cell —
+and a repeater outputs only to its front, so the crossing got nothing and no key
+ever latched. The chain now decides its repeater positions before placing
+anything, and moves the last one back a cell rather than dropping it.
+
+Measured working range afterwards: 6, 8, 10 and 12 keys all latch one-hot with
+no burnout; at 16 the far keys stop latching, so the builder asserts the limit
+rather than failing quietly.
+
+### A cached state that was only mostly right
+
+Relaxing 590,555 blocks to their resting state takes about five minutes, so it
+is cached to disk and keyed to a digest of the placed blocks. The first version
+saved each block's `power` and `lit` — which is complete for dust and torches,
+and silently wrong for everything else: a repeater's output lives in `powered`
+and a comparator's in `out`. Restoring it produced a world where every repeater
+read as unpowered, which looked like a fresh circuit fault and cost an hour of
+chasing a bug that was not there.
+
+The cache now round-trips every mutable field, and `adopt_state(check=True)`
+runs one relaxation pass over the restored state and refuses it if anything
+moves. That check is the default, because a wrong resting state poisons every
+measurement taken afterwards while looking perfectly healthy.
+
+### Constants have to fold, or they ask for the impossible
+
+A partly-built BCD digit mixes real nodes with the constant-zero rail. Asking
+for `digit == 5` then produces a term wanting that rail both true and false in
+one gate — which is a constant, and has no single-tap implementation, so the
+netlist refused to build it. Rather than special-case it, `logic.fold_term`
+drops constants out of a term: reading the zero rail *false* is always satisfied
+and goes away, reading it *true* makes the whole term impossible and it is
+dropped from the sum.
+
+This pays for itself immediately. The thousands digit of a 10-bit result is 0 or
+1, so eight of its ten minterms fold away, and the segments lit for both values
+become constants — the digit needs no decoder at all. And leading-zero blanking
+becomes free: the "show this digit" signal is one more literal in terms that
+were already ANDs.
+
+## 12. Where Mk III's size goes — the Z ratchet
+
+A gate's collector runs along Z from its first tap to an exit, and that exit
+must sit **past the gate's own last tap**, or the collector would not reach it.
+The exit then becomes a rail for the next stage, whose gates tap it, whose exits
+must sit past those taps. Over 36 stages Z ratchets upward and never returns:
+
+| stage | gates | rails span Z | exits span Z |
+|---|---|---|---|
+| 0 (inputs) | — | 0 … 124 | — |
+| 3 | 94 | 16 … 336 | 28 … 640 |
+| 12 | 47 | 372 … 820 | 380 … 840 |
+| 24 | 24 | 740 … 988 | 748 … 1016 |
+| 36 (outputs) | 33 | 992 … 1816 | 1000 … 1824 |
+
+The widest stage has 119 gates and needs **476 blocks of Z**. The machine is
+**1,825 deep**. About three quarters of that is drift, not logic — and every
+block of drift lengthens the collectors crossing it, which is where the
+repeaters go.
+
+The fix is specific and not yet built: **alternate the collector direction stage
+by stage**, placing exits below the taps on odd stages and above on even ones,
+so Z oscillates inside a band set by the widest stage instead of ratcheting with
+depth. That is the largest remaining size win, and on this architecture size is
+latency.
+
+## 13. What Mk III costs to keep stable — **measured**
+
+Minecraft kills a redstone torch that is forced off more than eight times in 60
+game ticks. Mk III is 36 stages deep, and hazard glitching in a network that
+deep does exactly that. Two independent things reduce it, and only one of them
+is free.
+
+**Repeater delay**, over the same fourteen vectors:
+
+| delay | result |
+|---|---|
+| 2 (4 gt) | 5/14 correct, **117 torches burned out** |
+| 3 (6 gt) | 14/14 on a gentle sequence — but see below |
+| **4 (8 gt)** | **16/16 correct, none burned**, 2,584 gt to the answer |
+
+**How fast the inputs move.** Delay 3 looked clean until it was given a hostile
+sequence: operand pairs chosen to change ten or more levers at once. Over ten
+such vectors, varying only how far apart the lever flips were placed in time:
+
+| game ticks between lever flips | correct | torches burned |
+|---|---|---|
+| 0 — every lever in the same instant | 5/10 | 5 |
+| 1 | 7/10 | 4 |
+| 2 | 9/10 | 2 |
+| 4 | 9/10 | 2 |
+
+Spacing is real and it is not enough. It is also the more interesting number,
+because **a player cannot flip twenty levers inside a twentieth of a second**.
+Changing every input in the same game tick aligns every hazard in the machine at
+one instant, and that is a load the build never sees in a world with a person in
+it. `Machine.set_operands` therefore moves only the levers that differ, two game
+ticks apart, and says why.
+
+The honest summary: this machine needs both a slower repeater setting than Mk II
+— delay 4, which is what it now defaults to — and inputs that arrive at human
+speed. The structural fix remains the torch-free
+comparator tap — it has no burnout rule at all, so the whole question would stop
+existing rather than being paid for in latency.

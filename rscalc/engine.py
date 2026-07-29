@@ -250,7 +250,7 @@ BURNOUT_LIMIT = 8     # toggles within the window
 class Engine:
     """Event-driven redstone simulator over a `World`."""
 
-    def __init__(self, world: World, model_burnout=True):
+    def __init__(self, world: World, model_burnout=True, settle_on_init=True):
         self.w = world
         self.now = 0
         self.model_burnout = model_burnout
@@ -259,7 +259,11 @@ class Engine:
         self._pending = {}        # pos -> target state already scheduled
         self.burned_out = set()
         self._compile()
-        self.settle()
+        # Settling from power-on is the expensive part of standing a large
+        # build up, and it is pure waste when the caller is about to restore a
+        # state that was computed once and saved.
+        if settle_on_init:
+            self.settle()
 
     # ---- static topology ----
     def _compile(self):
@@ -678,6 +682,42 @@ class Engine:
             self.settle(fired)
         return fired
 
+    def adopt_state(self, check=False):
+        """Take the state already written onto the blocks as the resting state.
+
+        Used after restoring a cached steady state. With `check`, one relaxation
+        pass must change nothing — if the cache were stale or truncated this
+        would catch it, and a wrong resting state is the kind of fault that
+        quietly poisons every measurement taken afterwards.
+        """
+        for pos, b in self.w.blocks.items():
+            if b.kind == "repeater":
+                b.locked = self._repeater_locked(pos)
+        if check:
+            drift = []
+            for nid in range(len(self.nets)):
+                before = {p: self.w.blocks[p].power for p in self.nets[nid]}
+                if self._recompute_net(nid):
+                    drift += [p for p in self.nets[nid]
+                              if self.w.blocks[p].power != before[p]]
+            for cpos in self.components:
+                b = self.w.blocks[cpos]
+                if b.kind == "repeater" and b.locked:
+                    continue
+                if self._current(cpos) != self._desired(cpos):
+                    drift.append(cpos)
+            if drift:
+                raise RuntimeError(
+                    f"restored state is not a fixed point: {len(drift)} blocks "
+                    f"disagree, first {drift[:3]}")
+        self._queue.clear()
+        self._pending.clear()
+        self.burned_out.clear()
+        self.now = 0
+        for b in self.w.blocks.values():
+            if b.kind == "redstone_torch":
+                b._toggles.clear()
+
     def initialize_steady(self, max_iters=2000):
         """Relax straight to the circuit's steady state, skipping power-on.
 
@@ -688,20 +728,35 @@ class Engine:
         This settles the (acyclic) logic combinationally, then clears the queue
         and the burnout history so timing measurements start from rest.
         """
+        # Relax in ascending Y. The compiled machine only ever sends signals
+        # upward — rails at y, collectors at y+2, riser to y+4 — so one pass in
+        # height order carries a change all the way to the top, where an
+        # arbitrary order would need a pass per stage. The fixed point is the
+        # same either way; this only decides how many passes it takes to reach
+        # it, and on a half-million-block build that is the difference between
+        # minutes and seconds.
+        if not hasattr(self, "_relax_order"):
+            items = [(min(p[1] for p in self.nets[n]), 0, n)
+                     for n in range(len(self.nets))]
+            items += [(p[1], 1, p) for p in self.components]
+            items.sort(key=lambda t: (t[0], t[1]))
+            self._relax_order = [(kind, ref) for _, kind, ref in items]
+
         for _ in range(max_iters):
             changed = False
-            for nid in range(len(self.nets)):
-                if self._recompute_net(nid):
-                    changed = True
-            for cpos in self.components:
-                b = self.w.blocks[cpos]
+            for kind, ref in self._relax_order:
+                if kind == 0:
+                    if self._recompute_net(ref):
+                        changed = True
+                    continue
+                b = self.w.blocks[ref]
                 if b.kind == "repeater":
-                    b.locked = self._repeater_locked(cpos)
+                    b.locked = self._repeater_locked(ref)
                     if b.locked:
                         continue
-                want = self._desired(cpos)
-                if self._current(cpos) != want:
-                    self._apply(cpos, want)
+                want = self._desired(ref)
+                if self._current(ref) != want:
+                    self._apply(ref, want)
                     changed = True
             if not changed:
                 break

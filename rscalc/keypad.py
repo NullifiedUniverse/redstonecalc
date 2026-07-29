@@ -39,13 +39,20 @@ BUS_Y = -2           # the inverted-lock distribution bus runs below
 
 
 def build_keypad(w: World, targets, name="K"):
-    """Wire ten buttons to ten one-hot outputs, each feeding one target.
+    """Wire N buttons to N one-hot outputs, each feeding one target.
 
     `targets` is the list of positions the keypad must drive, in key order —
     they are the input rails of whatever reads the keypad. Returns the button
-    positions, keyed by digit.
+    positions, keyed by index. Ten keys makes a digit pad; eight makes an
+    operation selector; the mechanism does not care.
     """
-    assert len(targets) == 10
+    assert len(targets) >= 2, "a one-hot pad needs at least two keys"
+    # Measured working range: 6, 8, 10 and 12 keys all latch one-hot with no
+    # burnout. At 16 the shared bus no longer reaches the far keys and they stop
+    # latching, so the limit is asserted rather than left to fail quietly — a
+    # wider pad needs a second repeater stage on the distribution chain.
+    assert len(targets) <= 12, (
+        f"{len(targets)} keys: the shared bus is only verified to 12")
     zs = [t[2] for t in targets]
     y = targets[0][1]
     buttons = {}
@@ -120,24 +127,40 @@ def build_keypad(w: World, targets, name="K"):
 
 def _chain(w: World, x, y, z_lo, z_hi, facing, skip=(), lead=False):
     """Dust along Z with repeaters, so the run can cross the whole keypad."""
-    cells = range(z_lo, z_hi + 1)
+    cells = list(range(z_lo, z_hi + 1))
     if facing == "north":
-        cells = range(z_hi, z_lo - 1, -1)
-    since = 0
+        cells.reverse()
+
+    # decide where the repeaters go before placing anything
+    rep, since = set(), 0
     for i, z in enumerate(cells):
-        w.solid((x, y - 1, z))
         if i == 0 and lead:
             # the feed arrives from the side, which a repeater ignores, so the
             # chain opens on dust and repeats at the very next chance
-            w.wire((x, y, z))
             since = CHAIN_EVERY
             continue
         if since >= CHAIN_EVERY and z not in skip:
-            w.repeater((x, y, z), facing=facing, delay=1)
+            rep.add(z)
             since = 0
         else:
-            w.wire((x, y, z))
             since += 1
+
+    # The chain has to hand its signal sideways and downward to the crossing,
+    # and a repeater only ever feeds the single block in front of it — so the
+    # last cell must be plain dust. Where the spacing wanted a repeater there,
+    # it moves back one cell instead of being dropped, which would leave the
+    # tail of the run to fade out.
+    if cells and cells[-1] in rep:
+        rep.discard(cells[-1])
+        if len(cells) > 1 and cells[-2] not in skip:
+            rep.add(cells[-2])
+
+    for z in cells:
+        w.solid((x, y - 1, z))
+        if z in rep:
+            w.repeater((x, y, z), facing=facing, delay=1)
+        else:
+            w.wire((x, y, z))
 
 
 def press(engine, buttons, key, hold_ticks=4, settle=True):

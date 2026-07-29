@@ -204,7 +204,35 @@ Steps 5 and 6 are **done** — see §10. The rest stands.
 
 ---
 
-## 10. The console, as built — **measured**
+## 10. Mk III, as built — **measured**
+
+A 10-bit calculator in one world, driven by levers and a button, answering in
+decimal on four lamp digits.
+
+| | |
+|---|---|
+| Blocks | 590,555 |
+| Extent | 802 x 181 x 1,825 |
+| Gates / depth | 1,648 / 36 |
+| Loom | 32 nets, 128 risers, no crossings |
+| Repeater delay | 4 — delay 2 burns 117 torches, delay 3 survives only gentle input |
+| Range | 0-1023 in, 0-1023 shown, with CARRY / ZERO / NEG / OVF |
+| Settle | 2,584 gt = 129 s in game, from keypress to answer |
+| Verified | all eight operations, and runs of operations back to back with nothing cleared between them |
+
+Two of the plan's older assumptions are now settled by it:
+
+- **The modules compose.** Keypad, ALU, converter, decoders, display and loom
+  are separate files with separate tests, and the machine is the only place that
+  knows how they fit. They compile into *one* netlist rather than several placed
+  side by side, because pipelined stages are disjoint and cost no extra rail —
+  splitting them would add an inter-module loom at every boundary.
+- **Depth still is not the constraint.** 1,648 gates over 36 stages, and the
+  machine is 1,825 blocks deep in Z of which roughly three quarters is exit-slot
+  drift rather than logic (see DESIGN §12). Size is latency here, and the
+  remaining size is geometry, not gates.
+
+## 11. What Mk II's console became
 
 One world, keypad to lamps, no software glue anywhere in the path:
 

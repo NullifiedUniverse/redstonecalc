@@ -39,6 +39,7 @@ class Netlist:
         self.outputs: dict[str, Node] = {}
         self._bufs: dict[tuple[int, int], Node] = {}
         self.const0 = None
+        self.const1 = None
 
     # -- construction --
     def _add(self, kind, stage, taps, name):
@@ -92,6 +93,23 @@ class Netlist:
         self.outputs[name] = node
         return node
 
+    def align_outputs(self):
+        """Buffer every output up to the deepest one, and return that stage.
+
+        Outputs left on different stages exit at different heights but can land
+        on the same Z, and a loom that runs each net along its source Z at one
+        shared level would then drive two nets down the same lane. Aligning them
+        makes every exit slot distinct by construction — and has the side
+        benefit that flags and digits arrive together instead of the flags
+        flickering ahead of the answer.
+        """
+        if not self.outputs:
+            return 0
+        target = max(n.stage for n in self.outputs.values())
+        for name, node in list(self.outputs.items()):
+            self.outputs[name] = self.lift(node, target)
+        return target
+
     # -- logic helpers (all built on OR-of-literals) --
     def not_(self, a, name=None):
         return self.gate([(a, True)], name)
@@ -132,6 +150,20 @@ class Netlist:
         if self.const0 is None:
             self.const0 = self.input("ZERO")
         return self.const0
+
+    def one(self):
+        """A constant 1: the zero rail, inverted once and shared."""
+        if self.const1 is None:
+            self.const1 = self.not_(self.zero(), name="ONE")
+        return self.const1
+
+    def is_const(self, node):
+        """0, 1, or None — used by the sum-of-products builder to fold."""
+        if node is self.const0:
+            return 0
+        if node is self.const1:
+            return 1
+        return None
 
     # -- reference evaluation --
     def evaluate(self, values: dict):

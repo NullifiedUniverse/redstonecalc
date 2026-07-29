@@ -238,7 +238,7 @@ async function inflate(b64){
 }
 
 class World{
-  constructor(n,dims,raw){
+  constructor(n,dims,raw,state){
     this.n=n; this.dims=dims;
     const [DX,DY,DZ]=dims;
     this.DY=DY; this.DZ=DZ;
@@ -256,9 +256,16 @@ class World{
     this.meta.set(raw.subarray(n*7,n*8));
     this.map=new Map();
     for(let i=0;i<n;i++) this.map.set(this.key(this.bx[i],this.by[i],this.bz[i]),i);
-    for(let i=0;i<n;i++){
-      if(this.kind[i]===K_TORCH) this.lit[i]=1;
-      if(this.kind[i]===K_LEVER) this.lit[i]=(this.meta[i]>>3)&1;
+    if(state){
+      // a settled state computed offline: relaxing a large world in the page
+      // would cost minutes to arrive at an answer that is already known
+      this.power.set(state.subarray(0,n));
+      for(let i=0;i<n;i++) this.lit[i]=state[n+i];
+    } else {
+      for(let i=0;i<n;i++){
+        if(this.kind[i]===K_TORCH) this.lit[i]=1;
+        if(this.kind[i]===K_LEVER) this.lit[i]=(this.meta[i]>>3)&1;
+      }
     }
   }
   key(x,y,z){return (x*this.DY+y)*this.DZ+z;}
@@ -276,6 +283,9 @@ class World{
 class Engine{
   constructor(w){
     this.w=w; this.now=0; this.queue=[]; this.pending=new Map(); this.burned=new Set();
+    // when non-null, every block whose state changes is recorded here, so the
+    // renderer can repaint a wavefront instead of half a million instances
+    this.touched=null;
     this.compile();
   }
   /* ---- static topology ---- */
@@ -430,7 +440,8 @@ class Engine{
       }
     }
     let changed=false;
-    for(const dp of mem){const v=best.get(dp)||0; if(w.power[dp]!==v){w.power[dp]=v;changed=true;}}
+    for(const dp of mem){const v=best.get(dp)||0;
+      if(w.power[dp]!==v){w.power[dp]=v;changed=true;if(this.touched)this.touched.add(dp);}}
     return changed;
   }
   inputsOf(c){
@@ -503,6 +514,7 @@ class Engine{
     if(k===K_CMP)w.power[c]=v;
     else if(k===K_LAMP)w.power[c]=v?15:0;
     else w.lit[c]=v;
+    if(this.touched)this.touched.add(c);
   }
   delayOf(c){
     const w=this.w,k=w.kind[c];
@@ -553,6 +565,12 @@ class Engine{
         this.schedule(c,this.desired(c));
       }
     }
+  }
+  adoptState(){
+    // the state on the blocks is already the resting state; just clear the
+    // scheduler so timing starts from zero
+    this.queue.length=0; this.pending.clear(); this.burned.clear();
+    this.toggles=new Map(); this.now=0;
   }
   initializeSteady(){
     for(let it=0;it<4000;it++){

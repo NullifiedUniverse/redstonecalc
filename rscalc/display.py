@@ -64,6 +64,40 @@ WIDTH = 5
 HEIGHT = 13
 
 
+def seven_seg(nl, d, enable=None):
+    """A BCD digit (4 nodes, LSB first) -> the seven segment lines.
+
+    The ten minterms are built once and shared by all seven collectors, so the
+    whole decoder is 17 gates and exactly two stages. Inputs 10-15 never occur
+    and drive nothing, which blanks the digit rather than showing nonsense.
+
+    `enable` is an extra literal folded into every minterm rather than ANDed
+    onto the outputs, so leading-zero blanking is free — a term is already an
+    AND, and one more literal costs nothing.
+
+    Digits whose upper bits are the constant rail (the top digit of a value
+    that cannot reach 2000, say) fold: impossible values drop out of the sum,
+    and a segment lit for every value the digit *can* take becomes a constant.
+    """
+    from .logic import fold_term, nand_term
+    nmin = {}
+    for k in range(10):
+        term = [(d[i], bool((k >> i) & 1)) for i in range(4)]
+        if enable is not None:
+            term.append((enable, True))
+        nmin[k] = fold_term(nl, term)
+
+    out = {}
+    for s in SEGS:
+        ks = [k for k in range(10) if s in DIGIT_SEGMENTS[k]]
+        if any(nmin[k] == 1 for k in ks):
+            out[s] = nl.one()                     # lit for every reachable value
+            continue
+        live = [nand_term(nl, nmin[k]) for k in ks if nmin[k] != 0]
+        out[s] = nl.gate([(t, True) for t in live]) if live else nl.zero()
+    return out
+
+
 def build_digit(world: World | None = None, origin=(0, 0, 0), feed_drop=4,
                 lane_len=6):
     """Place one digit.
@@ -108,6 +142,37 @@ def build_digit(world: World | None = None, origin=(0, 0, 0), feed_drop=4,
             w.wire(P(fx - i, feed_y, fz))
         entries[seg] = P(fx - lane_len, feed_y, fz)
     return w, entries, lamps
+
+
+def build_lamp_row(world: World, origin=(0, 0, 0), n=4, feed_drop=4,
+                   lane_len=6, pitch=2):
+    """A row of single lamps fed from below, for status flags.
+
+    Same construction as a digit's segment: a torch tower strongly powers the
+    lamp from underneath and a feed lane runs out to -X. `pitch` is the Z
+    spacing, which must be at least 2 so the feed lanes cannot merge.
+    """
+    assert pitch >= 2, "feed lanes one block apart would merge"
+    assert feed_drop % 4 == 0, "each non-inverting torch pair spans four levels"
+    ox, oy, oz = origin
+    feed_y = oy - feed_drop
+    entries, lamps = [], []
+    for i in range(n):
+        z = oz + pitch * i
+        world.lamp((ox, oy, z))
+        lamps.append((ox, oy, z))
+        y = feed_y
+        world.solid((ox, y, z))
+        while y < oy - 1:
+            world.torch((ox, y + 1, z), attach="down")
+            if y + 2 < oy:
+                world.solid((ox, y + 2, z))
+            y += 2
+        for k in range(1, lane_len + 1):
+            world.solid((ox - k, feed_y - 1, z))
+            world.wire((ox - k, feed_y, z))
+        entries.append((ox - lane_len, feed_y, z))
+    return entries, lamps
 
 
 def lit_segments(engine, lamps):

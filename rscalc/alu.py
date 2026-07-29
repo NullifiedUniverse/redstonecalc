@@ -35,10 +35,28 @@ CLA_BLOCK = 4
 
 
 def build_alu(width=8, carry="cla"):
+    """The ALU on its own, with its own inputs and outputs — the test target."""
     nl = Netlist()
     A = [nl.input(f"A{i}") for i in range(width)]
     B = [nl.input(f"B{i}") for i in range(width)]
     OP = [nl.input(f"OP{i}") for i in range(3)]
+    out = alu_core(nl, A, B, OP, carry)
+    for i, r in enumerate(out["R"]):
+        nl.output(f"R{i}", r)
+    for f in ("CARRY", "OVF", "NEG", "ZERO"):
+        nl.output(f, out[f])
+    return nl
+
+
+def alu_core(nl, A, B, OP, carry="cla"):
+    """The ALU as a subcircuit: bring your own netlist, operands and opcode.
+
+    Returns ``{"R": [...], "CARRY": n, "OVF": n, "NEG": n, "ZERO": n}`` without
+    declaring any outputs, so a larger machine can carry on building from the
+    result — into a decimal converter and a display, for instance.
+    """
+    width = len(A)
+    assert len(B) == width and len(OP) == 3
     ZERO_IN = nl.zero()
 
     # --- opcode decode ------------------------------------------------------
@@ -101,20 +119,21 @@ def build_alu(width=8, carry="cla"):
     for i in range(width):
         terms = [nl.gate([(sel, False), (vals[i], True)])
                  for sel, vals in selects]
-        r = nl.gate([(t, True) for t in terms], name=f"R{i}")
-        R.append(nl.output(f"R{i}", r))
+        R.append(nl.gate([(t, True) for t in terms], name=f"R{i}"))
 
     # --- flags --------------------------------------------------------------
     # CARRY and OVF only mean anything for ADD/SUB, so they are ANDed with the
     # add/sub select and read 0 for the logic operations.
     ovf_raw = nl.xor(C[width], C[width - 1])
-    nl.output("CARRY", nl.not_(nl.gate([(nm_addsub, False), (C[width], True)]),
-                               name="CARRY"))
-    nl.output("OVF", nl.not_(nl.gate([(nm_addsub, False), (ovf_raw, True)]),
-                             name="OVF"))
-    nl.output("NEG", nl.buf(R[width - 1], name="NEG"))
-    nl.output("ZERO", nl.not_(nl.gate([(r, False) for r in R]), name="ZERO"))
-    return nl
+    return {
+        "R": R,
+        "CARRY": nl.not_(nl.gate([(nm_addsub, False), (C[width], True)]),
+                         name="CARRY"),
+        "OVF": nl.not_(nl.gate([(nm_addsub, False), (ovf_raw, True)]),
+                       name="OVF"),
+        "NEG": nl.buf(R[width - 1], name="NEG"),
+        "ZERO": nl.not_(nl.gate([(r, False) for r in R]), name="ZERO"),
+    }
 
 
 def _ripple_carries(nl, width, A, Badj, P, cin):

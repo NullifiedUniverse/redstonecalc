@@ -1,4 +1,4 @@
-<title>Redstone Calculator Mk II — design preview</title>
+<title>Redstone Calculator Mk III — a 10-bit machine you can watch think</title>
 <style>
 :root{
   --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --line:#252b34;
@@ -35,23 +35,25 @@ h2{font-size:1.22rem;font-weight:700;letter-spacing:-.01em;margin:2.6rem 0 .2rem
   text-wrap:balance}
 h3{font-size:.95rem;font-weight:700;margin:1.5rem 0 .2rem}
 p{margin:.55rem 0}
-.lede{font-size:1.03rem;color:var(--muted);max-width:62ch}
+.lede{font-size:1.03rem;color:var(--muted);max-width:64ch}
 .eyebrow{font-family:var(--mono);font-size:.66rem;letter-spacing:.16em;
   text-transform:uppercase;color:var(--redstone);margin:0 0 .5rem}
 .rule{height:1px;background:var(--line);margin:2.2rem 0 0}
 code{font-family:var(--mono);font-size:.86em;background:var(--panel2);
   padding:.1em .35em;border-radius:3px}
-
+pre{font-family:var(--mono);font-size:.74rem;line-height:1.65;overflow-x:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:.85rem 1rem;color:var(--muted)}
 header.top{border-bottom:1px solid var(--line);background:var(--panel);
   padding:1.6rem 0 1.4rem}
 .mono-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;
   text-transform:uppercase;color:var(--dim);margin-top:.9rem}
 
-/* ---- live console ---- */
-.console{display:grid;grid-template-columns:1fr 340px;gap:0;
+/* ---- the live machine ---- */
+.console{display:grid;grid-template-columns:1fr 360px;gap:0;
   border:1px solid var(--line);border-radius:10px;overflow:hidden;
   background:var(--panel);margin:1.6rem 0 0}
-#view{position:relative;background:var(--viewport);min-height:380px}
+#view{position:relative;background:var(--viewport);min-height:460px}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 canvas:active{cursor:grabbing}
 .hint{position:absolute;left:.75rem;bottom:.6rem;font-family:var(--mono);
@@ -61,66 +63,88 @@ canvas:active{cursor:grabbing}
   text-transform:uppercase;padding:.25rem .5rem;border-radius:4px;cursor:pointer;
   border:1px solid #2b323c;background:#11151b;color:#8b9099}
 .look button[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone)}
+#boot{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font-family:var(--mono);font-size:.75rem;
+  color:var(--muted);background:var(--viewport);z-index:2;letter-spacing:.06em}
+/* the display:flex above outranks the hidden attribute's UA rule, so the
+   overlay would sit over the canvas for ever without this */
+#boot[hidden]{display:none}
 .pad{padding:.9rem;border-left:1px solid var(--line);display:flex;
-  flex-direction:column;gap:.65rem}
+  flex-direction:column;gap:.7rem}
 
-/* the readout: one cell per redstone lamp, coloured by its simulated power */
-.readout{display:flex;gap:.9rem;justify-content:center;align-items:flex-start;
+.readout{display:flex;gap:.7rem;justify-content:center;align-items:flex-start;
   background:#07090c;border:1px solid var(--line);border-radius:8px;
-  padding:.75rem .8rem}
-.digit{display:grid;grid-template-columns:repeat(5,11px);
-  grid-template-rows:repeat(13,7px);gap:1px}
+  padding:.75rem .6rem}
+.digit{display:grid;grid-template-columns:repeat(5,10px);
+  grid-template-rows:repeat(13,6px);gap:1px}
 .px{border-radius:1px;background:#14171c}
 .px.on{background:var(--lamp);box-shadow:0 0 5px rgba(255,215,122,.75)}
-.ready{display:flex;align-items:center;gap:.45rem;font-family:var(--mono);
-  font-size:.63rem;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
-.bulb{width:9px;height:9px;border-radius:50%;background:#22262c;
-  border:1px solid #2f353d}
+.valline{display:flex;align-items:baseline;gap:.6rem}
+.valline b{font-family:var(--mono);font-size:1.5rem;font-weight:700;
+  font-variant-numeric:tabular-nums;color:var(--lamp)}
+.valline span{font-family:var(--mono);font-size:.63rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim)}
+.flagrow{display:flex;gap:.45rem;flex-wrap:wrap}
+.flag{display:flex;align-items:center;gap:.3rem;font-family:var(--mono);
+  font-size:.6rem;letter-spacing:.08em;color:var(--dim)}
+.bulb{width:8px;height:8px;border-radius:50%;background:#22262c;
+  border:1px solid #2f353d;display:inline-block}
 .bulb.on{background:var(--lamp);border-color:var(--lamp);
   box-shadow:0 0 6px rgba(255,215,122,.8)}
 
-.padlabel{font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--dim);display:flex;
-  justify-content:space-between;align-items:baseline}
-.padlabel b{color:var(--redstone);font-size:.8rem;letter-spacing:.02em}
-.keys{display:grid;grid-template-columns:repeat(5,1fr);gap:.3rem}
-.key{font-family:var(--mono);font-size:.9rem;font-weight:600;padding:.42rem 0;
+.lbl{font-family:var(--mono);font-size:.61rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--dim)}
+.ops{display:grid;grid-template-columns:repeat(4,1fr);gap:.3rem}
+.key{font-family:var(--mono);font-size:.72rem;font-weight:600;padding:.4rem 0;
   border:1px solid var(--line);border-radius:6px;background:var(--panel2);
   color:var(--ink);cursor:pointer}
-.key:hover:not(:disabled){border-color:var(--redstone);color:var(--redstone)}
-.key:active:not(:disabled){background:var(--redstone);color:#fff}
+.key:hover{border-color:var(--redstone);color:var(--redstone)}
 .key[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone);
   background:rgba(255,59,48,.10)}
-.key:disabled{opacity:.45;cursor:progress}
-button:focus-visible,.key:focus-visible{outline:2px solid var(--redstone);
+.opnd{display:flex;align-items:center;gap:.5rem}
+.opnd .nm{font-family:var(--mono);font-size:.75rem;color:var(--muted);width:.9rem}
+.bits{display:flex;gap:.15rem;flex:1}
+.bit{flex:1;aspect-ratio:1;border:1px solid var(--line);border-radius:3px;
+  background:var(--panel2);cursor:pointer;font-family:var(--mono);
+  font-size:.55rem;color:var(--dim);padding:0;line-height:1}
+.bit[aria-pressed="true"]{background:var(--redstone);border-color:var(--redstone);
+  color:#fff;font-weight:700}
+.opnd .val{font-family:var(--mono);font-size:.75rem;width:2.4rem;
+  text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.transport{display:flex;gap:.3rem;align-items:center}
+.transport button{font-family:var(--mono);font-size:.68rem;padding:.4rem .5rem;
+  border:1px solid var(--line);border-radius:6px;background:var(--panel2);
+  color:var(--ink);cursor:pointer;white-space:nowrap}
+.transport button:hover{border-color:var(--redstone);color:var(--redstone)}
+.transport button[aria-pressed="true"]{border-color:var(--redstone);
+  color:var(--redstone)}
+.transport input[type=range]{flex:1;min-width:0;accent-color:var(--redstone)}
+.transport select{font-family:var(--mono);font-size:.66rem;padding:.4rem .3rem;
+  background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+  border-radius:6px;flex:1;min-width:0}
+button:focus-visible,select:focus-visible{outline:2px solid var(--redstone);
   outline-offset:2px}
 .stat{display:flex;justify-content:space-between;font-family:var(--mono);
-  font-size:.68rem;color:var(--muted);font-variant-numeric:tabular-nums}
+  font-size:.67rem;color:var(--muted);font-variant-numeric:tabular-nums}
 .stat b{color:var(--ink);font-weight:600}
 .stat b.bad{color:var(--redstone)}
 
-/* ---- tables ---- */
+/* ---- tables and bars ---- */
 .tw{overflow-x:auto;margin:.9rem 0}
-table{border-collapse:collapse;font-size:.82rem;width:100%;min-width:520px}
+table{border-collapse:collapse;font-size:.82rem;width:100%;min-width:540px}
 th,td{text-align:left;padding:.42rem .7rem;border-bottom:1px solid var(--line)}
 th{font-family:var(--mono);font-size:.63rem;letter-spacing:.1em;
   text-transform:uppercase;color:var(--dim);font-weight:500}
 td.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
 tr.hi td{color:var(--redstone)}
 td small{color:var(--muted)}
-
-/* ---- bars ---- */
 .split{display:flex;height:22px;border-radius:4px;overflow:hidden;
   border:1px solid var(--line);margin:.5rem 0 .2rem}
 .split i{display:block;height:100%}
-.split .logic{background:var(--pass)}
-.split .rail{background:var(--redstone)}
-.split .coll{background:var(--torch)}
 .keyline{display:flex;gap:1rem;flex-wrap:wrap;font-family:var(--mono);
   font-size:.66rem;color:var(--muted)}
 .keyline span{display:flex;align-items:center;gap:.35rem}
 .sw{width:10px;height:10px;border-radius:2px}
-
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
   gap:.7rem;margin:1rem 0}
 .card{border:1px solid var(--line);border-radius:8px;padding:.8rem .9rem;
@@ -134,19 +158,18 @@ td small{color:var(--muted)}
 .tag.m{color:var(--pass)} .tag.p{color:var(--warn)}
 footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
   font-family:var(--mono);font-size:.68rem;color:var(--dim)}
-@media (max-width:820px){ .console{grid-template-columns:1fr}
+@media (max-width:900px){ .console{grid-template-columns:1fr}
   .pad{border-left:none;border-top:1px solid var(--line)} }
 </style>
 
 <header class="top">
   <div class="wrap">
-    <p class="eyebrow">Design preview · Minecraft Java 26.2</p>
-    <h1>Redstone Calculator <em>Mk II</em></h1>
-    <p class="lede">The first build works and is verified. It was also 88%
-      wire; a transmission-line rewrite took it to 85% and 20% faster. The
-      decimal machine below is now built and operable end to end — keypad to
-      lamps, in one world. This is that machine, and the plan for what is
-      left.</p>
+    <p class="eyebrow">Mk III · Minecraft Java 26.2 · tick-accurate simulation</p>
+    <h1>A 10-bit calculator made of <em>redstone</em></h1>
+    <p class="lede">Twenty levers, eight buttons, four lamp digits and half a
+      million blocks in between. Set the operands, press an operation, and
+      watch the answer propagate — one game tick at a time, at the speed it
+      would run in Minecraft.</p>
     <p class="mono-note">Everything tagged <span class="tag m">measured</span>
       was simulated on placed blocks. Everything tagged
       <span class="tag p">projected</span> is an estimate and says so.</p>
@@ -155,305 +178,260 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 
 <div class="wrap">
 
-  <h2>The console, running for real</h2>
-  <p class="prose">Press a key on pad A, then one on pad B. Every key is a
-    button in the world; pressing one holds it for 40 game ticks and lets it pop
-    back out, exactly as a player would. What happens next is redstone all the
-    way down: the button latches one-hot into a locked repeater, the latches
-    encode to BCD, a decimal adder sums them, decoders drive fourteen segment
-    lines, a wiring loom carries those to two digits, and the lamps light. The
-    numerals below are those lamps — one cell per lamp block, coloured by the
-    power the simulator computed for it.</p>
+  <h2>The machine, thinking</h2>
+  <p class="prose">Flip bits into A and B, then press an operation. The button
+    is held down for 40 game ticks and released, exactly as a stone button
+    behaves, and the machine is then simulated tick by tick: white is the
+    wavefront — every block whose state changed in the last few ticks — and it
+    fades back to the block's own colour behind.</p>
+  <p class="prose">Be clear what <b>1&times;</b> is asking for: that is
+    Minecraft's own 20 ticks per second, and this machine takes <b>2,584 game
+    ticks</b> — a little over two minutes — to get from the keypress to the
+    lamps. The wait is the real one. The default 10&times; makes it about
+    thirteen seconds, and <b>skip to settled</b> jumps straight to the
+    answer.</p>
 
   <div class="console">
-    <div id="view"><canvas id="cv"></canvas>
+    <div id="view">
+      <canvas id="cv"></canvas>
+      <div id="boot">loading…</div>
       <div class="look">
-        <button type="button" id="lookAll" aria-pressed="true">whole machine</button>
-        <button type="button" id="lookDisp" aria-pressed="false">display</button>
-        <button type="button" id="lookPads" aria-pressed="false">keypads</button>
+        <button type="button" id="look_all" aria-pressed="true">whole machine</button>
+        <button type="button" id="look_disp" aria-pressed="false">display</button>
+        <button type="button" id="look_ctrl" aria-pressed="false">controls</button>
       </div>
-      <div class="hint">drag to orbit · scroll to zoom</div></div>
+      <div class="hint">drag to orbit · scroll to zoom</div>
+    </div>
     <div class="pad">
-      <div class="readout">
-        <div class="digit" id="dig1"></div>
-        <div class="digit" id="dig0"></div>
+      <div class="readout" id="readout"></div>
+      <div class="valline"><b id="value">——</b><span id="valstate">idle</span></div>
+      <div class="flagrow" id="flagrow"></div>
+
+      <span class="lbl">Operation — a button you press</span>
+      <div class="ops" id="ops"></div>
+
+      <span class="lbl">Operands — levers you flip</span>
+      <div id="operands" style="display:flex;flex-direction:column;gap:.35rem"></div>
+
+      <span class="lbl">Simulation</span>
+      <div class="transport">
+        <button type="button" id="bPlay" aria-pressed="false">▶ play</button>
+        <button type="button" id="bStep">+1 tick</button>
+        <select id="speed">
+          <option value="20">1× — 20 gt/s, real time</option>
+          <option value="60">3×</option>
+          <option value="200" selected>10×</option>
+          <option value="1000">50×</option>
+        </select>
       </div>
-      <div class="ready"><i class="bulb" id="bReady"></i>
-        <span id="tReady">no operands entered</span></div>
-
-      <div class="padlabel"><span>operand A</span><b id="valA">—</b></div>
-      <div class="keys" id="keysA"></div>
-      <div class="padlabel"><span>operand B</span><b id="valB">—</b></div>
-      <div class="keys" id="keysB"></div>
-
-      <div class="stat"><span>last keypress settled in</span><b id="sSet">—</b></div>
-      <div class="stat"><span>lamps lit</span><b id="sLit">—</b></div>
-      <div class="stat"><span>torches burned out</span><b id="sBurn">—</b></div>
-      <div class="stat"><span>blocks simulated</span><b id="sBlk">—</b></div>
+      <div class="transport">
+        <button type="button" id="bSettle" style="flex:1">skip to settled</button>
+      </div>
+      <div class="transport">
+        <span class="lbl" style="flex:0 0 auto">cutaway</span>
+        <input type="range" id="cut" min="0" max="100" value="100"
+               aria-label="hide everything above this height">
+      </div>
+      <div class="stat"><span>game tick</span><b id="tTick">0</b></div>
+      <div class="stat"><span>events pending</span><b id="tQueue">0</b></div>
+      <div class="stat"><span>torches burned out</span><b id="tBurn">none</b></div>
+      <div class="stat"><span>blocks simulated</span><b id="hBlocks">—</b></div>
+      <div class="stat"><span>gates / depth</span>
+        <b><span id="hGates">—</span> / <span id="hDepth">—</span></b></div>
     </div>
   </div>
-  <p class="mono-note">One world, 36,045 blocks, no software shortcuts:
-    keypads, latches, adder, decoders, loom and lamps are all placed redstone,
-    and the page runs the same tick-accurate simulator the test suite uses. All
-    100 single-digit sums verified this way. <span class="tag m">measured</span></p>
 
   <div class="rule"></div>
 
-  <h2>Why rebuild at all</h2>
-  <div class="prose">
-    <p>The Mk I 8-bit ALU settles in 186 game ticks. Its logic is only 14 stages
-      deep, which should cost 28. Walking the placed blocks and attributing every
-      tick on the critical path to a cause explains the gap:</p>
-  </div>
+  <h2>What is actually in there</h2>
+  <p class="prose">Every stage is redstone; nothing is emulated. The pieces are
+    separate modules in the source, each with its own tests, and they compile
+    into one netlist and one placed world:</p>
+  <pre>20 operand levers ──▶ A, B
+ 8-button keypad  ──▶ one-hot latches ──▶ 3-bit opcode
+                  ──▶ 10-bit ALU  (8 operations, 4 flags)
+                  ──▶ binary to BCD  (combinational double dabble)
+                  ──▶ four seven-segment decoders  (leading zeros blanked)
+                  ──▶ wiring loom  (32 nets, 128 risers, no crossings)
+                  ──▶ four lamp digits + a flag row</pre>
+  <p class="prose">They are one netlist rather than several placed side by side
+    for a measured reason. The compiler gives each logic stage its own Y plane,
+    and a stage's rail length is set by how many gates sit in <em>that</em>
+    stage — so pipelining the ALU into the converter into the decoders uses
+    disjoint stages and costs no extra rail, while splitting them into
+    separately placed modules would add an inter-module loom for every signal
+    crossing each boundary. The modules are in the source; the silicon is one
+    block.</p>
 
-  <div class="split" title="critical path composition">
-    <i class="logic" style="width:15%"></i>
-    <i class="rail" style="width:46%"></i>
-    <i class="coll" style="width:39%"></i>
-  </div>
-  <div class="keyline">
-    <span><i class="sw" style="background:var(--pass)"></i>logic 28 gt (15%)</span>
-    <span><i class="sw" style="background:var(--redstone)"></i>rail wire 88 gt (46%)</span>
-    <span><i class="sw" style="background:var(--torch)"></i>collector wire 74 gt (39%)</span>
-  </div>
-
-  <div class="prose">
-    <p><strong>85% of the machine's latency is repeaters spent keeping dust
-      alive over distance.</strong> Not gates. That single number sets the whole
-      plan, because it collapses three of the goals into one: on this
-      architecture, <em>compact is fast</em>. Every block of wire removed is
-      latency removed, and every block removed is also a block you don't have to
-      look at.</p>
-    <p>It also means the obvious lever — a cleverer adder — is the wrong one.
-      Carry-lookahead bought 1.7&times; the logical depth and returned 1.02&times;
-      on the clock. Acting on the wire instead did work: switching to the wiki's
-      block&ndash;repeater&ndash;block transmission line, which carries 18 blocks
-      per redstone tick against a bare repeater's 16, took the 8-bit ALU from 234
-      to <strong>186 game ticks</strong> and 5,179 repeaters to 3,996 — with the
-      logic completely untouched, and all 2,048 four-bit vectors still correct.
-      <span class="tag m">measured</span></p>
-  </div>
-
-  <h2>Decision 1 — work in decimal, not binary <span class="tag m">measured</span></h2>
-  <div class="prose">
-    <p>A binary machine cannot show a decimal answer without a binary&rarr;BCD
-      conversion, and double-dabble costs roughly an add-and-compare per bit per
-      digit. Building the datapath in BCD from the start deletes that stage
-      entirely and makes the display a flat 4&rarr;7 lookup.</p>
-    <p>Both halves were built and simulated rather than estimated:</p>
-  </div>
-  <div class="tw"><table>
-    <tr><th>module</th><th>gates</th><th>depth</th><th>blocks</th>
-        <th>settle</th><th>verified</th></tr>
-    <tr><td>Seven-segment decoder, one digit</td><td class="n">17</td>
-        <td class="n">2</td><td class="n">2,647</td><td class="n">24 gt</td>
-        <td>all 10 digits</td></tr>
-    <tr><td>Seven-segment display, one digit</td><td class="n">—</td>
-        <td class="n">—</td><td class="n">184</td><td class="n">4 gt</td>
-        <td>all 10 digits</td></tr>
-    <tr class="hi"><td><b>The console</b> <small>(keypads + adder + loom + display)</small></td>
-        <td class="n">191</td><td class="n">17</td><td class="n">36,045</td>
-        <td class="n">384 gt</td><td>all 100 sums, off the lamps</td></tr>
-    <tr><td>3-digit BCD adder + display, ripple digit carry</td><td class="n">963</td>
-        <td class="n">32</td><td class="n">94,660</td><td class="n">386 gt</td>
-        <td>14 sums, digits + segments</td></tr>
-    <tr><td>3-digit BCD adder + display, <b>digit lookahead</b></td>
-        <td class="n">542</td><td class="n">18</td><td class="n">102,290</td>
-        <td class="n">400 gt</td><td>14 sums, digits + segments</td></tr>
-    <tr class="hi"><td>Mk I 8-bit binary ALU <small>(no display at all)</small></td>
-        <td class="n">723</td><td class="n">14</td><td class="n">123,354</td>
-        <td class="n">360 gt</td><td>1,120 vectors</td></tr>
-  </table></div>
-  <div class="prose">
-    <p>A 3-digit decimal adder <em>including its whole display path</em> is
-      23% smaller than the binary ALU that still cannot display anything. The
-      catch is depth: 32 stages against 14, because the BCD carry currently
-      ripples from digit to digit and each digit is two chained 4-bit adds.</p>
-    <p>That fix is now built <span class="tag m">measured</span>. A digit
-      generates a carry when <code>a+b &ge; 10</code> and propagates when
-      <code>a+b == 9</code> — both functions of that digit's own operands, which
-      is exactly what allows lookahead across digits. The correction folds into
-      the same add, since <code>&minus;10 &equiv; +6 (mod 16)</code>. Result:
-      <strong>963 gates and depth 32 down to 542 and 18</strong> — and no faster
-      on the clock, for the same reason as before. Take it for the gate count,
-      not the speed.</p>
-  </div>
-
-  <h2>Decision 2 — bit-sliced tiles, not a machine-wide crossbar
-    <span class="tag p">projected</span></h2>
-  <div class="prose">
-    <p>Mk I routes every stage as a PLA: rails span the whole machine so any
-      gate can tap any signal. That generality is exactly what bought the 45%
-      rail cost. A decimal digit, by contrast, talks almost entirely to itself —
-      only the carry crosses to its neighbour.</p>
-    <p>So: one tile per digit, cloned along a row, with rails that stop at the
-      tile boundary. A tile is about 30 blocks wide instead of 269, which is the
-      difference between 10 repeaters on a rail and one. Cross-tile wiring
-      shrinks to a single carry line.</p>
-  </div>
-
-  <h2>Decision 3 — get rid of the torches
-    <span class="tag m">mechanism measured</span></h2>
-  <div class="prose">
-    <p>With the wire partly fixed, the binding constraint moved. Every large
-      build now burns torches out: Minecraft kills a torch forced off more than
-      eight times in 60 game ticks, and hazard glitching in a deep network does
-      exactly that. The remedy is longer repeater delays, which spread the
-      transitions out — at roughly double the latency.</p>
-  </div>
-  <div class="tw"><table>
-    <tr><th>build</th><th>delay 1</th><th>delay 2</th></tr>
-    <tr><td>8-bit ALU</td><td class="n">186 gt, 1 torch burned, 76/648 wrong</td>
-        <td class="n">360 gt, clean</td></tr>
-    <tr><td>3-digit BCD, ripple</td><td class="n">216 gt, 26 burned, wrong</td>
-        <td class="n">386 gt, clean</td></tr>
-    <tr><td>3-digit BCD, lookahead</td><td class="n">208 gt, 37 burned, wrong</td>
-        <td class="n">400 gt, clean</td></tr>
-  </table></div>
-  <div class="prose">
-    <p><strong>Comparators have no burnout rule at all</strong>, and one
-      inverts: in subtract mode, <code>out = max(rear &minus; side, 0)</code>.
-      With a rear constant of 1, any nonzero side gives 0 and a zero side gives
-      1 — an exact logical inverter, no torch, in the same 2 game ticks a torch
-      takes. Verified in the simulator.</p>
-    <p>The catch is that its output is only as strong as the rear constant, so a
-      tap built this way needs a repeater to restore it: two redstone ticks
-      against the torch's one. That is the trade, and it is worth taking —
-      because it buys running the whole machine at delay 1.</p>
-  </div>
-  <div class="tw"><table>
-    <tr><th></th><th>now</th><th>torch-free <span class="tag p">projected</span></th></tr>
-    <tr><td>8-bit ALU, safe operation</td><td class="n">360 gt (delay 2)</td>
-        <td class="n">~215 gt (delay 1)</td></tr>
-    <tr class="hi"><td>Can burn out</td><td>yes, mitigated by slowing it down</td>
-        <td>no — structurally impossible</td></tr>
-  </table></div>
-  <p class="prose">Roughly 1.7&times; faster <em>and</em> impossible to burn
-    out. This is the highest-value item left, and the first thing to build.</p>
-
-  <h2>Decision 4 — spend more block types <span class="tag m">confirmed</span></h2>
-  <div class="prose">
-    <p>Mk I uses five block types. Each of these earns its place by collapsing
-      something that currently costs many blocks:</p>
-  </div>
-  <div class="tw"><table>
-    <tr><th>block</th><th>property used</th><th>what it replaces</th><th>status</th></tr>
-    <tr><td>Comparator, subtract</td>
-        <td><code>out = max(rear &minus; side, 0)</code>, 2 gt, and no burnout rule</td>
-        <td>Torch inverters — see above</td><td>measured</td></tr>
-    <tr><td>Copper bulb</td>
-        <td>Toggles on a <em>rising edge</em>, keeps its state, comparator-readable
-            at 15 when lit, emits light. <em>Not conductive</em></td>
-        <td>A multi-block latch <em>and</em> a display lamp — in one block</td>
-        <td>confirmed</td></tr>
-    <tr><td>Repeater locking</td>
-        <td>A repeater held from the side freezes its output</td>
-        <td>Torch latches. Zero torches means burnout is impossible</td>
-        <td>verified, 44 blocks</td></tr>
-    <tr><td>Comparator + barrel</td>
-        <td>Reads container fullness as 0–15</td>
-        <td>Hard-wired constants and small lookup tables</td><td>to build</td></tr>
-    <tr><td>Lectern</td>
-        <td><code>floor(1 + (page&minus;1)/(pages&minus;1) &times; 14)</code></td>
-        <td>The menu selector — turn a page to choose the operation</td>
-        <td>confirmed</td></tr>
-    <tr><td>Observer</td>
-        <td>15-strength pulse, 2 gt long, 2 gt delay, one block</td>
-        <td>Pulse shapers — and the edge a copper bulb needs, since it will not
-            respond to a steady level</td><td>confirmed</td></tr>
-    <tr><td>Slabs, stairs, glass</td>
-        <td>Non-conductive, but a top slab still supports dust</td>
-        <td>Part of the 4-block cell pitch that exists only to stop cross-talk</td>
-        <td>to build</td></tr>
-    <tr><td>Note block</td><td>Sounds when powered</td>
-        <td>Nothing — it is there so the keypad answers you</td><td>to build</td></tr>
-  </table></div>
-  <p class="prose">The copper bulb's rising-edge rule shapes the design: it
-    cannot be driven by a steady level, so latching the answer needs an observer
-    (or a button) to produce the edge — which pairs the two blocks naturally.
-    And the locked-repeater latch has a real protocol requirement found while
-    testing it: <strong>the lock must be
-    asserted a tick before the data changes</strong>, or the data wins the race
-    and the latch stores the new value instead of holding the old one.</p>
-
-  <h2>Decision 5 — the display is the memory</h2>
-  <div class="prose">
-    <p>A copper bulb holds its own state and is a light source, so the answer
-      register and the screen stop being two different things. Latch the result
-      into the bulbs and the datapath behind them is free to start the next sum
-      immediately, with no separate register bank to build, power, or route.</p>
-    <p>The seven-segment module already verified here is 184 blocks and settles
-      in 4 game ticks; swapping lamps for waxed bulbs keeps the geometry and
-      adds the memory for free <span class="tag p">projected</span>. Waxing
-      matters: unwaxed copper oxidises, which changes the light level it emits
-      but not its redstone behaviour.</p>
-  </div>
-
-  <h2>Decision 6 — player control worth using
-    <span class="tag m">keypad measured</span></h2>
+  <h3>Three things worth pointing at</h3>
   <div class="cards">
-    <div class="card"><h4>0–9 keypad <span class="tag m">built</span></h4>
-      <p>Ten buttons per operand, latching one-hot. Entry is typing a number,
-        not flipping twelve levers and doing binary in your head. This is what
-        the console above is driving.</p></div>
-    <div class="card"><h4>Latches with no torches <span class="tag m">built</span></h4>
-      <p>Every button feeds a shared <em>any key is down</em> bus, and each
-        latch's lock is that bus inverted. All ten go transparent together, so
-        the pressed key stores 1 and the rest store 0 — a one-hot register with
-        no reset logic and nothing that can burn out.</p></div>
-    <div class="card"><h4>Lectern as the menu <span class="tag p">to build</span></h4>
-      <p>A comparator reads the open page, so turning to page 2 selects SUB.
-        The menu is a physical book you can label.</p></div>
-    <div class="card"><h4>Note-block feedback <span class="tag p">to build</span></h4>
-      <p>One pitch on keypress, another when the answer latches. You can operate
-        it without watching the display.</p></div>
+    <div class="card"><h4>The keypad cannot burn out</h4>
+      <p>Each key drives a repeater held from the side. Every button also feeds
+        a shared <em>any key is down</em> bus, and each latch's lock is that bus
+        inverted — so all eight go transparent together and the pressed key
+        stores 1 while the rest store 0. One-hot, with no torch in the latch
+        cell.</p></div>
+    <div class="card"><h4>Leading zeros cost nothing</h4>
+      <p>A digit is shown if it or anything above it is non-zero — one flat OR
+        over every bit from there up. It folds into the decoder's minterms as
+        one more literal, and a term is already an AND, so blanking is free.</p></div>
+    <div class="card"><h4>The top digit needs no decoder</h4>
+      <p>A 10-bit result cannot exceed 1023, so its thousands digit is 0 or 1
+        and its upper bits are the constant rail. The decoder folds: impossible
+        values drop out of the sum and the segments lit for every reachable
+        value become constants.</p></div>
   </div>
-  <p class="prose">Releasing a key is a race, and the data has to lose it:
-    letting go drops the key's data and re-asserts the lock in the same moment.
-    So the lock travels through a single torch while the data crawls through
-    three delay-4 repeaters — the latch is always shut before its input falls
-    away. Getting that backwards blanks the display the instant you let go, and
-    did. <span class="tag m">measured</span></p>
 
-  <h2>What it should come to</h2>
+  <h2>What was verified, and how <span class="tag m">measured</span></h2>
+  <p class="prose">Modules are tested exhaustively where the input space allows
+    it, and the whole machine is driven only through its levers and buttons with
+    the answer read off the lamps — nothing reaches inside.</p>
   <div class="tw"><table>
-    <tr><th></th><th>Mk I, 8-bit binary</th><th>Mk II, 3-digit decimal</th></tr>
-    <tr><td>Range</td><td class="n">0–255</td><td class="n">0–999</td></tr>
-    <tr><td>Blocks</td><td class="n">123,354 <small>measured</small></td>
-        <td class="n">~55,000 <small>projected</small></td></tr>
-    <tr><td>Logic depth</td><td class="n">14 <small>measured</small></td>
-        <td class="n">18 <small>measured, with digit lookahead</small></td></tr>
-    <tr><td>Settle, safe operation</td><td class="n">360 gt <small>measured</small></td>
-        <td class="n">~120 gt <small>projected, torch-free at delay 1</small></td></tr>
-    <tr><td>Wire share of latency</td><td class="n">85% <small>measured</small></td>
-        <td class="n">~55% <small>projected</small></td></tr>
-    <tr><td>Shows a decimal answer</td><td>no</td><td>yes, 17 gates per digit</td></tr>
-    <tr><td>Input</td><td>19 levers, in binary</td>
-        <td>keypad <small>built</small>, lectern <small>to build</small></td></tr>
+    <tr><th>module</th><th>what was checked</th><th>coverage</th><th>result</th></tr>
+    <tr><td>Redstone mechanics</td><td>strong/weak power, dust decay, torch
+      burnout, repeater locking, comparators</td><td class="n">12 cases</td>
+      <td>12/12</td></tr>
+    <tr><td>Gate cells</td><td>NOR1-3 and OR built from placed blocks</td>
+      <td class="n">5 cases</td><td>5/5</td></tr>
+    <tr><td>Place and route</td><td>4-bit adder, all 16 two-input functions,
+      full adder, XOR</td><td class="n">284 vectors</td><td>all correct</td></tr>
+    <tr><td>Add-3 cell</td><td>the converter's one piece of arithmetic</td>
+      <td class="n">all 10 digits</td><td>exhaustive</td></tr>
+    <tr class="hi"><td><b>Binary to BCD</b></td><td>every value the converter can
+      be handed, in logic</td><td class="n">2,304</td><td><b>exhaustive</b></td></tr>
+    <tr><td>Binary to BCD, placed</td><td>the same converter built out of blocks,
+      read off the dust</td><td class="n">35 values</td><td>all correct</td></tr>
+    <tr><td>Seven-segment display</td><td>every numeral renders, blank works</td>
+      <td class="n">10 + blank</td><td>exhaustive</td></tr>
+    <tr><td>Repeater-lock latch</td><td>holds, ignores data, and the documented
+      lock-before-data race</td><td class="n">7 cases</td><td>reproduced</td></tr>
+    <tr><td>Keypad</td><td>one-hot latching at 6, 8, 10 and 12 keys</td>
+      <td class="n">4 widths</td><td>all latch, none burn</td></tr>
+    <tr><td>Mk I 4-bit ALU</td><td>8 operations &times; 256 operand pairs</td>
+      <td class="n">2,048</td><td><b>exhaustive</b></td></tr>
+    <tr><td>Build output</td><td>structure files parsed back; datapack commands
+      replayed into a fresh world</td><td class="n">block for block</td>
+      <td>identical</td></tr>
+    <tr class="hi"><td><b>Mk III, all eight operations</b></td>
+      <td>levers flipped, a button pressed, the answer read off the lamps</td>
+      <td class="n">32 cases</td><td>all correct, 0 burned</td></tr>
+    <tr class="hi"><td><b>Mk III, consecutive</b></td>
+      <td>operations back to back with nothing cleared between them</td>
+      <td class="n">15 in a row</td><td>all correct</td></tr>
+    <tr><td>Loom</td><td>no two nets may write the same cell</td>
+      <td class="n">32 nets</td><td>none shared</td></tr>
   </table></div>
-  <p class="prose">The projections rest on the torch-free tap and on the tile
-    change removing most of the remaining rail wire. Those are the two
-    assumptions most likely to be wrong, so they are the two to test first —
-    each measured with the same profiler before anything is cloned.</p>
 
-  <h2>Build order</h2>
+  <h3>What it costs to keep stable <span class="tag m">measured</span></h3>
+  <p class="prose">Minecraft kills a redstone torch forced off more than eight
+    times in 60 game ticks, and hazard glitching in a network 36 stages deep
+    does exactly that. Two independent things reduce it, and the second one is
+    the interesting one.</p>
+  <p class="prose"><strong>Slower repeaters</strong>, over the same fourteen
+    vectors:</p>
+  <div class="tw"><table>
+    <tr><th>repeater delay</th><th>result</th></tr>
+    <tr><td>2 <small>(4 gt)</small></td>
+      <td class="n">5/14 correct, <b>117 torches burned out</b></td></tr>
+    <tr><td>3 <small>(6 gt)</small></td>
+      <td class="n">14/14 on a gentle sequence — but see below</td></tr>
+    <tr class="hi"><td>4 <small>(8 gt)</small></td>
+      <td class="n"><b>16/16 correct, none burned</b>, 2,584 gt to the answer</td></tr>
+  </table></div>
+  <p class="prose"><strong>Inputs that arrive at human speed.</strong> Delay 3
+    looked clean until it was handed a hostile sequence — operand pairs chosen
+    to change ten or more levers at once. Varying only how far apart the flips
+    were placed in time, over ten such vectors:</p>
+  <div class="tw"><table>
+    <tr><th>game ticks between lever flips</th><th>correct</th><th>torches burned</th></tr>
+    <tr><td>0 — every lever in the same instant</td><td class="n">5/10</td><td class="n">5</td></tr>
+    <tr><td>1</td><td class="n">7/10</td><td class="n">4</td></tr>
+    <tr><td>2</td><td class="n">9/10</td><td class="n">2</td></tr>
+    <tr><td>4</td><td class="n">9/10</td><td class="n">2</td></tr>
+  </table></div>
+  <p class="prose">Spacing is real and it is not sufficient — but it is the more
+    interesting number, because <strong>a player cannot flip twenty levers
+    inside a twentieth of a second</strong>. Changing every input in the same
+    game tick aligns every hazard in the machine at one instant, which is a load
+    the build never sees in a world with a person in it. The machine therefore
+    moves only the levers that differ, two game ticks apart, and the page does
+    the same when you click a bit.</p>
+  <p class="prose">The structural fix is the torch-free tap below: a comparator
+    has no burnout rule at all, so the question would stop existing rather than
+    being paid for in latency.</p>
+
+  <h2>Where the size goes — and the one fix left
+    <span class="tag m">measured</span></h2>
+  <p class="prose">Mk I's lesson was that 85% of the latency was wire. Mk III
+    exposes the same problem in a second dimension, and this time the cause is
+    a specific line in the router.</p>
+  <p class="prose">A gate's collector runs along Z from its first tap to an
+    <em>exit</em>, and that exit has to sit past the gate's own last tap —
+    otherwise the collector would not reach it. The exit then becomes a rail for
+    the next stage, whose gates tap it, whose exits must sit past <em>those</em>
+    taps. Over 36 stages the Z coordinate ratchets upward and never comes back
+    down:</p>
+  <div class="tw"><table>
+    <tr><th>stage</th><th>gates</th><th>rails span (Z)</th><th>exits span (Z)</th></tr>
+    <tr><td>0 — inputs</td><td class="n">—</td><td class="n">0 … 124</td><td class="n">—</td></tr>
+    <tr><td>3</td><td class="n">94</td><td class="n">16 … 336</td><td class="n">28 … 640</td></tr>
+    <tr><td>12</td><td class="n">47</td><td class="n">372 … 820</td><td class="n">380 … 840</td></tr>
+    <tr><td>24</td><td class="n">24</td><td class="n">740 … 988</td><td class="n">748 … 1016</td></tr>
+    <tr class="hi"><td>36 — outputs</td><td class="n">33</td><td class="n">992 … 1816</td>
+      <td class="n">1000 … 1824</td></tr>
+  </table></div>
+  <p class="prose">The widest stage in the machine has 119 gates, which needs
+    <strong>476 blocks of Z</strong>. The machine is <strong>1,825 blocks
+    deep</strong>. Roughly three quarters of that depth is drift, not logic —
+    and every block of drift lengthens the collectors that cross it, which is
+    where the repeaters go.</p>
+  <p class="prose">The fix is specific: <strong>alternate the collector
+    direction stage by stage</strong>, so exits are placed <em>below</em> the
+    taps on odd stages and above on even ones. Z would then oscillate inside a
+    band set by the widest stage instead of ratcheting with depth.
+    <span class="tag p">projected</span> That is the next thing to build, and it
+    is measurable the same way this was.</p>
+
+  <h2>Getting it into Minecraft</h2>
+  <p class="prose">The build exports two ways, both vanilla — no mods for
+    either:</p>
+  <div class="cards">
+    <div class="card"><h4>Structure files</h4>
+      <p>A grid of <code>.nbt</code> files a structure block loads, plus a
+        manifest giving each one's offset. Structure blocks stop at 48 blocks a
+        side, so a machine this size arrives as a jigsaw.</p></div>
+    <div class="card"><h4>A datapack</h4>
+      <p><code>/setblock</code> and <code>/fill</code> commands, split into
+        batches a server can run without stalling, placed relative to wherever
+        you stand. Runs of identical blocks collapse into one
+        <code>/fill</code> — most of this machine is the floor under the
+        dust.</p></div>
+  </div>
+  <p class="prose">One convention is worth stating because getting it wrong
+    fails <em>silently</em> — the build looks perfect and computes nothing.
+    Minecraft's repeater <code>facing</code> runs from the output side to the
+    input side, the opposite of this simulator's; comparators match repeaters;
+    and a wall torch's <code>facing</code> points away from its support, the
+    opposite of the simulator's <code>attach</code>. All three are flipped on
+    the way out, and a test asserts each one.</p>
+  <p class="mono-note">A caution rather than a caveat: half a million redstone
+    components in one world is far past what a Minecraft server ticks
+    comfortably. This is a build that is honest about being a simulation
+    artefact first.</p>
+
+  <h2>What is left</h2>
   <div class="prose">
-    <p>Each step is checkable on its own, and each one can fail loudly before
-      the next is worth starting.</p>
     <ol>
-      <li><strong>Torch-free inverting tap</strong> — comparator plus repeater.
-        Removes burnout structurally and lets everything run at delay 1.</li>
-      <li>One digit tile, bit-sliced. Profile it. If rail wire hasn't collapsed,
-        the plan is wrong and stops here.</li>
-      <li>Add copper bulbs and observers to the simulator.</li>
-      <li>Clone the tile three times, wire the carry chain.</li>
-      <li><s>Keypad</s> — built and verified. Lectern menu and note blocks
-        still to do.</li>
-      <li><s>Join decoder and display in one world</s> — built: nine nets over
-        27 risers, no crossings, with the two digits on different feed levels so
-        the units lanes pass beneath the tens digit.</li>
-      <li><s>Re-run the whole vector sweep, and the burnout check</s> — 100/100
-        sums, no torches burned, in Python and in this page.</li>
+      <li><strong>Alternating collector direction</strong> — the Z ratchet
+        above. Biggest single win on size, and size is latency here.</li>
+      <li><strong>The torch-free inverting tap</strong> — a comparator in
+        subtract mode inverts as fast as a torch and has no burnout rule, which
+        would let the whole machine run at delay 1.</li>
+      <li>Multiply and divide. The ALU has the eight operations a
+        combinational unit can do in one pass; the other two need sequencing,
+        which means a clock and a register file.</li>
+      <li>A decimal keypad for the operands, which needs BCD-to-binary on the
+        way in — the converter here runs the other way.</li>
     </ol>
   </div>
 
@@ -461,7 +439,7 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 
 <footer><div class="wrap">
   Measured figures come from the simulator in this repository, on placed blocks.
-  Mk I remains verified: 4-bit ALU correct on all 2,048 vectors.
+  Mk I remains verified: the 4-bit ALU is correct on all 2,048 vectors.
 </div></footer>
 
 <script>
@@ -472,13 +450,24 @@ __ENGINE__
 const cv=document.getElementById("cv");
 const gl=cv.getContext("webgl",{antialias:true,alpha:false,preserveDrawingBuffer:true});
 const VS=`attribute vec3 aPos;attribute vec3 aNorm;attribute vec3 iOff;
-attribute vec3 iScale;attribute vec3 iCol;uniform mat4 uMVP;
-varying vec3 vN;varying vec3 vC;
-void main(){vN=aNorm;vC=iCol;gl_Position=uMVP*vec4(aPos*iScale+iOff,1.0);}`;
-const FS=`precision mediump float;varying vec3 vN;varying vec3 vC;
-void main(){vec3 L=normalize(vec3(0.4,0.9,0.3));
-float d=max(dot(normalize(vN),L),0.0);
-gl_FragColor=vec4(vC*(0.45+0.7*d),1.0);}`;
+attribute vec3 iScale;attribute vec3 iCol;uniform mat4 uMVP;uniform float uYMax;
+varying vec3 vN;varying vec3 vC;varying float vD;
+void main(){vN=aNorm;vC=iCol;
+  if(iOff.y>uYMax){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
+  gl_Position=uMVP*vec4(aPos*iScale+iOff,1.0);
+  vD=gl_Position.w;}`;
+// Two lights and distance fog. The machine is 1,825 blocks long, and without
+// something to separate near from far it reads as one flat grey mat.
+const FS=`precision mediump float;
+varying vec3 vN;varying vec3 vC;varying float vD;
+uniform float uFogNear;uniform float uFogFar;uniform vec3 uBg;
+void main(){
+  vec3 n=normalize(vN);
+  float key=max(dot(n,normalize(vec3(0.45,0.85,0.28))),0.0);
+  float fill=max(dot(n,normalize(vec3(-0.5,0.25,-0.7))),0.0);
+  vec3 c=vC*(0.42+0.62*key+0.18*fill);
+  float f=clamp((vD-uFogNear)/max(1.0,uFogFar-uFogNear),0.0,1.0);
+  gl_FragColor=vec4(mix(c,uBg,f*0.72),1.0);}`;
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
   if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
 const prog=gl.createProgram();
@@ -489,7 +478,11 @@ const ext=gl.getExtension("ANGLE_instanced_arrays");
 const A={pos:gl.getAttribLocation(prog,"aPos"),norm:gl.getAttribLocation(prog,"aNorm"),
   off:gl.getAttribLocation(prog,"iOff"),scale:gl.getAttribLocation(prog,"iScale"),
   col:gl.getAttribLocation(prog,"iCol")};
-const U={mvp:gl.getUniformLocation(prog,"uMVP")};
+const U={mvp:gl.getUniformLocation(prog,"uMVP"),
+  ymax:gl.getUniformLocation(prog,"uYMax"),
+  fogNear:gl.getUniformLocation(prog,"uFogNear"),
+  fogFar:gl.getUniformLocation(prog,"uFogFar"),
+  bg:gl.getUniformLocation(prog,"uBg")};
 const CV=[],CN=[],CI=[];
 [[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
  [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
@@ -521,22 +514,44 @@ function lookAt(e,c,u){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
     -dot(x,e),-dot(y,e),-dot(z,e),1]);}
 
 let world,eng,circ;
-let inst,offs,scales,cols,dyn;
+let inst,instOf,offs,scales,cols,dyn;
 const FOV=0.85;
-const cam={az:1.75,el:0.45,dist:1.0};
+const cam={az:1.62,el:0.80,dist:1.0};
 let target=[0,0,0];
+const $=id=>document.getElementById(id);
 
-function colorOf(w,i){
+/* ---- colour ---- */
+const FADE=6;                 // ticks a change stays highlighted
+let recent=new Map();         // instance -> tick it last changed
+function baseColour(w,i,out){
   const k=w.kind[i];
-  if(k===K_LAMP) return w.power[i]?[1.0,0.90,0.52]:[0.13,0.13,0.15];
+  if(k===K_LAMP){const on=w.power[i];
+    out[0]=on?1.0:0.13;out[1]=on?0.90:0.13;out[2]=on?0.52:0.15;return;}
   if(k===K_WIRE){const p=w.power[i];
-    if(!p)return[0.20,0.21,0.24];const t=p/15;
-    return[0.28+0.7*t,0.06+0.15*t,0.05+0.12*t];}
-  if(k===K_TORCH) return w.lit[i]?[1.0,0.66,0.24]:[0.26,0.21,0.17];
-  if(k===K_REP) return w.lit[i]?[0.72,0.30,0.26]:[0.42,0.44,0.48];
-  if(k===K_LEVER) return w.lit[i]?[0.95,0.33,0.28]:[0.66,0.70,0.76];
-  return [0.26,0.29,0.34];
+    if(!p){out[0]=0.20;out[1]=0.21;out[2]=0.24;return;}
+    const t=p/15;out[0]=0.28+0.7*t;out[1]=0.06+0.15*t;out[2]=0.05+0.12*t;return;}
+  if(k===K_TORCH){const on=w.lit[i];
+    out[0]=on?1.0:0.26;out[1]=on?0.66:0.21;out[2]=on?0.24:0.17;return;}
+  if(k===K_REP){const on=w.lit[i];
+    out[0]=on?0.72:0.42;out[1]=on?0.30:0.44;out[2]=on?0.26:0.48;return;}
+  if(k===K_LEVER){const on=w.lit[i];
+    out[0]=on?0.95:0.66;out[1]=on?0.33:0.70;out[2]=on?0.28:0.76;return;}
+  out[0]=0.34;out[1]=0.37;out[2]=0.43;      // plain structure
 }
+const _c=[0,0,0];
+function paint(j,i){
+  baseColour(world,i,_c);
+  const t=recent.get(j);
+  if(t!==undefined){
+    // a block that just changed is lifted toward white, fading over a few
+    // ticks — it is the propagating edge made visible, nothing more
+    const g=Math.max(0,1-(eng.now-t)/FADE)*0.85;
+    _c[0]+=(1-_c[0])*g;_c[1]+=(1-_c[1])*g;_c[2]+=(1-_c[2])*g;
+  }
+  cols[j*3]=_c[0];cols[j*3+1]=_c[1];cols[j*3+2]=_c[2];
+}
+
+/* ---- geometry ---- */
 function buildInstances(){
   const w=world,keep=[];
   for(let i=0;i<w.n;i++){
@@ -547,11 +562,13 @@ function buildInstances(){
     keep.push(i);
   }
   inst=keep;const m=keep.length;
+  instOf=new Int32Array(w.n).fill(-1);
   offs=new Float32Array(m*3);scales=new Float32Array(m*3);cols=new Float32Array(m*3);
   dyn=[];
   const[dx,dy,dz]=w.dims;
   for(let j=0;j<m;j++){
     const i=keep[j],k=w.kind[i];
+    instOf[i]=j;
     offs[j*3]=w.bx[i]-dx/2;offs[j*3+1]=w.by[i]-dy/2;offs[j*3+2]=w.bz[i]-dz/2;
     let s=[1,1,1];
     if(k===K_WIRE){s=[0.34,0.07,0.34];offs[j*3+1]-=0.44;}
@@ -561,23 +578,33 @@ function buildInstances(){
     scales.set(s,j*3);
     if(k!==K_SOLID)dyn.push([j,i]);
   }
-  refreshColors(true);
+  repaintAll();
   gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.STATIC_DRAW);
-  document.getElementById("sBlk").textContent=world.n.toLocaleString();
 }
-function refreshColors(all){
-  if(all){for(let j=0;j<inst.length;j++)cols.set(colorOf(world,inst[j]),j*3);}
-  else for(const[j,i]of dyn)cols.set(colorOf(world,i),j*3);
-  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
+function repaintAll(){
+  for(let j=0;j<inst.length;j++)paint(j,inst[j]);
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
   invalidate();
 }
+/* Repaint only what moved. A wavefront touches a few hundred blocks out of
+   half a million, and the world is stored in (y,z,x) order, so the changed
+   instances land in a tight index range that uploads as one sub-range. */
+function repaintRange(lo,hi){
+  if(hi<lo)return;
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER,lo*12,cols.subarray(lo*3,(hi+1)*3));
+  invalidate();
+}
+
+/* ---- render ---- */
 function draw(){
   const w=cv.clientWidth,h=cv.clientHeight||380,dpr=Math.min(devicePixelRatio||1,2);
-  if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){
+    cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);}
   gl.viewport(0,0,cv.width,cv.height);
-  const bg=getComputedStyle(document.getElementById("view"))
-    .backgroundColor.match(/\d+/g).map(Number);
+  const bg=getComputedStyle($("view")).backgroundColor.match(/\d+/g).map(Number);
   gl.clearColor(bg[0]/255,bg[1]/255,bg[2]/255,1);
   gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
   const[dx,dy,dz]=world.dims,R=Math.max(dx,dy,dz),d=R*cam.dist;
@@ -585,7 +612,11 @@ function draw(){
              target[1]+Math.sin(cam.el)*d,
              target[2]+Math.cos(cam.el)*Math.cos(cam.az)*d];
   gl.uniformMatrix4fv(U.mvp,false,
-    mul(persp(FOV,w/h,R*0.01,R*10),lookAt(eye,target,[0,1,0])));
+    mul(persp(FOV,w/h,R*0.006,R*12),lookAt(eye,target,[0,1,0])));
+  gl.uniform1f(U.ymax,cut);
+  gl.uniform1f(U.fogNear,d*0.55);
+  gl.uniform1f(U.fogFar,d*2.1);
+  gl.uniform3f(U.bg,bg[0]/255,bg[1]/255,bg[2]/255);
   const bind=(b,l,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
     gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(vbo,A.pos,0);bind(nbo,A.norm,0);
@@ -593,148 +624,25 @@ function draw(){
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
   ext.drawElementsInstancedANGLE(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0,inst.length);
 }
-/* Draw on demand, not every frame. The scene is static between keypresses, and
-   a continuously redrawn 36k-instance world keeps the rAF queue permanently
-   busy — which is what makes a keypress feel slow, not the simulation. */
-let needsDraw=true;
+let needsDraw=true,cut=1e9;
 const invalidate=()=>{needsDraw=true;};
 function loop(){
+  advance();
   const w=cv.clientWidth,h=cv.clientHeight||380,dpr=Math.min(devicePixelRatio||1,2);
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr))needsDraw=true;
   if(needsDraw){needsDraw=false;draw();}
   requestAnimationFrame(loop);
 }
 
-/* ------------------------------------------------------------------- app */
-const SEGS="abcdefg";
-const NUMERAL={abcdef:0,bc:1,abdeg:2,abcdg:3,bcfg:4,acdfg:5,acdefg:6,abc:7,
-               abcdefg:8,abcdfg:9};
-const DIGITS=["1","0"];          // tens on the left, units on the right
-let cells={},readyIdx=-1,leverIdx={},latchIdx={},busy=true;
-const $=id=>document.getElementById(id);
-const frame=()=>new Promise(r=>requestAnimationFrame(()=>r()));
-
-/* One HTML cell per lamp block, positioned from the block's own coordinates —
-   the readout is a picture of the world, not a font. */
-function buildReadout(){
-  for(const d of DIGITS){
-    const all=[];
-    for(const s of SEGS) for(const p of circ.lamps[d+"_"+s]) all.push([s,p]);
-    const minx=Math.min(...all.map(([,p])=>p[0]));
-    const minz=Math.min(...all.map(([,p])=>p[2]));
-    const host=$("dig"+d);host.innerHTML="";
-    cells[d]=[];
-    for(const [s,p] of all){
-      const el=document.createElement("i");
-      el.className="px";
-      el.style.gridColumn=(p[0]-minx+1);
-      el.style.gridRow=(p[2]-minz+1);
-      host.appendChild(el);
-      cells[d].push([el,world.at(p[0],p[1],p[2]),s]);
-    }
-  }
-}
-/* Paint the lamps and decode what they spell. A segment only counts as lit if
-   every one of its lamps is lit — a half-lit bar is a fault, and reads as one. */
-function readDigit(d,blankIsZero){
-  const anyLit=new Set(),anyDark=new Set();
-  for(const [el,i,s] of cells[d]){
-    const lit=world.power[i]>0;
-    el.classList.toggle("on",lit);
-    (lit?anyLit:anyDark).add(s);
-  }
-  for(const s of anyLit) if(anyDark.has(s))return null;   // a half-lit bar
-  const pat=[...SEGS].filter(s=>anyLit.has(s)).join("");
-  if(pat==="")return blankIsZero?0:null;
-  return pat in NUMERAL?NUMERAL[pat]:null;
-}
-/* What operand a pad is holding, read off its one-hot latches — not off a
-   record of what was clicked, which could drift from the hardware. */
-function readPad(pad){
-  let found=null;
-  for(let k=0;k<10;k++){
-    if(!world.lit[latchIdx[pad+k]])continue;
-    if(found!==null)return null;      // two latches set: not one-hot
-    found=k;
-  }
-  return found;
-}
-function refreshPanel(settled){
-  const tens=readDigit("1",true),units=readDigit("0",false);
-  const held={A:readPad("A"),B:readPad("B")};
-  const ready=world.power[readyIdx]>0;
-  $("bReady").classList.toggle("on",ready);
-  const sum=(tens===null||units===null)?null:tens*10+units;
-  const both=held.A!==null&&held.B!==null;
-  $("tReady").textContent=
-    !ready ? (held.A===null&&held.B===null ? "no operands entered"
-                                           : "waiting for the other operand")
-    : sum===null ? "lamps mid-flight"
-    : both ? `${held.A} + ${held.B} = ${sum}` : `showing ${sum}`;
-  let lit=0,lamps=0;
-  for(let i=0;i<world.n;i++) if(world.kind[i]===K_LAMP){lamps++;if(world.power[i])lit++;}
-  $("sLit").textContent=lit+" of "+lamps;
-  const burn=eng.burned.size;
-  const b=$("sBurn");b.textContent=burn?burn+" — a bug":"none";
-  b.classList.toggle("bad",burn>0);
-  if(settled!==undefined)$("sSet").textContent=settled+" gt";
-  for(const pad of "AB"){
-    $("val"+pad).textContent=held[pad]===null?"—":held[pad];
-    for(let k=0;k<10;k++)
-      $("k"+pad+k).setAttribute("aria-pressed",held[pad]===k?"true":"false");
-  }
-  refreshColors(false);
-}
-function setBusy(v){
-  busy=v;
-  for(const pad of "AB") for(let k=0;k<10;k++) $("k"+pad+k).disabled=v;
-}
-
-/* A keypress, played out on the blocks: hold the button down for the same
-   number of ticks a stone button stays pressed, then let it pop back out. */
-async function pressKey(pad,k){
-  if(busy)return;
-  setBusy(true);
-  $("tReady").textContent="simulating…";
-  await frame();
-  const i=leverIdx[pad+k],t0=eng.now;
-  eng.setLever(i,true);
-  eng.run(circ.hold);
-  eng.setLever(i,false);
-  eng.runUntilStable();
-  refreshPanel(eng.now-t0);
-  setBusy(false);
-}
-function makeKeys(pad){
-  const host=$("keys"+pad);
-  for(const k of [1,2,3,4,5,6,7,8,9,0]){
-    const b=document.createElement("button");
-    b.className="key";b.type="button";b.id="k"+pad+k;b.textContent=k;
-    b.onclick=()=>pressKey(pad,k);
-    host.appendChild(b);
-  }
-}
-makeKeys("A");makeKeys("B");
-addEventListener("keydown",e=>{
-  if(!/^[0-9]$/.test(e.key))return;
-  const a=readPad("A"),b=readPad("B");
-  pressKey(a===null||b!==null?"A":"B",+e.key);
-});
-
-/* camera focus: aim at what the blocks actually occupy, and pull back far
-   enough that the whole of it fits the vertical field of view */
+/* ---- camera ---- */
 function frameOn(points,margin){
   const[dx,dy,dz]=world.dims,n=points.length||1;
   let cx=0,cy=0,cz=0;
   for(const p of points){cx+=p[0];cy+=p[1];cz+=p[2];}
   target=[cx/n-dx/2,cy/n-dy/2,cz/n-dz/2];
-  // measure the cloud along the camera's own axes: the machine is long and
-  // thin, and fitting its bounding sphere would waste most of a wide viewport
   const f=[Math.cos(cam.el)*Math.sin(cam.az),Math.sin(cam.el),
            Math.cos(cam.el)*Math.cos(cam.az)];
   const right=norm(cross([0,1,0],f)),up=cross(f,right);
-  // a point at depth (d - f.q) fits if |up.q| <= t(d - f.q) and
-  // |right.q| <= t*ar(d - f.q); solve each for d and take the worst
   const ar=(cv.clientWidth||900)/(cv.clientHeight||380),t=Math.tan(FOV/2);
   let d=1;
   for(const p of points){
@@ -745,24 +653,221 @@ function frameOn(points,margin){
   cam.dist=d*margin/Math.max(dx,dy,dz);
   invalidate();
 }
+function allPoints(){
+  const p=[];
+  for(const i of inst)p.push([world.bx[i],world.by[i],world.bz[i]]);
+  return p;
+}
+function lampPoints(){
+  // the digits only: circ.lamps also carries the flag row, which sits far
+  // enough to the right that including it frames the numerals into specks
+  const p=[];
+  for(const d of circ.digits)for(const s of SEGS)
+    for(const q of circ.lamps[d+"_"+s])p.push(q);
+  return p;
+}
+function inputPoints(){
+  const p=[];
+  for(const k in circ.switches)p.push(circ.switches[k]);
+  for(const k in circ.buttons)p.push(circ.buttons[k]);
+  return p;
+}
+const VIEWS={
+  all:  ()=>{cam.az=1.62;cam.el=0.80;frameOn(allPoints(),1.04);},
+  disp: ()=>{cam.az=0.0;cam.el=1.42;frameOn(lampPoints(),1.15);},
+  ctrl: ()=>{cam.az=-1.57;cam.el=1.05;frameOn(inputPoints(),1.05);},
+};
 function focus(which){
-  for(const [id,name] of [["lookAll","all"],["lookDisp","disp"],["lookPads","pads"]])
-    $(id).setAttribute("aria-pressed",name===which?"true":"false");
-  const pts=[];
-  if(which==="all"){
-    for(const i of inst) pts.push([world.bx[i],world.by[i],world.bz[i]]);
-    cam.az=1.75;cam.el=0.45;frameOn(pts,1.06);
-  } else if(which==="disp"){
-    for(const d of DIGITS) for(const s of SEGS) pts.push(...circ.lamps[d+"_"+s]);
-    cam.az=0.0;cam.el=1.30;frameOn(pts,1.35);
-  } else {
-    for(const pad of "AB") for(let k=0;k<10;k++) pts.push(circ.levers[pad+k]);
-    cam.az=-1.57;cam.el=1.05;frameOn(pts,1.05);
+  for(const k in VIEWS)
+    $("look_"+k).setAttribute("aria-pressed",k===which?"true":"false");
+  VIEWS[which]();
+}
+
+/* ---- the machine's own readout, one cell per lamp block ---- */
+const SEGS="abcdefg";
+const NUMERAL={abcdef:0,bc:1,abdeg:2,abcdg:3,bcfg:4,acdfg:5,acdefg:6,abc:7,
+               abcdefg:8,abcdfg:9};
+let cells={},flagIdx={},switchIdx={},buttonIdx={},readyIdx=-1;
+
+function buildReadout(){
+  const host=$("readout");host.innerHTML="";cells={};
+  for(const d of circ.digits){
+    const all=[];
+    for(const s of SEGS)for(const p of circ.lamps[d+"_"+s])all.push([s,p]);
+    const minx=Math.min(...all.map(([,p])=>p[0]));
+    const minz=Math.min(...all.map(([,p])=>p[2]));
+    const el=document.createElement("div");el.className="digit";
+    host.appendChild(el);
+    cells[d]=[];
+    for(const[s,p]of all){
+      const px=document.createElement("i");px.className="px";
+      px.style.gridColumn=(p[0]-minx+1);px.style.gridRow=(p[2]-minz+1);
+      el.appendChild(px);
+      cells[d].push([px,world.at(p[0],p[1],p[2]),s]);
+    }
+  }
+  const fr=$("flagrow");fr.innerHTML="";flagIdx={};
+  for(const f of (circ.flags||[])){
+    const w1=document.createElement("span");w1.className="flag";
+    w1.innerHTML=`<i class="bulb" id="fl_${f}"></i>${f}`;
+    fr.appendChild(w1);
+    flagIdx[f]=world.at(...circ.flaglamps[f]);
   }
 }
-$("lookAll").onclick=()=>focus("all");
-$("lookDisp").onclick=()=>focus("disp");
-$("lookPads").onclick=()=>focus("pads");
+function readDigit(d,blankIsZero){
+  const anyLit=new Set(),anyDark=new Set();
+  for(const[px,i,s]of cells[d]){
+    const lit=world.power[i]>0;
+    px.classList.toggle("on",lit);
+    (lit?anyLit:anyDark).add(s);
+  }
+  for(const s of anyLit)if(anyDark.has(s))return null;
+  const pat=[...SEGS].filter(s=>anyLit.has(s)).join("");
+  if(pat==="")return blankIsZero?0:null;
+  return pat in NUMERAL?NUMERAL[pat]:null;
+}
+function readValue(){
+  let total=0,seen=false;
+  for(const d of circ.digits){          // most significant first
+    const last=d===circ.digits[circ.digits.length-1];
+    const v=readDigit(d,!last);
+    if(v===null)return null;
+    total=total*10+v;seen=true;
+  }
+  return seen?total:null;
+}
+
+/* ---- controls ---- */
+function bitsOf(pad){
+  let v=0;
+  for(let i=0;i<circ.width;i++)
+    if(world.lit[switchIdx[pad+i]])v|=1<<i;
+  return v;
+}
+function refreshPanel(){
+  const v=readValue();
+  const ready=readyIdx>=0&&world.power[readyIdx]>0;
+  $("value").textContent=v===null?"——":v;
+  $("valstate").textContent=
+    !ready?"no operation selected":(v===null?"settling":"stable");
+  for(const f in flagIdx)
+    $("fl_"+f).classList.toggle("on",world.power[flagIdx[f]]>0);
+  if(circ.switches&&circ.width){
+    for(const pad of["A","B"]){
+      const val=bitsOf(pad);
+      $("val"+pad).textContent=val;
+      for(let i=0;i<circ.width;i++)
+        $("b"+pad+i).setAttribute("aria-pressed",
+          world.lit[switchIdx[pad+i]]?"true":"false");
+    }
+  }
+  $("tTick").textContent=eng.now.toLocaleString();
+  $("tQueue").textContent=eng.queue.length.toLocaleString();
+  $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
+  $("tBurn").classList.toggle("bad",eng.burned.size>0);
+}
+
+/* ---- the tick loop: this is the whole point ---- */
+let playing=false,speed=20,acc=0,last=0,release=null;
+function stepTick(){
+  if(release&&eng.now>=release.at){eng.setLever(release.pos,false);release=null;}
+  const touched=new Set();
+  eng.touched=touched;
+  eng.tick();
+  eng.touched=null;
+  let lo=Infinity,hi=-Infinity;
+  for(const i of touched){
+    const j=instOf[i];
+    if(j<0)continue;
+    recent.set(j,eng.now);
+    if(j<lo)lo=j; if(j>hi)hi=j;
+  }
+  // let old highlights decay back to their base colour
+  for(const[j,t]of recent){
+    if(eng.now-t>FADE){recent.delete(j);}
+    if(j<lo)lo=j; if(j>hi)hi=j;
+  }
+  for(let j=lo;j<=hi;j++)if(j>=0&&j<inst.length)paint(j,inst[j]);
+  repaintRange(lo,hi);
+  return touched.size;
+}
+function advance(){
+  const t=performance.now();
+  if(!playing){last=t;return;}
+  const dt=Math.min(0.25,(t-last)/1000);last=t;
+  acc+=dt*speed;
+  let n=0;
+  while(acc>=1&&n<600){acc-=1;stepTick();n++;}
+  if(n)refreshPanel();
+  if(!eng.queue.length&&!release){setPlaying(false);acc=0;}
+}
+function setPlaying(v){
+  playing=v;last=performance.now();
+  $("bPlay").textContent=v?"❚❚ pause":"▶ play";
+  $("bPlay").setAttribute("aria-pressed",v?"true":"false");
+}
+function settleNow(){
+  setPlaying(false);
+  if(release){eng.run(Math.max(0,release.at-eng.now));
+    eng.setLever(release.pos,false);release=null;}
+  eng.runUntilStable(400000);
+  recent.clear();repaintAll();refreshPanel();
+}
+function pressButton(k){
+  eng.setLever(buttonIdx[k],true);
+  release={pos:buttonIdx[k],at:eng.now+(circ.hold||40)};
+  for(const b in buttonIdx)
+    $("op"+b).setAttribute("aria-pressed",b===k?"true":"false");
+  setPlaying(true);refreshPanel();
+}
+function toggleBit(pad,i){
+  const p=switchIdx[pad+i];
+  eng.setLever(p,!world.lit[p]);
+  setPlaying(true);refreshPanel();
+}
+function buildControls(){
+  const ops=$("ops");ops.innerHTML="";buttonIdx={};
+  (circ.ops||[]).forEach((nm,k)=>{
+    buttonIdx[String(k)]=world.at(...circ.buttons[String(k)]);
+    const b=document.createElement("button");
+    b.className="key";b.type="button";b.id="op"+k;b.textContent=nm;
+    b.onclick=()=>pressButton(String(k));
+    ops.appendChild(b);
+  });
+  const host=$("operands");host.innerHTML="";switchIdx={};
+  for(const pad of["A","B"]){
+    const row=document.createElement("div");row.className="opnd";
+    row.innerHTML=`<span class="nm">${pad}</span><div class="bits" id="bits${pad}"></div>`
+                 +`<span class="val" id="val${pad}">0</span>`;
+    host.appendChild(row);
+    for(let i=circ.width-1;i>=0;i--){
+      switchIdx[pad+i]=world.at(...circ.switches[pad+i]);
+      const b=document.createElement("button");
+      b.className="bit";b.type="button";b.id="b"+pad+i;b.textContent=i;
+      b.title=`${pad} bit ${i} (value ${1<<i})`;
+      b.onclick=()=>toggleBit(pad,i);
+      row.querySelector(".bits").appendChild(b);
+    }
+  }
+}
+
+/* ---- input ---- */
+$("cut").oninput=e=>{
+  // the machine is 181 blocks tall and every stage hides the one below it;
+  // slicing the top off is the only way to see inside
+  const dy=world.dims[1];
+  cut=(+e.target.value>=100)?1e9:(-dy/2+dy*(+e.target.value)/100);
+  invalidate();
+};
+$("bPlay").onclick=()=>setPlaying(!playing);
+$("bStep").onclick=()=>{setPlaying(false);stepTick();refreshPanel();};
+$("bSettle").onclick=()=>settleNow();
+$("speed").onchange=e=>{speed=+e.target.value;};
+for(const k in VIEWS)$("look_"+k).onclick=()=>focus(k);
+addEventListener("keydown",e=>{
+  if(e.key===" "){e.preventDefault();setPlaying(!playing);}
+  else if(e.key==="."){setPlaying(false);stepTick();refreshPanel();}
+});
 
 let drag=null;
 cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};
@@ -774,23 +879,31 @@ cv.addEventListener("pointermove",e=>{if(!drag)return;
 cv.addEventListener("pointerup",()=>drag=null);
 cv.addEventListener("wheel",e=>{e.preventDefault();
   cam.dist=Math.max(0.02,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));
-  invalidate();},
-  {passive:false});
+  invalidate();},{passive:false});
 
 (async()=>{
-  circ=BUNDLE.circuits.find(c=>c.name==="console");
-  world=new World(circ.n,circ.dims,await inflate(circ.data));
-  eng=new Engine(world);eng.initializeSteady();
+  const status=$("boot");
+  const say=async t=>{status.textContent=t;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));};
+  circ=BUNDLE.circuits.find(c=>c.name==="machine");
+  await say("unpacking "+circ.n.toLocaleString()+" blocks…");
+  const raw=await inflate(circ.data);
+  const state=circ.state?await inflate(circ.state):null;
+  world=new World(circ.n,circ.dims,raw,state);
+  await say("wiring the simulator…");
+  eng=new Engine(world);
+  if(state)eng.adoptState(); else eng.initializeSteady();
+  await say("building the view…");
+  buildInstances();buildReadout();buildControls();
   readyIdx=world.at(...circ.ready);
-  for(const pad of "AB") for(let k=0;k<10;k++){
-    leverIdx[pad+k]=world.at(...circ.levers[pad+k]);
-    latchIdx[pad+k]=world.at(...circ.latches[pad+k]);
-  }
-  buildInstances();buildReadout();
-  focus("all");
+  for(const [k,v] of Object.entries({
+    hBlocks:circ.n.toLocaleString(),hGates:circ.gates,hDepth:circ.depth,
+    hWidth:circ.width+"-bit",hDelay:"delay "+circ.delay}))
+    if($(k))$(k).textContent=v;
+  focus("all");refreshPanel();
+  status.textContent="";
+  $("boot").hidden=true;
   loop();
-  refreshPanel();
-  setBusy(false);
   window.__ready=true;
 })();
 </script>
