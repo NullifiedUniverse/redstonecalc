@@ -41,6 +41,18 @@ alive over distance costs a full redstone tick.
 See [docs/DESIGN.md](docs/DESIGN.md) for the layer-by-layer design, the
 carry-lookahead derivation, and the troubleshooting log.
 
+## Mk II
+
+`tools/profile_path.py` attributes every tick on the critical path to a cause:
+**88% of the latency is repeaters keeping dust alive over distance, not gates.**
+On this architecture compact and fast are the same goal.
+
+[docs/PLAN.md](docs/PLAN.md) is the plan for the next build — a 3-digit decimal
+(BCD) machine with a keypad, a lectern menu and a seven-segment display. Two of
+its modules are already built and verified: a 17-gate BCD-to-seven-segment
+decoder, and a 168-block seven-segment display that renders every numeral in 4
+game ticks. `docs/preview.html` drives both live.
+
 ## Running it
 
 ```sh

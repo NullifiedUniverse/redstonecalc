@@ -1,0 +1,549 @@
+<title>Redstone Calculator Mk II — design preview</title>
+<style>
+:root{
+  --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --line:#252b34;
+  --ink:#e8e6e3; --muted:#8b9099; --dim:#5c636d;
+  --redstone:#ff3b30; --torch:#ffab40; --lamp:#ffd77a;
+  --pass:#4ade80; --warn:#facc15; --viewport:#07090c;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:light){
+  :root{ --void:#eceef1; --panel:#f8f9fa; --panel2:#eef0f3; --line:#d6dae0;
+    --ink:#14171c; --muted:#5f666f; --dim:#868d96;
+    --redstone:#d92b1f; --torch:#b4700a; --lamp:#a9760a;
+    --pass:#15803d; --warn:#a16207; --viewport:#12151a; }
+}
+:root[data-theme="dark"]{ --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24;
+  --line:#252b34; --ink:#e8e6e3; --muted:#8b9099; --dim:#5c636d;
+  --redstone:#ff3b30; --torch:#ffab40; --lamp:#ffd77a; --pass:#4ade80;
+  --warn:#facc15; --viewport:#07090c; }
+:root[data-theme="light"]{ --void:#eceef1; --panel:#f8f9fa; --panel2:#eef0f3;
+  --line:#d6dae0; --ink:#14171c; --muted:#5f666f; --dim:#868d96;
+  --redstone:#d92b1f; --torch:#b4700a; --lamp:#a9760a; --pass:#15803d;
+  --warn:#a16207; --viewport:#12151a; }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--void);color:var(--ink);font-family:var(--sans);
+  line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 1.25rem}
+.prose{max-width:68ch}
+h1{font-size:clamp(1.7rem,4vw,2.6rem);font-weight:800;letter-spacing:-.03em;
+  margin:0 0 .35rem;text-wrap:balance}
+h1 em{font-style:normal;color:var(--redstone)}
+h2{font-size:1.22rem;font-weight:700;letter-spacing:-.01em;margin:2.6rem 0 .2rem;
+  text-wrap:balance}
+h3{font-size:.95rem;font-weight:700;margin:1.5rem 0 .2rem}
+p{margin:.55rem 0}
+.lede{font-size:1.03rem;color:var(--muted);max-width:62ch}
+.eyebrow{font-family:var(--mono);font-size:.66rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--redstone);margin:0 0 .5rem}
+.rule{height:1px;background:var(--line);margin:2.2rem 0 0}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel2);
+  padding:.1em .35em;border-radius:3px}
+
+header.top{border-bottom:1px solid var(--line);background:var(--panel);
+  padding:1.6rem 0 1.4rem}
+.mono-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);margin-top:.9rem}
+
+/* ---- live console ---- */
+.console{display:grid;grid-template-columns:1fr 300px;gap:0;
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  background:var(--panel);margin:1.6rem 0 0}
+#view{position:relative;background:var(--viewport);min-height:340px}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas:active{cursor:grabbing}
+.hint{position:absolute;left:.75rem;bottom:.6rem;font-family:var(--mono);
+  font-size:.63rem;color:#5c636d;letter-spacing:.06em;pointer-events:none}
+.pad{padding:.9rem;border-left:1px solid var(--line);display:flex;
+  flex-direction:column;gap:.7rem}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem}
+.key{font-family:var(--mono);font-size:.95rem;font-weight:600;padding:.55rem 0;
+  border:1px solid var(--line);border-radius:6px;background:var(--panel2);
+  color:var(--ink);cursor:pointer}
+.key:hover{border-color:var(--redstone);color:var(--redstone)}
+.key:active{background:var(--redstone);color:#fff}
+.key.wide{grid-column:span 2}
+.key.alt{color:var(--muted)}
+button:focus-visible,.key:focus-visible{outline:2px solid var(--redstone);
+  outline-offset:2px}
+.entry{font-family:var(--mono);font-size:1.85rem;font-weight:700;text-align:right;
+  letter-spacing:.06em;font-variant-numeric:tabular-nums;background:var(--panel2);
+  border:1px solid var(--line);border-radius:6px;padding:.35rem .6rem;color:var(--lamp)}
+.stat{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:.68rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.stat b{color:var(--ink);font-weight:600}
+
+/* ---- tables ---- */
+.tw{overflow-x:auto;margin:.9rem 0}
+table{border-collapse:collapse;font-size:.82rem;width:100%;min-width:520px}
+th,td{text-align:left;padding:.42rem .7rem;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.63rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);font-weight:500}
+td.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+tr.hi td{color:var(--redstone)}
+td small{color:var(--muted)}
+
+/* ---- bars ---- */
+.split{display:flex;height:22px;border-radius:4px;overflow:hidden;
+  border:1px solid var(--line);margin:.5rem 0 .2rem}
+.split i{display:block;height:100%}
+.split .logic{background:var(--pass)}
+.split .rail{background:var(--redstone)}
+.split .coll{background:var(--torch)}
+.keyline{display:flex;gap:1rem;flex-wrap:wrap;font-family:var(--mono);
+  font-size:.66rem;color:var(--muted)}
+.keyline span{display:flex;align-items:center;gap:.35rem}
+.sw{width:10px;height:10px;border-radius:2px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:.7rem;margin:1rem 0}
+.card{border:1px solid var(--line);border-radius:8px;padding:.8rem .9rem;
+  background:var(--panel)}
+.card h4{margin:0 0 .3rem;font-size:.82rem;font-family:var(--mono);
+  letter-spacing:.04em}
+.card p{margin:0;font-size:.79rem;color:var(--muted)}
+.tag{display:inline-block;font-family:var(--mono);font-size:.6rem;
+  letter-spacing:.09em;text-transform:uppercase;padding:.12rem .4rem;
+  border-radius:3px;border:1px solid currentColor;margin-left:.4rem}
+.tag.m{color:var(--pass)} .tag.p{color:var(--warn)}
+footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
+  font-family:var(--mono);font-size:.68rem;color:var(--dim)}
+@media (max-width:820px){ .console{grid-template-columns:1fr}
+  .pad{border-left:none;border-top:1px solid var(--line)} }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Design preview · Minecraft Java 26.2</p>
+    <h1>Redstone Calculator <em>Mk II</em></h1>
+    <p class="lede">The first build works and is verified. It is also 88% wire.
+      This is the plan for the version that isn't — a decimal machine you can
+      actually operate, with a display that costs almost nothing.</p>
+    <p class="mono-note">Everything tagged <span class="tag m">measured</span>
+      was simulated on placed blocks. Everything tagged
+      <span class="tag p">projected</span> is an estimate and says so.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>The console, running for real</h2>
+  <p class="prose">Type a number. Each digit is fed to a redstone
+    BCD&rarr;seven-segment decoder, and the seven segment lines it produces
+    drive a display made of redstone lamps. Both modules are simulated block by
+    block, at Minecraft's tick rate — the numerals below are lamps being lit by
+    redstone, not styled HTML.</p>
+
+  <div class="console">
+    <div id="view"><canvas id="cv"></canvas>
+      <div class="hint">drag to orbit · scroll to zoom</div></div>
+    <div class="pad">
+      <div class="entry" id="entry">0</div>
+      <div class="keys" id="keys"></div>
+      <div class="stat"><span>decoder settle</span><b id="sDec">—</b></div>
+      <div class="stat"><span>display settle</span><b id="sDis">—</b></div>
+      <div class="stat"><span>lamps lit</span><b id="sLit">—</b></div>
+      <div class="stat"><span>blocks simulated</span><b id="sBlk">—</b></div>
+    </div>
+  </div>
+  <p class="mono-note">Two verified modules, co-simulated: the decoder's seven
+    outputs are read and applied to the display's seven inputs. Joining them in
+    one world needs a 21-net corridor, specified below but not yet built.</p>
+
+  <div class="rule"></div>
+
+  <h2>Why rebuild at all</h2>
+  <div class="prose">
+    <p>The Mk I 8-bit ALU settles in 234 game ticks. Its logic is only 14 stages
+      deep, which should cost 28. Walking the placed blocks and attributing every
+      tick on the critical path to a cause explains the gap:</p>
+  </div>
+
+  <div class="split" title="critical path composition">
+    <i class="logic" style="width:12%"></i>
+    <i class="rail" style="width:45%"></i>
+    <i class="coll" style="width:43%"></i>
+  </div>
+  <div class="keyline">
+    <span><i class="sw" style="background:var(--pass)"></i>logic 28 gt (12%)</span>
+    <span><i class="sw" style="background:var(--redstone)"></i>rail wire 108 gt (45%)</span>
+    <span><i class="sw" style="background:var(--torch)"></i>collector wire 104 gt (43%)</span>
+  </div>
+
+  <div class="prose">
+    <p><strong>88% of the machine's latency is repeaters spent keeping dust
+      alive over distance.</strong> Not gates. That single number sets the whole
+      plan, because it collapses three of the goals into one: on this
+      architecture, <em>compact is fast</em>. Every block of wire removed is
+      latency removed, and every block removed is also a block you don't have to
+      look at.</p>
+    <p>It also means the obvious lever — a cleverer adder — is the wrong one.
+      Carry-lookahead already bought 1.7&times; the logical depth and returned
+      only 1.05&times; on the clock.</p>
+  </div>
+
+  <h2>Decision 1 — work in decimal, not binary <span class="tag m">measured</span></h2>
+  <div class="prose">
+    <p>A binary machine cannot show a decimal answer without a binary&rarr;BCD
+      conversion, and double-dabble costs roughly an add-and-compare per bit per
+      digit. Building the datapath in BCD from the start deletes that stage
+      entirely and makes the display a flat 4&rarr;7 lookup.</p>
+    <p>Both halves were built and simulated rather than estimated:</p>
+  </div>
+  <div class="tw"><table>
+    <tr><th>module</th><th>gates</th><th>depth</th><th>blocks</th>
+        <th>settle</th><th>verified</th></tr>
+    <tr><td>Seven-segment decoder, one digit</td><td class="n">17</td>
+        <td class="n">2</td><td class="n">2,647</td><td class="n">24 gt</td>
+        <td>all 10 digits</td></tr>
+    <tr><td>Seven-segment display, one digit</td><td class="n">—</td>
+        <td class="n">—</td><td class="n">168</td><td class="n">4 gt</td>
+        <td>all 10 digits</td></tr>
+    <tr><td>3-digit BCD adder + display decode</td><td class="n">963</td>
+        <td class="n">32</td><td class="n">94,660</td><td class="n">256 gt</td>
+        <td>11 sums, digits + segments</td></tr>
+    <tr class="hi"><td>Mk I 8-bit binary ALU <small>(no display at all)</small></td>
+        <td class="n">723</td><td class="n">14</td><td class="n">123,354</td>
+        <td class="n">234 gt</td><td>1,120 vectors</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>A 3-digit decimal adder <em>including its whole display path</em> is
+      23% smaller than the binary ALU that still cannot display anything. The
+      catch is depth: 32 stages against 14, because the BCD carry currently
+      ripples from digit to digit and each digit is two chained 4-bit adds.</p>
+    <p><strong>Fix, and it is the first thing to build:</strong> a digit
+      generates a carry when its sum exceeds 9, which is a function of its own
+      operands only — so the same flat lookahead already used inside a digit
+      applies across digits. That should take depth 32 to roughly 14
+      <span class="tag p">projected</span>.</p>
+  </div>
+
+  <h2>Decision 2 — bit-sliced tiles, not a machine-wide crossbar
+    <span class="tag p">projected</span></h2>
+  <div class="prose">
+    <p>Mk I routes every stage as a PLA: rails span the whole machine so any
+      gate can tap any signal. That generality is exactly what bought the 45%
+      rail cost. A decimal digit, by contrast, talks almost entirely to itself —
+      only the carry crosses to its neighbour.</p>
+    <p>So: one tile per digit, cloned along a row, with rails that stop at the
+      tile boundary. A tile is about 30 blocks wide instead of 269, which is the
+      difference between 10 repeaters on a rail and one. Cross-tile wiring
+      shrinks to a single carry line.</p>
+  </div>
+
+  <h2>Decision 3 — spend more block types <span class="tag m">partly measured</span></h2>
+  <div class="prose">
+    <p>Mk I uses five block types. Each of these earns its place by collapsing
+      something that currently costs many blocks:</p>
+  </div>
+  <div class="tw"><table>
+    <tr><th>block</th><th>property used</th><th>what it replaces</th><th>status</th></tr>
+    <tr><td>Copper bulb</td>
+        <td>Toggles on a rising edge, <em>keeps</em> its state, comparator-readable,
+            and emits light</td>
+        <td>A multi-block latch <em>and</em> a display lamp — in one block</td>
+        <td>to confirm</td></tr>
+    <tr><td>Repeater locking</td>
+        <td>A repeater held from the side freezes its output</td>
+        <td>Torch latches. Zero torches means burnout is impossible</td>
+        <td>verified, 44 blocks</td></tr>
+    <tr><td>Comparator, subtract</td>
+        <td><code>out = rear − side</code> in one redstone tick</td>
+        <td>Whole binary compare and subtract trees</td><td>verified</td></tr>
+    <tr><td>Comparator + barrel</td>
+        <td>Reads container fullness as 0–15</td>
+        <td>Hard-wired constants and small lookup tables</td><td>to build</td></tr>
+    <tr><td>Lectern</td>
+        <td>A comparator reads the open page number</td>
+        <td>The menu selector — turn a page to choose the operation</td>
+        <td>to build</td></tr>
+    <tr><td>Observer</td>
+        <td>Two-tick pulse on a block update, one block</td>
+        <td>Multi-block pulse shapers and edge detectors</td><td>to confirm</td></tr>
+    <tr><td>Slabs, stairs, glass</td>
+        <td>Non-conductive, but a top slab still supports dust</td>
+        <td>Part of the 4-block cell pitch that exists only to stop cross-talk</td>
+        <td>to build</td></tr>
+    <tr><td>Note block</td><td>Sounds when powered</td>
+        <td>Nothing — it is there so the keypad answers you</td><td>to build</td></tr>
+  </table></div>
+  <p class="prose">Two honest caveats. Copper-bulb and observer tick timings could
+    not be checked against the wiki this session, so they are marked <em>to
+    confirm</em> rather than assumed. And the locked-repeater latch has a real
+    protocol requirement found while testing it: <strong>the lock must be
+    asserted a tick before the data changes</strong>, or the data wins the race
+    and the latch stores the new value instead of holding the old one.</p>
+
+  <h2>Decision 4 — the display is the memory</h2>
+  <div class="prose">
+    <p>A copper bulb holds its own state and is a light source, so the answer
+      register and the screen stop being two different things. Latch the result
+      into the bulbs and the datapath behind them is free to start the next sum
+      immediately, with no separate register bank to build, power, or route.</p>
+    <p>The seven-segment module already verified here is 168 blocks and settles
+      in 4 game ticks; swapping lamps for waxed bulbs keeps the geometry and
+      adds the memory for free <span class="tag p">projected</span>. Waxing
+      matters: unwaxed copper oxidises, which changes the light level it emits
+      but not its redstone behaviour.</p>
+  </div>
+
+  <h2>Decision 5 — player control worth using</h2>
+  <div class="cards">
+    <div class="card"><h4>0–9 keypad</h4>
+      <p>Stone buttons, one per digit, feeding a shift register. Entry is typing
+        a number, not flipping twelve levers and doing binary in your head.</p></div>
+    <div class="card"><h4>Lectern as the menu</h4>
+      <p>A comparator reads the open page, so turning to page 2 selects SUB.
+        The menu is a physical book you can label.</p></div>
+    <div class="card"><h4>Note-block feedback</h4>
+      <p>One pitch on keypress, another when the answer latches. You can operate
+        it without watching the display.</p></div>
+    <div class="card"><h4>Clear and enter</h4>
+      <p>Two buttons. Clear resets the entry register; enter latches the operand
+        and starts the sum.</p></div>
+  </div>
+
+  <h2>What it should come to</h2>
+  <div class="tw"><table>
+    <tr><th></th><th>Mk I, 8-bit binary</th><th>Mk II, 3-digit decimal</th></tr>
+    <tr><td>Range</td><td class="n">0–255</td><td class="n">0–999</td></tr>
+    <tr><td>Blocks</td><td class="n">123,354 <small>measured</small></td>
+        <td class="n">~55,000 <small>projected</small></td></tr>
+    <tr><td>Logic depth</td><td class="n">14 <small>measured</small></td>
+        <td class="n">~14 <small>projected, with digit lookahead</small></td></tr>
+    <tr><td>Settle</td><td class="n">234 gt <small>measured</small></td>
+        <td class="n">~70 gt <small>projected</small></td></tr>
+    <tr><td>Wire share of latency</td><td class="n">88% <small>measured</small></td>
+        <td class="n">~55% <small>projected</small></td></tr>
+    <tr><td>Shows a decimal answer</td><td>no</td><td>yes, 17 gates per digit</td></tr>
+    <tr><td>Input</td><td>19 levers, in binary</td><td>keypad and a lectern</td></tr>
+  </table></div>
+  <p class="prose">The projections rest on the tile change removing most of the
+    rail wire. That is the assumption most likely to be wrong, so it is the one
+    to test first — build one digit tile, measure its critical path with the
+    same profiler, and only then clone it.</p>
+
+  <h2>Build order</h2>
+  <div class="prose">
+    <p>Each step is checkable on its own, and each one can fail loudly before
+      the next is worth starting.</p>
+    <ol>
+      <li>Cross-digit carry lookahead. Target: BCD depth 32 &rarr; ~14.</li>
+      <li>One digit tile, bit-sliced. Profile it. If rail wire hasn't collapsed,
+        the plan is wrong and stops here.</li>
+      <li>Add copper bulbs and observers to the simulator, confirming their tick
+        behaviour against the wiki first.</li>
+      <li>Clone the tile three times, wire the carry chain.</li>
+      <li>Keypad, lectern menu, note blocks.</li>
+      <li>Join decoder and display in one world — the 21-net corridor: seven
+        feeds per digit, each a two-torch riser to its own transport level, with
+        digits kept in separate tiles so nets never need to cross.</li>
+      <li>Re-run the whole vector sweep, and the burnout check, on the result.</li>
+    </ol>
+  </div>
+
+</div>
+
+<footer><div class="wrap">
+  Measured figures come from the simulator in this repository, on placed blocks.
+  Mk I remains verified: 4-bit ALU correct on all 2,048 vectors.
+</div></footer>
+
+<script>
+const BUNDLE = __CIRCUIT_DATA__;
+__ENGINE__
+
+/* --------------------------------------------------------------- renderer */
+const cv=document.getElementById("cv");
+const gl=cv.getContext("webgl",{antialias:true,alpha:false,preserveDrawingBuffer:true});
+const VS=`attribute vec3 aPos;attribute vec3 aNorm;attribute vec3 iOff;
+attribute vec3 iScale;attribute vec3 iCol;uniform mat4 uMVP;
+varying vec3 vN;varying vec3 vC;
+void main(){vN=aNorm;vC=iCol;gl_Position=uMVP*vec4(aPos*iScale+iOff,1.0);}`;
+const FS=`precision mediump float;varying vec3 vN;varying vec3 vC;
+void main(){vec3 L=normalize(vec3(0.4,0.9,0.3));
+float d=max(dot(normalize(vN),L),0.0);
+gl_FragColor=vec4(vC*(0.45+0.7*d),1.0);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);gl.useProgram(prog);
+const ext=gl.getExtension("ANGLE_instanced_arrays");
+const A={pos:gl.getAttribLocation(prog,"aPos"),norm:gl.getAttribLocation(prog,"aNorm"),
+  off:gl.getAttribLocation(prog,"iOff"),scale:gl.getAttribLocation(prog,"iScale"),
+  col:gl.getAttribLocation(prog,"iCol")};
+const U={mvp:gl.getUniformLocation(prog,"uMVP")};
+const CV=[],CN=[],CI=[];
+[[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
+ [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
+ [[1,0,0],[[.5,-.5,.5],[.5,-.5,-.5],[.5,.5,-.5],[.5,.5,.5]]],
+ [[-1,0,0],[[-.5,-.5,-.5],[-.5,-.5,.5],[-.5,.5,.5],[-.5,.5,-.5]]],
+ [[0,1,0],[[-.5,.5,.5],[.5,.5,.5],[.5,.5,-.5],[-.5,.5,-.5]]],
+ [[0,-1,0],[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,-.5,.5],[-.5,-.5,.5]]]]
+ .forEach(([n,vs],f)=>{vs.forEach(v=>{CV.push(...v);CN.push(...n);});
+   const b=f*4;CI.push(b,b+1,b+2,b,b+2,b+3);});
+const vbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(CV),gl.STATIC_DRAW);
+const nbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,nbo);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(CN),gl.STATIC_DRAW);
+const ibo=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(CI),gl.STATIC_DRAW);
+const offBuf=gl.createBuffer(),scaleBuf=gl.createBuffer(),colBuf=gl.createBuffer();
+gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);
+function mul(a,b){const o=new Float32Array(16);
+  for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;
+    for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}return o;}
+function persp(f,ar,n,fr){const t=1/Math.tan(f/2);
+  return new Float32Array([t/ar,0,0,0,0,t,0,0,0,0,(fr+n)/(n-fr),-1,0,0,2*fr*n/(n-fr),0]);}
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const norm=a=>{const l=Math.hypot(...a)||1;return[a[0]/l,a[1]/l,a[2]/l];};
+function lookAt(e,c,u){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
+  const x=norm(cross(u,z)),y=cross(z,x);
+  return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,
+    -dot(x,e),-dot(y,e),-dot(z,e),1]);}
+
+let dispWorld,dispEng,dispCirc,decWorld,decEng,decCirc;
+let inst,offs,scales,cols,dyn;
+const cam={az:0.0,el:1.30,dist:0.50};
+
+function colorOf(w,i){
+  const k=w.kind[i];
+  if(k===K_LAMP) return w.power[i]?[1.0,0.90,0.52]:[0.13,0.13,0.15];
+  if(k===K_WIRE){const p=w.power[i];
+    if(!p)return[0.20,0.21,0.24];const t=p/15;
+    return[0.28+0.7*t,0.06+0.15*t,0.05+0.12*t];}
+  if(k===K_TORCH) return w.lit[i]?[1.0,0.66,0.24]:[0.26,0.21,0.17];
+  if(k===K_LEVER) return w.lit[i]?[0.95,0.33,0.28]:[0.38,0.38,0.42];
+  return [0.26,0.29,0.34];
+}
+function buildInstances(){
+  const w=dispWorld,keep=[];
+  for(let i=0;i<w.n;i++){
+    if(w.kind[i]===K_SOLID){let hidden=true;
+      for(let d=0;d<6;d++){const nb=w.step(i,d);
+        if(nb<0||!(w.kind[nb]===K_SOLID||w.kind[nb]===K_LAMP)){hidden=false;break;}}
+      if(hidden)continue;}
+    keep.push(i);
+  }
+  inst=keep;const m=keep.length;
+  offs=new Float32Array(m*3);scales=new Float32Array(m*3);cols=new Float32Array(m*3);
+  dyn=[];
+  const[dx,dy,dz]=w.dims;
+  for(let j=0;j<m;j++){
+    const i=keep[j],k=w.kind[i];
+    offs[j*3]=w.bx[i]-dx/2;offs[j*3+1]=w.by[i]-dy/2;offs[j*3+2]=w.bz[i]-dz/2;
+    let s=[1,1,1];
+    if(k===K_WIRE){s=[0.34,0.07,0.34];offs[j*3+1]-=0.44;}
+    else if(k===K_TORCH)s=[0.24,0.7,0.24];
+    else if(k===K_LEVER)s=[0.32,0.46,0.32];
+    scales.set(s,j*3);
+    if(k!==K_SOLID)dyn.push([j,i]);
+  }
+  refreshColors(true);
+  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.STATIC_DRAW);
+  document.getElementById("sBlk").textContent=
+    (dispWorld.n+decWorld.n).toLocaleString();
+}
+function refreshColors(all){
+  if(all){for(let j=0;j<inst.length;j++)cols.set(colorOf(dispWorld,inst[j]),j*3);}
+  else for(const[j,i]of dyn)cols.set(colorOf(dispWorld,i),j*3);
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
+}
+function draw(){
+  const w=cv.clientWidth,h=cv.clientHeight||360,dpr=Math.min(devicePixelRatio||1,2);
+  if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
+  gl.viewport(0,0,cv.width,cv.height);
+  const bg=getComputedStyle(document.getElementById("view"))
+    .backgroundColor.match(/\d+/g).map(Number);
+  gl.clearColor(bg[0]/255,bg[1]/255,bg[2]/255,1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  const[dx,dy,dz]=dispWorld.dims,R=Math.max(dx,dy,dz),d=R*cam.dist;
+  const eye=[Math.cos(cam.el)*Math.sin(cam.az)*d,Math.sin(cam.el)*d,
+             Math.cos(cam.el)*Math.cos(cam.az)*d];
+  gl.uniformMatrix4fv(U.mvp,false,
+    mul(persp(0.85,w/h,R*0.02,R*8),lookAt(eye,[0,0,0],[0,1,0])));
+  const bind=(b,l,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
+    gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
+  bind(vbo,A.pos,0);bind(nbo,A.norm,0);
+  bind(offBuf,A.off,1);bind(scaleBuf,A.scale,1);bind(colBuf,A.col,1);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+  ext.drawElementsInstancedANGLE(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0,inst.length);
+}
+function loop(){draw();requestAnimationFrame(loop);}
+
+/* ------------------------------------------------------------------- app */
+const SEGS="abcdefg";
+let entry=0,decTicks=0,disTicks=0;
+
+function showValue(v){
+  decTicks=0;disTicks=0;
+  for(let k=0;k<3;k++){
+    const digit=Math.floor(v/Math.pow(10,k))%10;
+    for(let i=0;i<4;i++)
+      decEng.setLever(decWorld.at(...decCirc.levers["D"+i]),(digit>>i)&1);
+    decTicks+=decEng.runUntilStable();
+    for(const s of SEGS){
+      const on=decEng.high(decWorld.at(...decCirc.outputs["SEG_"+s]));
+      dispEng.setLever(dispWorld.at(...dispCirc.levers[`D${k}_${s}`]),on);
+    }
+  }
+  disTicks=dispEng.runUntilStable();
+  let lit=0;
+  for(let i=0;i<dispWorld.n;i++)
+    if(dispWorld.kind[i]===K_LAMP&&dispWorld.power[i])lit++;
+  refreshColors(false);
+  document.getElementById("entry").textContent=String(v).padStart(3,"0");
+  document.getElementById("sDec").textContent=decTicks+" gt";
+  document.getElementById("sDis").textContent=disTicks+" gt";
+  document.getElementById("sLit").textContent=lit+" of 63";
+}
+function press(d){
+  if(d==="C")entry=0;
+  else if(d==="←")entry=Math.floor(entry/10);
+  else entry=(entry*10+d)%1000;
+  showValue(entry);
+}
+const keys=document.getElementById("keys");
+[1,2,3,4,5,6,7,8,9].forEach(d=>{
+  const b=document.createElement("button");
+  b.className="key";b.type="button";b.textContent=d;b.onclick=()=>press(d);
+  keys.appendChild(b);});
+[["C","alt"],[0,""],["←","alt"]].forEach(([t,cls])=>{
+  const b=document.createElement("button");
+  b.className="key "+cls;b.type="button";b.textContent=t;
+  b.onclick=()=>press(t===0?0:t);keys.appendChild(b);});
+addEventListener("keydown",e=>{
+  if(/^[0-9]$/.test(e.key))press(+e.key);
+  else if(e.key==="Backspace")press("←");
+  else if(e.key.toLowerCase()==="c")press("C");});
+
+let drag=null;
+cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};
+  cv.setPointerCapture(e.pointerId);});
+cv.addEventListener("pointermove",e=>{if(!drag)return;
+  cam.az-=(e.clientX-drag.x)*0.008;
+  cam.el=Math.max(0.05,Math.min(1.5,cam.el+(e.clientY-drag.y)*0.006));
+  drag.x=e.clientX;drag.y=e.clientY;});
+cv.addEventListener("pointerup",()=>drag=null);
+cv.addEventListener("wheel",e=>{e.preventDefault();
+  cam.dist=Math.max(0.2,Math.min(2.5,cam.dist*(1+Math.sign(e.deltaY)*0.12)));},
+  {passive:false});
+
+(async()=>{
+  decCirc=BUNDLE.circuits.find(c=>c.name==="seg7");
+  dispCirc=BUNDLE.circuits.find(c=>c.name==="disp3");
+  decWorld=new World(decCirc.n,decCirc.dims,await inflate(decCirc.data));
+  decEng=new Engine(decWorld);decEng.initializeSteady();
+  dispWorld=new World(dispCirc.n,dispCirc.dims,await inflate(dispCirc.data));
+  dispEng=new Engine(dispWorld);dispEng.initializeSteady();
+  buildInstances();
+  showValue(0);press(1);press(2);press(3);
+  loop();
+})();
+</script>
