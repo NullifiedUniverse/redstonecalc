@@ -108,6 +108,47 @@ for (const group of [cases, consec]) {
     }
   }
 }
+// --- the merged geometry still describes the world it came from -----------
+// Structure blocks are drawn as stretched runs rather than one box each, which
+// is half the geometry and exactly the kind of optimisation that can be one
+// cell wrong and look fine. Walk the blocks and insist each is inside the box
+// that claims it.
+const geom = await page.evaluate(() => {
+  let mismapped = 0, mx = 0, mz = 0, structure = 0;
+  for (const L of runs) if (L > mx) mx = L;
+  for (const L of runsZ) if (L > mz) mz = L;
+  for (let i = 0; i < world.n; i++) {
+    const j = instOf[i];
+    if (j < 0) continue;
+    const r = inst[j];
+    if (world.kind[i] !== world.kind[r]) { mismapped++; continue; }
+    if (world.kind[i] === K_SOLID) {
+      structure++;
+      if (world.by[i] !== world.by[r] ||
+          world.bx[i] < world.bx[r] || world.bx[i] >= world.bx[r] + runs[j] ||
+          world.bz[i] < world.bz[r] || world.bz[i] >= world.bz[r] + runsZ[j])
+        mismapped++;
+    } else if (i !== r) mismapped++;
+  }
+  return { blocks: world.n, instances: inst.length, structure,
+           longestX: mx, longestZ: mz, mismapped };
+});
+if (geom.mismapped)
+  throw new Error(`${geom.mismapped} blocks fall outside the instance that ` +
+                  `claims them — a merged run is the wrong length`);
+if (geom.instances >= geom.blocks)
+  throw new Error("structure runs did not merge at all");
+console.log(`geometry: ${geom.blocks.toLocaleString()} blocks drawn as ` +
+            `${geom.instances.toLocaleString()} instances ` +
+            `(${geom.structure.toLocaleString()} structure merged into runs up ` +
+            `to ${geom.longestX}×${geom.longestZ}), none mismapped`);
+
+const burned = await page.evaluate(() => eng.burned.size);
+console.log(`operations: ${cases.length + consec.length - bad}/` +
+            `${cases.length + consec.length} correct ` +
+            `(${cases.length} single, ${consec.length} consecutive), ` +
+            `worst settle ${worst} gt, ${burned} torches burned`);
+
 // --- the interface itself, which is where the last real bug lived ----------
 // A user pressed SHL, then ADD, and got SHL's answer under ADD's highlight:
 // the page tracked one pending release, so the second press orphaned the
@@ -161,21 +202,20 @@ const relief = await page.evaluate(() => {
     const v = +scales[j * 3 + 1].toFixed(3);
     h.add(v); lo = Math.min(lo, v); hi = Math.max(hi, v);
   }
-  const mid = pickAt(cv.clientWidth / 2, cv.clientHeight / 2);
-  return { levels: h.size, lo, hi, pick: describe(mid) };
+  // one pixel can honestly be air; sample a grid and take the first hit
+  let pick = "";
+  for (let a = 1; a < 4 && !pick; a++)
+    for (let b = 1; b < 4 && !pick; b++)
+      pick = describe(pickAt(cv.clientWidth * a / 4, cv.clientHeight * b / 4));
+  return { levels: h.size, lo, hi, pick };
 });
 if (relief.levels < 8)
   throw new Error(`dust height should track signal level, saw ${relief.levels}`);
 if (!relief.pick)
-  throw new Error("clicking the middle of the view picked nothing");
+  throw new Error("no block picked anywhere in a 3x3 grid over the view");
 console.log(`strength: ${relief.levels} distinct dust heights, ` +
             `${relief.lo}–${relief.hi} blocks tall; pick says "${relief.pick}"`);
 
-const burned = await page.evaluate(() => eng.burned.size);
-console.log(`operations: ${cases.length + consec.length - bad}/` +
-            `${cases.length + consec.length} correct ` +
-            `(${cases.length} single, ${consec.length} consecutive), ` +
-            `worst settle ${worst} gt, ${burned} torches burned`);
 
 // --- the viewport is actually drawing -------------------------------------
 const px = await page.evaluate(() => {

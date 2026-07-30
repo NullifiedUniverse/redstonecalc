@@ -1,608 +1,649 @@
 <title>Redstone Calculator Mk III — a 10-bit machine you can watch think</title>
+<!-- the artifact host supplies this too; it is here so the file also behaves
+     when opened straight off disk -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
+/* ------------------------------------------------------------------------
+   A machine made of stone and glowing dust, and the notebook that measures
+   it. Two typographic worlds by role: the instrument is mono, tabular and
+   tight; the writing is a serif at a comfortable measure. The palette is the
+   subject's own materials — deepslate, redstone, torch, lamp, glass — rather
+   than a scheme laid over it.
+   ------------------------------------------------------------------------ */
 :root{
-  --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --line:#252b34;
-  --ink:#e8e6e3; --muted:#8b9099; --dim:#5c636d;
-  --redstone:#ff3b30; --torch:#ffab40; --lamp:#ffd77a;
-  --pass:#4ade80; --warn:#facc15; --viewport:#07090c;
-  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --basalt:#0d1014; --slate:#161a20; --slate2:#1d222a; --seam:#242b35;
+  --ink:#e9e7e4; --ash:#8b939d; --dim:#5a626d;
+  --redstone:#ff4a3d; --torch:#ffb45c; --lamp:#ffd98a; --glass:#7fb3c8;
+  --pass:#5fd39b; --void:#06080b;
+  --serif:Charter,"Bitstream Charter","Iowan Old Style",Palatino,Georgia,serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","DejaVu Sans Mono",Menlo,monospace;
+  --r:9px;
 }
 @media (prefers-color-scheme:light){
-  :root{ --void:#eceef1; --panel:#f8f9fa; --panel2:#eef0f3; --line:#d6dae0;
-    --ink:#14171c; --muted:#5f666f; --dim:#868d96;
-    --redstone:#d92b1f; --torch:#b4700a; --lamp:#a9760a;
-    --pass:#15803d; --warn:#a16207; --viewport:#12151a; }
+  :root{ --basalt:#eceef1; --slate:#f7f8fa; --slate2:#eef0f4; --seam:#d9dde3;
+    --ink:#12151a; --ash:#586069; --dim:#858d97;
+    --redstone:#c9271b; --torch:#9a6207; --lamp:#8a6408; --glass:#2f6f8a;
+    --pass:#12734a; --void:#0b0e12; }
 }
-:root[data-theme="dark"]{ --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24;
-  --line:#252b34; --ink:#e8e6e3; --muted:#8b9099; --dim:#5c636d;
-  --redstone:#ff3b30; --torch:#ffab40; --lamp:#ffd77a; --pass:#4ade80;
-  --warn:#facc15; --viewport:#07090c; }
-:root[data-theme="light"]{ --void:#eceef1; --panel:#f8f9fa; --panel2:#eef0f3;
-  --line:#d6dae0; --ink:#14171c; --muted:#5f666f; --dim:#868d96;
-  --redstone:#d92b1f; --torch:#b4700a; --lamp:#a9760a; --pass:#15803d;
-  --warn:#a16207; --viewport:#12151a; }
+:root[data-theme="dark"]{ --basalt:#0d1014; --slate:#161a20; --slate2:#1d222a;
+  --seam:#242b35; --ink:#e9e7e4; --ash:#8b939d; --dim:#5a626d;
+  --redstone:#ff4a3d; --torch:#ffb45c; --lamp:#ffd98a; --glass:#7fb3c8;
+  --pass:#5fd39b; --void:#06080b; }
+:root[data-theme="light"]{ --basalt:#eceef1; --slate:#f7f8fa; --slate2:#eef0f4;
+  --seam:#d9dde3; --ink:#12151a; --ash:#586069; --dim:#858d97;
+  --redstone:#c9271b; --torch:#9a6207; --lamp:#8a6408; --glass:#2f6f8a;
+  --pass:#12734a; --void:#0b0e12; }
 
 *{box-sizing:border-box}
-body{margin:0;background:var(--void);color:var(--ink);font-family:var(--sans);
-  line-height:1.6;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1180px;margin:0 auto;padding:0 1.25rem}
-.prose{max-width:68ch}
-h1{font-size:clamp(1.7rem,4vw,2.6rem);font-weight:800;letter-spacing:-.03em;
-  margin:0 0 .35rem;text-wrap:balance}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--basalt);color:var(--ink);font-family:var(--serif);
+  font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:0 1.15rem}
+.col{max-width:66ch}
+h1,h2,h3{text-wrap:balance;font-weight:600}
+h1{font-size:clamp(1.9rem,4.4vw,2.9rem);line-height:1.1;letter-spacing:-.018em;
+  margin:0 0 .5rem}
 h1 em{font-style:normal;color:var(--redstone)}
-h2{font-size:1.22rem;font-weight:700;letter-spacing:-.01em;margin:2.6rem 0 .2rem;
-  text-wrap:balance}
-h3{font-size:.95rem;font-weight:700;margin:1.5rem 0 .2rem}
-p{margin:.55rem 0}
-.lede{font-size:1.03rem;color:var(--muted);max-width:64ch}
-.eyebrow{font-family:var(--mono);font-size:.66rem;letter-spacing:.16em;
-  text-transform:uppercase;color:var(--redstone);margin:0 0 .5rem}
-.rule{height:1px;background:var(--line);margin:2.2rem 0 0}
-code{font-family:var(--mono);font-size:.86em;background:var(--panel2);
-  padding:.1em .35em;border-radius:3px}
-pre{font-family:var(--mono);font-size:.74rem;line-height:1.65;overflow-x:auto;
-  background:var(--panel);border:1px solid var(--line);border-radius:8px;
-  padding:.85rem 1rem;color:var(--muted)}
-header.top{border-bottom:1px solid var(--line);background:var(--panel);
-  padding:1.6rem 0 1.4rem}
-.mono-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;
-  text-transform:uppercase;color:var(--dim);margin-top:.9rem}
+h2{font-size:1.45rem;letter-spacing:-.012em;margin:0 0 .1rem}
+h3{font-size:1.02rem;margin:1.9rem 0 .1rem}
+p{margin:.7rem 0}
+a{color:inherit;text-decoration-color:var(--dim);text-underline-offset:2px}
+.lede{font-size:1.12rem;color:var(--ash);max-width:56ch;margin:0}
+.eyebrow{font-family:var(--mono);font-size:.63rem;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--redstone);margin:0 0 .7rem}
+code{font-family:var(--mono);font-size:.85em;background:var(--slate2);
+  padding:.08em .32em;border-radius:4px}
+pre{font-family:var(--mono);font-size:.73rem;line-height:1.7;overflow-x:auto;
+  background:var(--slate);border:1px solid var(--seam);border-radius:var(--r);
+  padding:.95rem 1.1rem;color:var(--ash);margin:1rem 0}
+.small{font-size:.82rem;color:var(--ash)}
 
-/* ---- the live machine ---- */
-.console{display:grid;grid-template-columns:1fr 360px;gap:0;
-  border:1px solid var(--line);border-radius:10px;overflow:hidden;
-  background:var(--panel);margin:1.6rem 0 0}
-#view{position:relative;background:var(--viewport);min-height:460px}
+/* ---- masthead ---- */
+header.top{padding:2.6rem 0 1.5rem}
+.facts{display:flex;flex-wrap:wrap;gap:.15rem 2.1rem;margin:1.5rem 0 0;
+  font-family:var(--mono);font-variant-numeric:tabular-nums}
+.facts div{display:flex;flex-direction:column}
+.facts b{font-size:1.06rem;font-weight:600;letter-spacing:-.01em}
+.facts span{font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim)}
+
+/* ---- the instrument ---- */
+.rig{border:1px solid var(--seam);border-radius:var(--r);overflow:hidden;
+  background:var(--slate);margin:1.4rem 0 0}
+#view{position:relative;background:var(--void);height:min(58vh,540px);
+  min-height:320px}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 canvas:active{cursor:grabbing}
-.hint{position:absolute;left:.75rem;bottom:.6rem;font-family:var(--mono);
-  font-size:.63rem;color:#5c636d;letter-spacing:.06em;pointer-events:none}
-.inspect{position:absolute;right:.7rem;bottom:.6rem;max-width:min(90%,30rem);
-  font-family:var(--mono);font-size:.66rem;letter-spacing:.02em;
-  color:var(--lamp);background:rgba(7,9,12,.86);border:1px solid #2b323c;
-  border-radius:5px;padding:.3rem .5rem;pointer-events:none}
-.legend{display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:center;
-  font-family:var(--mono);font-size:.58rem;letter-spacing:.05em;
-  color:var(--dim)}
-.legend span{display:flex;align-items:center;gap:.3rem}
-.ramp{width:74px;height:9px;border-radius:2px;border:1px solid var(--line);
-  background:linear-gradient(90deg,#2b2e36,#4d1010,#8a1410,#c92318,#ff3b30)}
-.chip{width:9px;height:9px;border-radius:2px;border:1px solid var(--line)}
-.look{position:absolute;left:.7rem;top:.7rem;display:flex;gap:.3rem}
-.look button{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;
-  text-transform:uppercase;padding:.25rem .5rem;border-radius:4px;cursor:pointer;
-  border:1px solid #2b323c;background:#11151b;color:#8b9099}
-.look button[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone)}
+.overlay{position:absolute;display:flex;gap:.3rem;flex-wrap:wrap;
+  max-width:calc(100% - 1.2rem)}
+.overlay.tl{left:.6rem;top:.6rem}
+.ghost.sep{margin-left:.55rem}
+.ghost{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;
+  text-transform:uppercase;padding:.3rem .5rem;border-radius:5px;cursor:pointer;
+  border:1px solid rgba(255,255,255,.13);background:rgba(8,10,14,.72);
+  color:#9aa2ac;backdrop-filter:blur(6px)}
+.ghost:hover{color:var(--ink);border-color:rgba(255,255,255,.28)}
+.ghost[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone)}
+.hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
+  font-size:.6rem;color:#59606a;letter-spacing:.05em;pointer-events:none}
+.hint .narrow{display:none}
+.inspect{position:absolute;right:.7rem;bottom:.55rem;max-width:min(92%,32rem);
+  font-family:var(--mono);font-size:.65rem;color:var(--lamp);
+  background:rgba(6,8,11,.88);border:1px solid rgba(255,255,255,.13);
+  border-radius:5px;padding:.3rem .55rem;pointer-events:none}
 #boot{position:absolute;inset:0;display:flex;align-items:center;
-  justify-content:center;font-family:var(--mono);font-size:.75rem;
-  color:var(--muted);background:var(--viewport);z-index:2;letter-spacing:.06em}
-/* the display:flex above outranks the hidden attribute's UA rule, so the
-   overlay would sit over the canvas for ever without this */
+  justify-content:center;font-family:var(--mono);font-size:.72rem;
+  color:var(--ash);background:var(--void);z-index:2;letter-spacing:.08em}
 #boot[hidden]{display:none}
-.pad{padding:.9rem;border-left:1px solid var(--line);display:flex;
-  flex-direction:column;gap:.7rem}
 
-.readout{display:flex;gap:.7rem;justify-content:center;align-items:flex-start;
-  background:#07090c;border:1px solid var(--line);border-radius:8px;
-  padding:.75rem .6rem}
-.digit{display:grid;grid-template-columns:repeat(5,10px);
-  grid-template-rows:repeat(13,6px);gap:1px}
-.px{border-radius:1px;background:#14171c}
-.px.on{background:var(--lamp);box-shadow:0 0 5px rgba(255,215,122,.75)}
-.valline{display:flex;align-items:baseline;gap:.6rem}
-.valline b{font-family:var(--mono);font-size:1.5rem;font-weight:700;
-  font-variant-numeric:tabular-nums;color:var(--lamp)}
-.valline span{font-family:var(--mono);font-size:.63rem;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--dim)}
-.flagrow{display:flex;gap:.45rem;flex-wrap:wrap}
-.flag{display:flex;align-items:center;gap:.3rem;font-family:var(--mono);
-  font-size:.6rem;letter-spacing:.08em;color:var(--dim)}
-.bulb{width:8px;height:8px;border-radius:50%;background:#22262c;
-  border:1px solid #2f353d;display:inline-block}
+/* ---- the control bar: four rows, in the order you use them ---- */
+.bar{border-top:1px solid var(--seam);display:grid;
+  grid-template-columns:minmax(240px,282px) minmax(0,1fr);gap:0}
+.bay{padding:.85rem 1rem;border-right:1px solid var(--seam);display:flex;
+  flex-direction:column;gap:.7rem;justify-content:center}
+.bay:last-child{border-right:none}
+.answer{display:flex;flex-direction:column;gap:.6rem;align-items:flex-start}
+.answer .line{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
+.readout{display:flex;gap:.55rem;background:var(--void);border-radius:6px;
+  padding:.6rem .55rem;border:1px solid var(--seam)}
+.digit{display:grid;grid-template-columns:repeat(5,7px);
+  grid-template-rows:repeat(13,4px);gap:1px}
+.px{border-radius:1px;background:#12161c}
+.px.on{background:var(--lamp);box-shadow:0 0 4px rgba(255,217,138,.7)}
+.num{font-family:var(--mono);font-size:1.95rem;font-weight:600;
+  font-variant-numeric:tabular-nums;color:var(--lamp);line-height:1}
+.state{font-family:var(--mono);font-size:.58rem;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--dim);white-space:nowrap}
+.flagrow{display:flex;gap:.5rem;flex-wrap:wrap}
+.flag{display:flex;align-items:center;gap:.28rem;font-family:var(--mono);
+  font-size:.57rem;letter-spacing:.1em;color:var(--dim)}
+.bulb{width:7px;height:7px;border-radius:50%;background:#252a31;
+  border:1px solid #333a43}
 .bulb.on{background:var(--lamp);border-color:var(--lamp);
-  box-shadow:0 0 6px rgba(255,215,122,.8)}
+  box-shadow:0 0 6px rgba(255,217,138,.8)}
 
-.lbl{font-family:var(--mono);font-size:.61rem;letter-spacing:.12em;
+.lbl{font-family:var(--mono);font-size:.57rem;letter-spacing:.15em;
   text-transform:uppercase;color:var(--dim)}
-.ops{display:grid;grid-template-columns:repeat(4,1fr);gap:.3rem}
-.key{font-family:var(--mono);font-size:.72rem;font-weight:600;padding:.4rem 0;
-  border:1px solid var(--line);border-radius:6px;background:var(--panel2);
-  color:var(--ink);cursor:pointer}
-.key:hover{border-color:var(--redstone);color:var(--redstone)}
-.key[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone);
-  background:rgba(255,59,48,.10)}
-/* the lever is physically down right now, which is not the same as latched */
-.key.down{box-shadow:inset 0 0 0 1px var(--torch)}
-.opstate{font-family:var(--mono);font-size:.6rem;letter-spacing:.06em;
-  color:var(--dim);margin-top:-.35rem}
-.opstate.bad{color:var(--redstone)}
-.opnd{display:flex;align-items:center;gap:.5rem}
-.opnd .nm{font-family:var(--mono);font-size:.75rem;color:var(--muted);width:.9rem}
-.bits{display:flex;gap:.15rem;flex:1}
-.bit{flex:1;aspect-ratio:1;border:1px solid var(--line);border-radius:3px;
-  background:var(--panel2);cursor:pointer;font-family:var(--mono);
-  font-size:.55rem;color:var(--dim);padding:0;line-height:1}
+.opnds{display:flex;flex-direction:column;gap:.3rem}
+.opnd{display:flex;align-items:center;gap:.55rem}
+.opnd .nm{font-family:var(--mono);font-size:.78rem;color:var(--ash);width:1ch}
+.bits{display:flex;gap:.2rem}
+/* a hair more air every four bits, so ten of them stay countable at a glance */
+.bit:nth-child(4n){margin-right:.34rem}
+.bit{flex:0 0 auto;width:clamp(19px,2.2vw,27px);height:clamp(19px,2.2vw,27px);
+  border:1px solid var(--seam);border-radius:4px;background:var(--slate2);
+  cursor:pointer;font-family:var(--mono);font-size:.54rem;color:var(--dim);
+  padding:0;line-height:1;
+  transition:background .12s,border-color .12s,color .12s}
+.bit:hover{border-color:var(--ash)}
 .bit[aria-pressed="true"]{background:var(--redstone);border-color:var(--redstone);
   color:#fff;font-weight:700}
-.opnd .val{font-family:var(--mono);font-size:.75rem;width:2.4rem;
+.opnd .val{font-family:var(--mono);font-size:.95rem;min-width:3.4ch;
   text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
-.transport{display:flex;gap:.3rem;align-items:center}
-.transport button{font-family:var(--mono);font-size:.68rem;padding:.4rem .5rem;
-  border:1px solid var(--line);border-radius:6px;background:var(--panel2);
-  color:var(--ink);cursor:pointer;white-space:nowrap}
+.ops{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem}
+.key{font-family:var(--mono);font-size:.7rem;font-weight:600;padding:.45rem 0;
+  border:1px solid var(--seam);border-radius:5px;background:var(--slate2);
+  color:var(--ink);cursor:pointer;transition:border-color .12s,color .12s}
+.key:hover{border-color:var(--redstone);color:var(--redstone)}
+.key[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone);
+  background:color-mix(in srgb,var(--redstone) 12%,transparent)}
+.key.down{box-shadow:inset 0 0 0 1.5px var(--torch)}
+.opstate{font-family:var(--mono);font-size:.57rem;letter-spacing:.06em;
+  color:var(--dim)}
+.opstate.bad{color:var(--redstone)}
+.transport{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap}
+.transport button,.transport select{font-family:var(--mono);font-size:.66rem;
+  padding:.42rem .6rem;border:1px solid var(--seam);border-radius:5px;
+  background:var(--slate2);color:var(--ink);cursor:pointer}
 .transport button:hover{border-color:var(--redstone);color:var(--redstone)}
 .transport button[aria-pressed="true"]{border-color:var(--redstone);
   color:var(--redstone)}
-.transport input[type=range]{flex:1;min-width:0;accent-color:var(--redstone)}
-.transport select{font-family:var(--mono);font-size:.66rem;padding:.4rem .3rem;
-  background:var(--panel2);color:var(--ink);border:1px solid var(--line);
-  border-radius:6px;flex:1;min-width:0}
-button:focus-visible,select:focus-visible{outline:2px solid var(--redstone);
-  outline-offset:2px}
-.stat{display:flex;justify-content:space-between;font-family:var(--mono);
-  font-size:.67rem;color:var(--muted);font-variant-numeric:tabular-nums}
-.stat b{color:var(--ink);font-weight:600}
-.stat b.bad{color:var(--redstone)}
-.legendnote{margin:0;font-size:.63rem;color:var(--dim);line-height:1.45}
+.cutrow{display:flex;align-items:center;gap:.55rem}
+.cutrow input[type=range]{flex:1;min-width:90px;accent-color:var(--redstone);
+  height:3px}
+button:focus-visible,select:focus-visible,summary:focus-visible{
+  outline:2px solid var(--redstone);outline-offset:2px}
 
-/* ---- tables and bars ---- */
-.tw{overflow-x:auto;margin:.9rem 0}
-table{border-collapse:collapse;font-size:.82rem;width:100%;min-width:540px}
-th,td{text-align:left;padding:.42rem .7rem;border-bottom:1px solid var(--line)}
-th{font-family:var(--mono);font-size:.63rem;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--dim);font-weight:500}
-td.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+/* ---- the thin status strip that closes the instrument ---- */
+.strip{grid-column:1/-1;border-top:1px solid var(--seam);display:flex;
+  flex-wrap:wrap;gap:.15rem 1.4rem;padding:.5rem .95rem;font-family:var(--mono);
+  font-size:.62rem;color:var(--dim);font-variant-numeric:tabular-nums;
+  align-items:center}
+.strip b{color:var(--ash);font-weight:600}
+.strip b.bad{color:var(--redstone)}
+.strip .sep{flex:1}
+.ramp{width:62px;height:8px;border-radius:2px;border:1px solid var(--seam);
+  background:linear-gradient(90deg,#2b2e36,#4d1010,#8a1410,#c92318,#ff4a3d)}
+.chip{width:8px;height:8px;border-radius:2px;border:1px solid var(--seam);
+  display:inline-block;vertical-align:-1px}
+.strip span{display:flex;align-items:center;gap:.3rem}
+
+/* ---- the notebook ---- */
+/* the notebook is narrower than the instrument on purpose: a wide rig you
+   operate, a column you read */
+main.wrap{max-width:900px;padding:2.4rem 0 0}
+section{padding:2.2rem 0;border-top:1px solid var(--seam)}
+section>.col>p:first-of-type{margin-top:.5rem}
+.mark{font-family:var(--mono);font-size:.6rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--dim);margin:0 0 .55rem}
+.tw{overflow-x:auto;margin:1.05rem 0}
+table{border-collapse:collapse;font-family:var(--mono);font-size:.75rem;
+  width:100%;min-width:480px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:.44rem .8rem .44rem 0;
+  border-bottom:1px solid var(--seam)}
+th{font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dim);font-weight:500}
+td.n{text-align:right;padding-right:0}
 tr.hi td{color:var(--redstone)}
-td small{color:var(--muted)}
-.split{display:flex;height:22px;border-radius:4px;overflow:hidden;
-  border:1px solid var(--line);margin:.5rem 0 .2rem}
-.split i{display:block;height:100%}
-.keyline{display:flex;gap:1rem;flex-wrap:wrap;font-family:var(--mono);
-  font-size:.66rem;color:var(--muted)}
-.keyline span{display:flex;align-items:center;gap:.35rem}
-.sw{width:10px;height:10px;border-radius:2px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
-  gap:.7rem;margin:1rem 0}
-.card{border:1px solid var(--line);border-radius:8px;padding:.8rem .9rem;
-  background:var(--panel)}
-.card h4{margin:0 0 .3rem;font-size:.82rem;font-family:var(--mono);
-  letter-spacing:.04em}
-.card p{margin:0;font-size:.79rem;color:var(--muted)}
-.tag{display:inline-block;font-family:var(--mono);font-size:.6rem;
-  letter-spacing:.09em;text-transform:uppercase;padding:.12rem .4rem;
-  border-radius:3px;border:1px solid currentColor;margin-left:.4rem}
-.tag.m{color:var(--pass)} .tag.p{color:var(--warn)}
-footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
-  font-family:var(--mono);font-size:.68rem;color:var(--dim)}
-@media (max-width:900px){ .console{grid-template-columns:1fr}
-  .pad{border-left:none;border-top:1px solid var(--line)} }
+td small{color:var(--dim)}
+details{border:1px solid var(--seam);border-radius:var(--r);margin:1.05rem 0;
+  background:var(--slate);overflow:hidden}
+summary{cursor:pointer;padding:.7rem .95rem;font-family:var(--mono);
+  font-size:.68rem;letter-spacing:.06em;color:var(--ash);list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸ ";color:var(--redstone)}
+details[open] summary::before{content:"▾ "}
+details[open] summary{border-bottom:1px solid var(--seam)}
+details .in{padding:.2rem .95rem .6rem}
+details .in table{min-width:420px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));
+  gap:.75rem;margin:1.2rem 0}
+.card{border:1px solid var(--seam);border-radius:var(--r);padding:.9rem 1rem;
+  background:var(--slate)}
+.card h4{margin:0 0 .35rem;font-size:.72rem;font-family:var(--mono);
+  letter-spacing:.09em;text-transform:uppercase;color:var(--torch);
+  font-weight:600}
+.card p{margin:0;font-size:.88rem;color:var(--ash);line-height:1.55}
+.tag{display:inline-block;font-family:var(--mono);font-size:.56rem;
+  letter-spacing:.12em;text-transform:uppercase;padding:.12rem .4rem;
+  border-radius:3px;border:1px solid currentColor;vertical-align:.18em;
+  margin-left:.5rem;font-weight:400}
+.tag.m{color:var(--pass)} .tag.p{color:var(--torch)}
+ol.next{padding-left:1.1rem;margin:1rem 0 0}
+ol.next li{margin:.5rem 0;color:var(--ash)}
+ol.next li b{color:var(--ink);font-weight:600}
+footer .wrap{max-width:900px}
+footer{border-top:1px solid var(--seam);margin-top:2.4rem;
+  padding:1.5rem 0 3rem;font-family:var(--mono);font-size:.65rem;
+  color:var(--dim);line-height:1.7}
+
+@media (max-width:820px){
+  body{font-size:16px}
+  header.top{padding:2rem 0 1.1rem}
+  .lede{font-size:1.02rem}
+  .ghost.sep{margin-left:0}
+  .hint .wide{display:none} .hint .narrow{display:inline}
+  .bar{grid-template-columns:1fr}
+  .bay{border-right:none;border-bottom:1px solid var(--seam)}
+  #view{height:46vh;min-height:260px}
+  .ops{grid-template-columns:repeat(4,1fr)}
+  .num{font-size:1.5rem}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
-<header class="top">
-  <div class="wrap">
-    <p class="eyebrow">Mk III · Minecraft Java 26.2 · tick-accurate simulation</p>
-    <h1>A 10-bit calculator made of <em>redstone</em></h1>
-    <p class="lede">Twenty-eight levers on one wall, four lamp digits and half a
-      million blocks in between. Set the operands, choose an operation, and
-      watch the answer propagate — one game tick at a time, at the speed it
-      would run in Minecraft.</p>
-    <p class="mono-note">Everything tagged <span class="tag m">measured</span>
-      was simulated on placed blocks. Everything tagged
-      <span class="tag p">projected</span> is an estimate and says so.</p>
+<header class="top"><div class="wrap">
+  <p class="eyebrow">Mk III &middot; Minecraft Java 26.2 &middot; tick-accurate simulation</p>
+  <h1>A 10-bit calculator made of <em>redstone</em></h1>
+  <p class="lede">Half a million blocks of stone and glowing dust, simulated one
+    game tick at a time at the speed it would run in Minecraft. Set two numbers,
+    choose an operation, and watch the answer travel.</p>
+  <div class="facts">
+    <div><b id="hBlocks">—</b><span>blocks</span></div>
+    <div><b id="hGates">—</b><span>gates</span></div>
+    <div><b id="hDepth">—</b><span>stages deep</span></div>
+    <div><b>2,640</b><span>ticks to the answer</span></div>
+    <div><b>0</b><span>torches burned</span></div>
   </div>
-</header>
+</div></header>
 
 <div class="wrap">
-
-  <h2>The machine, thinking</h2>
-  <p class="prose">Flip bits into A and B, then choose an operation. Its lever
-    is held down for 40 game ticks and released, and the machine is simulated
-    tick by tick from there.</p>
-  <p class="prose">What you are watching is <em>signal level</em>, not on and
-    off. Redstone dust carries a strength from 15 down to 0, losing one per
-    block, and here that level is the wire's colour <em>and</em> its height — a
-    line at 15 stands three times as tall as one at 1. A signal fading along a
-    run is therefore a visible ramp, and a wavefront is a ridge that travels.
-    Components that actually switch get their own hotter flash, held longer
-    than the dust highlight, because those are the events and the dust between
-    them is the consequence. Click any block to read its exact strength and
-    state.</p>
-  <p class="prose">Be clear what <b>1&times;</b> is asking for: that is
-    Minecraft's own 20 ticks per second, and this machine takes <b>2,640 game
-    ticks</b> — a little over two minutes — to get from the keypress to the
-    lamps. The wait is the real one. The default 10&times; makes it about
-    thirteen seconds, and <b>skip to settled</b> jumps straight to the
-    answer.</p>
-
-  <div class="console">
+  <div class="rig">
     <div id="view">
       <canvas id="cv"></canvas>
-      <div id="boot">loading…</div>
-      <div class="look">
-        <button type="button" id="look_all" aria-pressed="true">whole machine</button>
-        <button type="button" id="look_disp" aria-pressed="false">display</button>
-        <button type="button" id="look_ctrl" aria-pressed="false">controls</button>
+      <div id="boot">building the world…</div>
+      <div class="overlay tl">
+        <button type="button" class="ghost" id="look_all" aria-pressed="true">whole machine</button>
+        <button type="button" class="ghost" id="look_disp" aria-pressed="false">display</button>
+        <button type="button" class="ghost" id="look_ctrl" aria-pressed="false">controls</button>
+        <button type="button" class="ghost sep" id="bStruct" aria-pressed="false">circuit only</button>
       </div>
-      <div class="hint">drag to orbit · scroll to zoom · click a block to read it</div>
+      <div class="hint"><span class="wide">drag to orbit &middot; scroll to zoom &middot;
+        click a block to read it</span><span class="narrow">drag &middot; pinch &middot;
+        tap a block</span></div>
       <div class="inspect" id="inspect" hidden></div>
     </div>
-    <div class="pad">
-      <div class="readout" id="readout"></div>
-      <div class="valline"><b id="value">——</b><span id="valstate">idle</span></div>
-      <div class="flagrow" id="flagrow"></div>
 
-      <span class="lbl">Operation — a lever, on then off</span>
-      <div class="ops" id="ops"></div>
-      <div class="opstate" id="opstate">none latched — ADD by default</div>
-
-      <span class="lbl">Operands — levers, on the same wall</span>
-      <div id="operands" style="display:flex;flex-direction:column;gap:.35rem"></div>
-
-      <span class="lbl">Simulation</span>
-      <div class="transport">
-        <button type="button" id="bPlay" aria-pressed="false">▶ play</button>
-        <button type="button" id="bStep">+1 tick</button>
-        <select id="speed">
-          <option value="20">1× — 20 gt/s, real time</option>
-          <option value="60">3×</option>
-          <option value="200" selected>10×</option>
-          <option value="1000">50×</option>
-        </select>
+    <div class="bar">
+      <div class="bay">
+        <div class="answer">
+          <div class="readout" id="readout"></div>
+          <div class="line">
+            <span class="num" id="value">——</span>
+            <span class="state" id="valstate">idle</span>
+          </div>
+        </div>
+        <div class="flagrow" id="flagrow"></div>
       </div>
-      <div class="transport">
-        <button type="button" id="bSettle" style="flex:1">skip to settled</button>
-      </div>
-      <div class="transport">
-        <span class="lbl" style="flex:0 0 auto">cutaway</span>
-        <input type="range" id="cut" min="0" max="100" value="100"
-               aria-label="hide everything above this height">
-      </div>
-      <div class="stat"><span>game tick</span><b id="tTick">0</b></div>
-      <div class="stat"><span>last tick</span><b id="tFired">quiet</b></div>
-      <div class="stat"><span>events pending</span><b id="tQueue">0</b></div>
-      <div class="stat"><span>torches burned out</span><b id="tBurn">none</b></div>
-      <div class="stat"><span>blocks simulated</span><b id="hBlocks">—</b></div>
-      <div class="stat"><span>gates / depth</span>
-        <b><span id="hGates">—</span> / <span id="hDepth">—</span></b></div>
 
-      <span class="lbl">What you are looking at</span>
-      <div class="legend">
+      <div class="bay">
+        <div class="opnds" id="operands"></div>
+        <div class="ops" id="ops"></div>
+        <div class="opstate" id="opstate">none latched — ADD by default</div>
+        <div class="transport">
+          <button type="button" id="bPlay" aria-pressed="false">▶ play</button>
+          <button type="button" id="bStep">+1 tick</button>
+          <select id="speed" aria-label="simulation speed">
+            <option value="20">1× real time</option>
+            <option value="60">3×</option>
+            <option value="200" selected>10×</option>
+            <option value="1000">50×</option>
+          </select>
+          <button type="button" id="bSettle">skip to settled</button>
+        </div>
+        <div class="cutrow">
+          <span class="lbl">cutaway</span>
+          <input type="range" id="cut" min="0" max="100" value="100"
+                 aria-label="cut away everything above this height">
+        </div>
+      </div>
+
+      <div class="strip">
+        <span>tick <b id="tTick">0</b></span>
+        <span>last <b id="tFired">quiet</b></span>
+        <span>pending <b id="tQueue">0</b></span>
+        <span>burned <b id="tBurn">none</b></span>
+        <span>drawn <b id="hInst">—</b></span>
+        <span class="sep"></span>
         <span><i class="ramp"></i>dust 0→15</span>
-        <span><i class="chip" style="background:#ffa93d"></i>torch lit</span>
-        <span><i class="chip" style="background:#432f28"></i>torch out</span>
-        <span><i class="chip" style="background:#b84d42"></i>repeater on</span>
-        <span><i class="chip" style="background:#5c85b8"></i>repeater locked</span>
-        <span><i class="chip" style="background:#ffe685"></i>lamp</span>
-        <span><i class="chip" style="background:#8ab3c9"></i>walkway</span>
+        <span><i class="chip" style="background:#ffb45c"></i>torch</span>
+        <span><i class="chip" style="background:#b84d42"></i>repeater</span>
+        <span><i class="chip" style="background:#7fb3c8"></i>locked</span>
+        <span><i class="chip" style="background:#ffd98a"></i>lamp</span>
       </div>
-      <p class="legendnote">Signal level is height as well as colour: a wire at
-        15 stands three times as tall as one at 1, so a signal fading along a
-        run is a visible ramp and a wavefront is a ridge that moves.</p>
     </div>
   </div>
-
-  <div class="rule"></div>
-
-  <h2>What is actually in there</h2>
-  <p class="prose">Every stage is redstone; nothing is emulated. The pieces are
-    separate modules in the source, each with its own tests, and they compile
-    into one netlist and one placed world:</p>
-  <pre>28 levers, 2 rows ──▶ A, B, and the operation   (one wall, one place to stand)
- 8 of them latch one-hot ──▶ 3-bit opcode
-                  ──▶ 10-bit ALU  (8 operations, 4 flags)
-                  ──▶ binary to BCD  (combinational double dabble)
-                  ──▶ four seven-segment decoders  (leading zeros blanked)
-                  ──▶ wiring loom  (32 nets, 128 risers, no crossings)
-                  ──▶ four lamp digits + a flag row</pre>
-  <p class="prose">They are one netlist rather than several placed side by side
-    for a measured reason. The compiler gives each logic stage its own Y plane,
-    and a stage's rail length is set by how many gates sit in <em>that</em>
-    stage — so pipelining the ALU into the converter into the decoders uses
-    disjoint stages and costs no extra rail, while splitting them into
-    separately placed modules would add an inter-module loom for every signal
-    crossing each boundary. The modules are in the source; the silicon is one
-    block.</p>
-
-  <h3>Three things worth pointing at</h3>
-  <div class="cards">
-    <div class="card"><h4>The keypad cannot burn out</h4>
-      <p>Each key drives a repeater held from the side. Every button also feeds
-        a shared <em>any key is down</em> bus, and each latch's lock is that bus
-        inverted — so all eight go transparent together and the pressed key
-        stores 1 while the rest store 0. One-hot, with no torch in the latch
-        cell.</p></div>
-    <div class="card"><h4>Leading zeros cost nothing</h4>
-      <p>A digit is shown if it or anything above it is non-zero — one flat OR
-        over every bit from there up. It folds into the decoder's minterms as
-        one more literal, and a term is already an AND, so blanking is free.</p></div>
-    <div class="card"><h4>The top digit needs no decoder</h4>
-      <p>A 10-bit result cannot exceed 1023, so its thousands digit is 0 or 1
-        and its upper bits are the constant rail. The decoder folds: impossible
-        values drop out of the sum and the segments lit for every reachable
-        value become constants.</p></div>
-  </div>
-
-  <h2>What was verified, and how <span class="tag m">measured</span></h2>
-  <p class="prose">Modules are tested exhaustively where the input space allows
-    it, and the whole machine is driven only through the levers a player would
-    touch, with the answer read off the lamps — nothing reaches inside.</p>
-  <div class="tw"><table>
-    <tr><th>module</th><th>what was checked</th><th>coverage</th><th>result</th></tr>
-    <tr><td>Redstone mechanics</td><td>strong/weak power, dust decay, torch
-      burnout, repeater locking, comparators</td><td class="n">12 cases</td>
-      <td>12/12</td></tr>
-    <tr><td>Gate cells</td><td>NOR1-3 and OR built from placed blocks</td>
-      <td class="n">5 cases</td><td>5/5</td></tr>
-    <tr><td>Place and route</td><td>4-bit adder, all 16 two-input functions,
-      full adder, XOR</td><td class="n">284 vectors</td><td>all correct</td></tr>
-    <tr><td>Add-3 cell</td><td>the converter's one piece of arithmetic</td>
-      <td class="n">all 10 digits</td><td>exhaustive</td></tr>
-    <tr class="hi"><td><b>Binary to BCD</b></td><td>every value the converter can
-      be handed, in logic</td><td class="n">2,304</td><td><b>exhaustive</b></td></tr>
-    <tr><td>Binary to BCD, placed</td><td>the same converter built out of blocks,
-      read off the dust</td><td class="n">35 values</td><td>all correct</td></tr>
-    <tr><td>Seven-segment display</td><td>every numeral renders, blank works</td>
-      <td class="n">10 + blank</td><td>exhaustive</td></tr>
-    <tr><td>Repeater-lock latch</td><td>holds, ignores data, and the documented
-      lock-before-data race</td><td class="n">7 cases</td><td>reproduced</td></tr>
-    <tr><td>Keypad</td><td>one-hot latching at 6, 8, 10 and 12 keys</td>
-      <td class="n">4 widths</td><td>all latch, none burn</td></tr>
-    <tr><td>Mk I 4-bit ALU</td><td>8 operations &times; 256 operand pairs</td>
-      <td class="n">2,048</td><td><b>exhaustive</b></td></tr>
-    <tr><td>Build output</td><td>structure files parsed back; datapack commands
-      replayed into a fresh world</td><td class="n">block for block</td>
-      <td>identical</td></tr>
-    <tr class="hi"><td><b>Mk III, all eight operations</b></td>
-      <td>levers flipped, a button pressed, the answer read off the lamps</td>
-      <td class="n">32 cases</td><td>all correct, 0 burned</td></tr>
-    <tr class="hi"><td><b>Mk III, consecutive</b></td>
-      <td>operations back to back with nothing cleared between them</td>
-      <td class="n">15 in a row</td><td>all correct</td></tr>
-    <tr><td>Loom</td><td>no two nets may write the same cell</td>
-      <td class="n">32 nets</td><td>none shared</td></tr>
-  </table></div>
-
-  <h3>What it costs to keep stable <span class="tag m">measured</span></h3>
-  <p class="prose">Minecraft kills a redstone torch forced off more than eight
-    times in 60 game ticks, and hazard glitching in a network 36 stages deep
-    does exactly that. Two independent things reduce it, and the second one is
-    the interesting one.</p>
-  <p class="prose"><strong>Slower repeaters</strong>, over sixteen vectors,
-    re-measured on the build with the control wall — which matters, because that
-    wall added 196 torches:</p>
-  <div class="tw"><table>
-    <tr><th>repeater delay</th><th>result</th></tr>
-    <tr><td>2 <small>(4 gt)</small></td>
-      <td class="n">2/16 correct, <b>146 torches burned out</b></td></tr>
-    <tr><td>3 <small>(6 gt)</small></td>
-      <td class="n">16/16 correct, but <b>one torch burned out</b></td></tr>
-    <tr class="hi"><td>4 <small>(8 gt)</small></td>
-      <td class="n"><b>16/16 correct, none burned</b>, 2,640 gt to the answer</td></tr>
-  </table></div>
-  <p class="prose">The middle row moved. Before the control wall, delay 3 was
-    clean over the same vectors and only failed on a hostile sequence; 196 more
-    torches was enough to make an ordinary one cost a torch. Burnout margin is
-    not a property of the logic — it scales with how much torch there is to
-    glitch.</p>
-  <p class="prose"><strong>Inputs that arrive at human speed.</strong> On the
-    earlier build, delay 3 only failed once it was handed a hostile sequence —
-    operand pairs chosen to change ten or more levers at once. Varying only how
-    far apart the flips were placed in time, over ten such vectors:</p>
-  <div class="tw"><table>
-    <tr><th>game ticks between lever flips</th><th>correct</th><th>torches burned</th></tr>
-    <tr><td>0 — every lever in the same instant</td><td class="n">5/10</td><td class="n">5</td></tr>
-    <tr><td>1</td><td class="n">7/10</td><td class="n">4</td></tr>
-    <tr><td>2</td><td class="n">9/10</td><td class="n">2</td></tr>
-    <tr><td>4</td><td class="n">9/10</td><td class="n">2</td></tr>
-  </table></div>
-  <p class="prose">Spacing is real and it is not sufficient — but it is the more
-    interesting number, because <strong>a player cannot flip twenty levers
-    inside a twentieth of a second</strong>. Changing every input in the same
-    game tick aligns every hazard in the machine at one instant, which is a load
-    the build never sees in a world with a person in it. The machine therefore
-    moves only the levers that differ, two game ticks apart, and the page does
-    the same when you click a bit.</p>
-  <p class="prose">The structural fix is the torch-free tap below: a comparator
-    has no burnout rule at all, so the question would stop existing rather than
-    being paid for in latency.</p>
-
-  <h2>Is the simulator right? <span class="tag m">measured</span></h2>
-  <p class="prose">Everything above checks the machine against arithmetic. None
-    of it checks the <em>simulator</em> against Minecraft — those tests all share
-    one understanding of the rules, so a misunderstanding would be invisible to
-    every one of them. Two separate checks now exist.</p>
-  <p class="prose"><strong>Each rule, alone.</strong> Thirteen rules, each with
-    its own minimal circuit, so anyone who wants to confirm one against the game
-    can build exactly that and look: dust decay over twenty blocks, strong versus
-    weak power, dot/line/corner pointing, torch inversion timing, burnout at the
-    ninth state change inside 60 ticks, all four repeater settings, repeater
-    locking, both comparator modes, lamp powering, and the fact that a pulse
-    shorter than a repeater's delay is swallowed entirely.</p>
-  <p class="prose"><strong>Each engine, against another engine.</strong> The rules
-    are implemented a second time, deliberately badly — no precomputed nets, no
-    dirty sets, every tick re-flooding every dust cell from every source. The two
-    run side by side and <em>every block is compared at every tick</em>: 40 random
-    circuits and a compiled gate array. That does not prove the rules match
-    Minecraft, which is why each rule is also a circuit you can build. It proves
-    the fast engine everything rests on behaves like the slow obvious one.</p>
-  <p class="prose">It found a real bug on the first run. What a repeater reads
-    out of the cell behind it ignored <strong>which way that cell's repeater
-    faced</strong>, so one pointing away would feed it anyway — fixed in both the
-    Python engine and the JavaScript one this page runs. The machine happened not
-    to depend on it, because rails always put dust or a solid block behind a
-    repeater, but that was luck rather than design.</p>
-
-  <h2>Using it in game <span class="tag m">measured</span></h2>
-  <p class="prose">Correctness says nothing about whether a player can operate
-    the thing. The compiler puts input rails on a four-block Z pitch, so twenty
-    operand bits land spread over eighty blocks, and the keypad's buttons sit a
-    dozen blocks above where those levers end up. Measured in Minecraft's own
-    units — clicks, blocks walked, blocks climbed, and how many standing spots
-    its ~4.5 block reach forces, taken from the player's eyes — that was
-    miserable:</p>
-  <div class="tw"><table>
-    <tr><th></th><th>controls left on the rails</th><th>one control wall</th></tr>
-    <tr><td>Controls on one wall</td><td class="n">20 of 28</td>
-        <td class="n"><b>28 of 28</b></td></tr>
-    <tr><td>Controls span, along Z</td><td class="n">121 blocks</td>
-        <td class="n"><b>27 blocks</b></td></tr>
-    <tr><td>Standing spots, full entry</td><td class="n">10</td>
-        <td class="n"><b>6</b></td></tr>
-    <tr><td>Walked, full entry</td><td class="n">115 blocks</td>
-        <td class="n"><b>23 blocks</b></td></tr>
-    <tr class="hi"><td>Walked, three-bit edit</td><td class="n">93 blocks</td>
-        <td class="n"><b>11 blocks</b></td></tr>
-    <tr><td>Cost</td><td class="n">—</td>
-        <td class="n">+7,675 blocks (+1.3%)</td></tr>
-  </table></div>
-  <p class="prose">All 28 controls go on one wall: fourteen columns on a
-    two-block pitch, two rows four apart, operation keys first so they sit beside
-    the low-order bits, then bit <em>i</em> with A above B in a single column. The
-    glass walkway in front of it is not decoration — with your feet level with
-    the bottom row, the top row is a 2.6-block reach, which is why the table has
-    no climbing in it.</p>
-  <p class="prose">The operation keys moved by <em>substitution</em> rather than
-    rewiring. A key's button cell is a solid block that feeds the shared
-    &ldquo;any key is down&rdquo; bus one way and its own delay chain the other;
-    the keypad now simply leaves that cell empty and the panel's torch tower tops
-    out exactly there. Both readers still see the signal in the same instant, so
-    the release race the delay chain exists to win is untouched.</p>
-  <p class="prose">The routing is crossing-free <em>by construction</em> rather
-    than by search — after the loom bug below, that was a deliberate choice. Each
-    net takes four legs and every leg sits on a coordinate nothing else shares:
-    out along its row's own height at its own panel Z, up a tower at its own turn
-    column, along Z at that column, then in at one shared height on the target's
-    own Z, unique because two controls cannot drive the same cell.</p>
-  <p class="prose">It did not stop me building it wrong twice, and both failures
-    were silent: lint passed, every lever existed where the machine said it did,
-    and the answer was quietly zero. First the run doubled back over its own
-    lever and buried it in dust — <code>World.set</code> overwrites without
-    complaint. Then, with the keys on the panel, a net's Z-run could be a single
-    cell, and <code>line()</code> inferred a run's direction from its endpoints,
-    which for one cell say nothing: it guessed south, that net needed north, and
-    one repeater in the middle of a live route sat facing the tower it was
-    supposed to feed. Both are assertions now — a test watches every write on
-    the full machine and insists all 28 controls are still levers, and a one-cell
-    run has to say which way it flows.</p>
-  <p class="prose">The row that matters is the fifth: editing a couple of bits is
-    what using a calculator consists of, and that went from 93 blocks of walking
-    to eleven. What the panel does <em>not</em> fix, and the same tool reports it,
-    is that the digits are 657 blocks away and 192 up — the controls are at the
-    input end of a machine 865 blocks long. That needs a second display fed by a
-    32-net relay running the length of it, and it is written down rather than
-    half-built.</p>
-
-  <h3>A third silent failure, this time in the interface
-    <span class="tag m">measured</span></h3>
-  <p class="prose">Reported from a phone: A&nbsp;=&nbsp;10, B&nbsp;=&nbsp;72,
-    ADD highlighted, answer <b>20</b>. Twenty is not a wrong sum — it is
-    <code>10&nbsp;&lt;&lt;&nbsp;1</code>, exactly right for SHL. The redstone
-    was doing precisely what it had been asked; the page had asked wrongly.</p>
-  <p class="prose">This page holds an operation lever down for 40 game ticks
-    and then releases it, and it tracked <em>one</em> pending release. Press a
-    second operation inside that window and the first record was overwritten,
-    so that lever was never let go. Two keys held down is not a fault in the
-    keypad — it has a perfectly good answer, both latches store 1 and the
-    opcode becomes their OR — and <code>SHL(110) | ADD(000)</code> is SHL. The
-    machine then computed SHL under ADD's highlight, and reported itself
-    stable, because it was.</p>
-  <p class="prose">Two fixes, and the second is the one that matters. The page
-    now releases every key still held before pressing a new one, the way a hand
-    leaves one lever before reaching for the next. And the highlight is no
-    longer a memory of what was clicked: it is read back from the keypad's
-    one-hot rails, the same way the digits are read off the lamps. If two
-    latches are ever lit, the page says so and names the OR. A page that
-    reports the machine cannot disagree with it.</p>
-
-  <h2>Where the size goes — and the one fix left
-    <span class="tag m">measured</span></h2>
-  <p class="prose">Mk I's lesson was that 85% of the latency was wire. Mk III
-    exposes the same problem in a second dimension, and this time the cause is
-    a specific line in the router.</p>
-  <p class="prose">A gate's collector runs along Z from its first tap to an
-    <em>exit</em>, and that exit has to sit past the gate's own last tap —
-    otherwise the collector would not reach it. The exit then becomes a rail for
-    the next stage, whose gates tap it, whose exits must sit past <em>those</em>
-    taps. Over 36 stages the Z coordinate ratchets upward and never comes back
-    down:</p>
-  <div class="tw"><table>
-    <tr><th>stage</th><th>gates</th><th>rails span (Z)</th><th>exits span (Z)</th></tr>
-    <tr><td>0 — inputs</td><td class="n">—</td><td class="n">0 … 124</td><td class="n">—</td></tr>
-    <tr><td>3</td><td class="n">94</td><td class="n">16 … 336</td><td class="n">28 … 640</td></tr>
-    <tr><td>12</td><td class="n">47</td><td class="n">372 … 820</td><td class="n">380 … 840</td></tr>
-    <tr><td>24</td><td class="n">24</td><td class="n">740 … 988</td><td class="n">748 … 1016</td></tr>
-    <tr class="hi"><td>36 — outputs</td><td class="n">33</td><td class="n">992 … 1816</td>
-      <td class="n">1000 … 1824</td></tr>
-  </table></div>
-  <p class="prose">The widest stage in the machine has 119 gates, which needs
-    <strong>476 blocks of Z</strong>. The machine is <strong>1,825 blocks
-    deep</strong>. Roughly three quarters of that depth is drift, not logic —
-    and every block of drift lengthens the collectors that cross it, which is
-    where the repeaters go.</p>
-  <p class="prose">The fix is specific: <strong>alternate the collector
-    direction stage by stage</strong>, so exits are placed <em>below</em> the
-    taps on odd stages and above on even ones. Z would then oscillate inside a
-    band set by the widest stage instead of ratcheting with depth.
-    <span class="tag p">projected</span> That is the next thing to build, and it
-    is measurable the same way this was.</p>
-
-  <h2>Getting it into Minecraft</h2>
-  <p class="prose">The build exports two ways, both vanilla — no mods for
-    either:</p>
-  <div class="cards">
-    <div class="card"><h4>Structure files</h4>
-      <p>A grid of <code>.nbt</code> files a structure block loads, plus a
-        manifest giving each one's offset. Structure blocks stop at 48 blocks a
-        side, so a machine this size arrives as a jigsaw.</p></div>
-    <div class="card"><h4>A datapack</h4>
-      <p><code>/setblock</code> and <code>/fill</code> commands, split into
-        batches a server can run without stalling, placed relative to wherever
-        you stand. Runs of identical blocks collapse into one
-        <code>/fill</code> — most of this machine is the floor under the
-        dust.</p></div>
-  </div>
-  <p class="prose">One convention is worth stating because getting it wrong
-    fails <em>silently</em> — the build looks perfect and computes nothing.
-    Minecraft's repeater <code>facing</code> runs from the output side to the
-    input side, the opposite of this simulator's; comparators match repeaters;
-    and a wall torch's <code>facing</code> points away from its support, the
-    opposite of the simulator's <code>attach</code>. All three are flipped on
-    the way out, and a test asserts each one.</p>
-  <p class="mono-note">A caution rather than a caveat: half a million redstone
-    components in one world is far past what a Minecraft server ticks
-    comfortably. This is a build that is honest about being a simulation
-    artefact first.</p>
-
-  <h2>What is left</h2>
-  <div class="prose">
-    <ol>
-      <li><strong>Alternating collector direction</strong> — the Z ratchet
-        above. Biggest single win on size, and size is latency here.</li>
-      <li><strong>The torch-free inverting tap</strong> — a comparator in
-        subtract mode inverts as fast as a torch and has no burnout rule, which
-        would let the whole machine run at delay 1.</li>
-      <li>Multiply and divide. The ALU has the eight operations a
-        combinational unit can do in one pass; the other two need sequencing,
-        which means a clock and a register file.</li>
-      <li><strong>Decimal entry</strong>, which is the last big thing standing
-        between this and something a person would call usable: eight ten-key
-        pads, one per digit position, and BCD-to-binary on the way in — the
-        converter here runs the other way. The control wall already carries
-        every input on a two-block pitch, so the panel would take them
-        unchanged; the logic would not.</li>
-      <li><strong>A second display beside the controls.</strong> The wall fixed
-        entry and did nothing for reading: the digits are 657 blocks away and
-        192 up. That needs a 32-net relay the length of the build and a
-        descending run, which this router cannot yet place.</li>
-    </ol>
-  </div>
-
+  <p class="small col" style="margin-top:.8rem">Signal level is height as well as
+    colour. Dust carries a strength from 15 down to 0, losing one per block, so a
+    fading run is a visible ramp and a wavefront is a ridge that travels.
+    Components that <em>switch</em> flash hotter and hold it longer — those are
+    the events; the dust between them is the consequence. At <b>1×</b> the wait
+    is the real one: a little over two minutes from the lever to the lamps.</p>
 </div>
 
+<main class="wrap">
+
+  <section>
+    <div class="col">
+      <p class="mark">01 — What is in there</p>
+      <h2>Every stage is redstone</h2>
+      <p>Nothing is emulated. The pieces are separate modules in the source, each
+        with its own tests, and they compile into one netlist and one placed
+        world:</p>
+    </div>
+    <pre>28 levers on one wall  ──▶ A, B, and the operation
+the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
+                       ──▶ 10-bit ALU  (8 operations, 4 flags)
+                       ──▶ binary to BCD  (combinational double dabble)
+                       ──▶ four seven-segment decoders  (leading zeros blanked)
+                       ──▶ wiring loom  (32 nets, 128 risers, no crossings)
+                       ──▶ four lamp digits + a flag row</pre>
+    <div class="col">
+      <p>One netlist rather than several placed side by side, for a measured
+        reason: the compiler gives each logic stage its own Y plane, and a
+        stage's rail length is set by how many gates sit in <em>that</em> stage.
+        Pipelining the ALU into the converter into the decoders uses disjoint
+        stages and costs no extra rail, while splitting them into separately
+        placed modules would add an inter-module loom for every signal crossing
+        each boundary. The modules are in the source; the silicon is one block.</p>
+    </div>
+    <div class="cards">
+      <div class="card"><h4>The keypad cannot burn out</h4>
+        <p>Each key drives a repeater held from the side. Every key also feeds a
+          shared <em>any key is down</em> bus, and each latch's lock is that bus
+          inverted — so all eight go transparent together and the pressed key
+          stores 1 while the rest store 0. One-hot, with no torch in the latch
+          cell to burn.</p></div>
+      <div class="card"><h4>Leading zeros cost nothing</h4>
+        <p>A digit is shown if it or anything above it is non-zero — one flat OR
+          over every bit from there up. It folds into the decoder's minterms as
+          one more literal, and a term is already an AND, so blanking is free.</p></div>
+      <div class="card"><h4>The top digit needs no decoder</h4>
+        <p>A 10-bit result cannot exceed 1023, so its thousands digit is 0 or 1
+          and its upper bits are the constant rail. The decoder folds: impossible
+          values drop out of the sum, and segments lit for every reachable value
+          become constants.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="mark">02 — Evidence</p>
+      <h2>What was verified <span class="tag m">measured</span></h2>
+      <p>Modules are tested exhaustively wherever the input space allows it, and
+        the whole machine is driven only through the levers a player would touch,
+        with the answer read off the lamps. Nothing reaches inside. The headline:
+        <b>2,048 vectors exhaustive</b> on the 4-bit ALU, <b>2,304 exhaustive</b>
+        on the binary-to-BCD converter, all eight operations correct on the
+        10-bit machine including fifteen run back to back with nothing cleared
+        between them, and <b>zero torches burned out</b>.</p>
+    </div>
+    <details>
+      <summary>Every module, what was checked, and how much of it</summary>
+      <div class="in"><div class="tw"><table>
+        <tr><th>module</th><th>what was checked</th><th>coverage</th><th>result</th></tr>
+        <tr><td>Redstone mechanics</td><td>strong/weak power, dust decay, torch
+          burnout, repeater locking, comparators</td><td class="n">12 cases</td>
+          <td>12/12</td></tr>
+        <tr><td>Minecraft rules, stated one at a time</td><td>each rule its own
+          minimal circuit you can build and look at</td><td class="n">13 rules</td>
+          <td>12/12</td></tr>
+        <tr class="hi"><td><b>Engine against a second engine</b></td><td>every
+          block compared at every tick, on random circuits and a gate array</td>
+          <td class="n">2,880 ticks</td><td><b>identical</b></td></tr>
+        <tr><td>Gate cells</td><td>NOR1-3 and OR built from placed blocks</td>
+          <td class="n">5 cases</td><td>5/5</td></tr>
+        <tr><td>Place and route</td><td>4-bit adder, all 16 two-input functions,
+          full adder, XOR</td><td class="n">284 vectors</td><td>all correct</td></tr>
+        <tr class="hi"><td><b>Binary to BCD</b></td><td>every value the converter
+          can be handed, in logic</td><td class="n">2,304</td>
+          <td><b>exhaustive</b></td></tr>
+        <tr><td>Binary to BCD, placed</td><td>the same converter built out of
+          blocks, read off the dust</td><td class="n">35 values</td>
+          <td>all correct</td></tr>
+        <tr><td>Seven-segment display</td><td>every numeral renders, blank works</td>
+          <td class="n">10 + blank</td><td>exhaustive</td></tr>
+        <tr><td>Repeater-lock latch</td><td>holds, ignores data, and the
+          documented lock-before-data race</td><td class="n">7 cases</td>
+          <td>reproduced</td></tr>
+        <tr><td>Keypad</td><td>one-hot latching at 6, 8, 10 and 12 keys</td>
+          <td class="n">4 widths</td><td>all latch, none burn</td></tr>
+        <tr class="hi"><td><b>Mk I 4-bit ALU</b></td><td>8 operations × 256
+          operand pairs</td><td class="n">2,048</td><td><b>exhaustive</b></td></tr>
+        <tr><td>Build output</td><td>structure files parsed back; datapack
+          commands replayed into a fresh world</td><td class="n">block for block</td>
+          <td>identical</td></tr>
+        <tr class="hi"><td><b>Mk III, all eight operations</b></td><td>levers
+          flipped, an operation chosen, the answer read off the lamps</td>
+          <td class="n">32 cases</td><td>all correct</td></tr>
+        <tr class="hi"><td><b>Mk III, consecutive</b></td><td>operations back to
+          back with nothing cleared between them</td><td class="n">15 in a row</td>
+          <td>all correct</td></tr>
+        <tr><td>Loom and control panel</td><td>no two nets may write the same
+          cell, and every control must still be a lever</td>
+          <td class="n">60 nets</td><td>none shared</td></tr>
+      </table></div></div>
+    </details>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="mark">03 — Cost</p>
+      <h2>What it costs to keep stable <span class="tag m">measured</span></h2>
+      <p>Minecraft kills a redstone torch forced off more than eight times in 60
+        game ticks, and hazard glitching in a network 36 stages deep does exactly
+        that. Two independent things reduce it, and neither is free.</p>
+    </div>
+    <div class="tw"><table>
+      <tr><th>repeater delay</th><th>result over sixteen vectors</th></tr>
+      <tr><td>2 <small>(4 gt)</small></td>
+        <td class="n">2/16 correct, <b>146 torches burned out</b></td></tr>
+      <tr><td>3 <small>(6 gt)</small></td>
+        <td class="n">16/16 correct, but <b>one torch burned out</b></td></tr>
+      <tr class="hi"><td>4 <small>(8 gt)</small></td>
+        <td class="n"><b>16/16 correct, none burned</b>, 2,640 gt to the answer</td></tr>
+    </table></div>
+    <div class="col">
+      <p>The middle row moved when the control wall was added. Before it, delay 3
+        was clean over the same vectors and only failed on a hostile sequence;
+        196 more torches was enough to make an ordinary one cost a torch. Burnout
+        margin is not a property of the logic — it scales with how much torch
+        there is to glitch.</p>
+    </div>
+    <details>
+      <summary>The other lever: how fast the inputs arrive</summary>
+      <div class="in">
+        <p class="small">On the earlier build, delay 3 only failed once handed a
+          hostile sequence — operand pairs chosen to change ten or more levers at
+          once. Varying only how far apart the flips were placed in time, over
+          ten such vectors:</p>
+        <div class="tw"><table>
+          <tr><th>game ticks between lever flips</th><th>correct</th><th>torches burned</th></tr>
+          <tr><td>0 — every lever in the same instant</td><td class="n">5/10</td><td class="n">5</td></tr>
+          <tr><td>1</td><td class="n">7/10</td><td class="n">4</td></tr>
+          <tr><td>2</td><td class="n">9/10</td><td class="n">2</td></tr>
+          <tr><td>4</td><td class="n">9/10</td><td class="n">2</td></tr>
+        </table></div>
+        <p class="small">Spacing is real and it is not sufficient — but it is the
+          more interesting number, because <b>a player cannot flip twenty levers
+          inside a twentieth of a second</b>. Changing every input in the same
+          game tick aligns every hazard in the machine at one instant, a load the
+          build never sees in a world with a person in it. The machine moves only
+          the levers that differ, two game ticks apart, and so does this page.</p>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="mark">04 — Use</p>
+      <h2>Made usable, then made honest <span class="tag m">measured</span></h2>
+      <p>Correctness says nothing about whether a person can operate the thing.
+        The compiler puts input rails on a four-block Z pitch, so twenty operand
+        bits land spread over eighty blocks, with the keypad on a different level
+        again. Measured in Minecraft's own units — clicks, blocks walked, and how
+        many standing spots a ~4.5 block reach forces, taken from the eyes:</p>
+    </div>
+    <div class="tw"><table>
+      <tr><th></th><th>as the compiler leaves it</th><th>one control wall</th></tr>
+      <tr><td>Controls on one wall</td><td class="n">20 of 28</td>
+          <td class="n"><b>28 of 28</b></td></tr>
+      <tr><td>Span, along Z</td><td class="n">121 blocks</td>
+          <td class="n"><b>27 blocks</b></td></tr>
+      <tr><td>Standing spots, full entry</td><td class="n">10</td>
+          <td class="n"><b>6</b></td></tr>
+      <tr><td>Walked, full entry</td><td class="n">115 blocks</td>
+          <td class="n"><b>23 blocks</b></td></tr>
+      <tr class="hi"><td>Walked, a three-bit edit</td><td class="n">93 blocks</td>
+          <td class="n"><b>11 blocks</b></td></tr>
+      <tr><td>Cost</td><td class="n">—</td>
+          <td class="n">+7,675 blocks (+1.3%)</td></tr>
+    </table></div>
+    <div class="col">
+      <p>All 28 controls now sit on one wall: fourteen columns two blocks apart,
+        two rows four apart, operation keys first so they fall beside the
+        low-order bits, then bit <em>i</em> with A above B in a single column. The
+        glass walkway in front is not decoration — with your feet level with the
+        bottom row the top row is a 2.6-block reach, which is why the table has no
+        climbing in it.</p>
+      <p>The last row is the one that matters. Editing a couple of bits is what
+        using a calculator consists of, and that went from 93 blocks of walking
+        to eleven.</p>
+    </div>
+
+    <details>
+      <summary>Four bugs that all looked like nothing</summary>
+      <div class="in">
+        <p class="small">Every fault in this project had one shape: the build
+          looked healthy, lint passed, and the wrong answer was internally
+          consistent. They are worth more than the successes.</p>
+        <h3>The loom crossed itself</h3>
+        <p class="small">Turn columns were handed out in source order, so a net's
+          final run travelled east past every later column — and where one shared
+          a Z with a taller tower, two segment lines silently merged and the
+          feedback burned 96 torches. Columns now go out in descending feed level,
+          which makes every later tower shorter than the run passing over it.</p>
+        <h3>A cached state that was only mostly right</h3>
+        <p class="small">Relaxing six hundred thousand blocks takes minutes, so
+          the resting state is cached and keyed to a digest of the placed blocks.
+          The first version saved each block's power and lit flag — complete for
+          dust and torches, silently wrong for everything else, because a
+          repeater's output lives in <code>powered</code> and a comparator's in
+          <code>out</code>. Restored worlds looked healthy and computed nonsense.</p>
+        <h3>A run that doubled back over its own lever</h3>
+        <p class="small">The control panel put a lever's dust on its east side and
+          then ran west to the turn column — straight back through the lever,
+          replacing it with plain dust. <code>World.set</code> overwrites without
+          complaint, so the machine went on reporting a lever at a cell that no
+          longer held one. A test now watches every write on the full machine: no
+          two nets may share a cell, and all 28 controls must still be levers.</p>
+        <h3>And one in this page</h3>
+        <p class="small">Reported from a phone: A&nbsp;=&nbsp;10, B&nbsp;=&nbsp;72,
+          ADD highlighted, answer <b>20</b>. Twenty is not a wrong sum — it is
+          <code>10&nbsp;&lt;&lt;&nbsp;1</code>, exactly right for SHL. This page
+          holds an operation lever down for 40 game ticks and tracked
+          <em>one</em> pending release, so a second press orphaned the first lever
+          and left it down. Two keys held is not a fault in the keypad: both
+          latch, and the opcode becomes their OR, and
+          <code>SHL|ADD</code> is SHL. The machine was right and the page was
+          lying. It now releases what it holds before pressing, and reads the
+          selected operation back off the one-hot rails rather than remembering
+          which button was clicked — a page that reports the machine cannot
+          disagree with it.</p>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="mark">05 — Size</p>
+      <h2>Where the size goes <span class="tag m">measured</span></h2>
+      <p>Mk I's lesson was that 85% of the latency was wire. Mk III shows the same
+        problem in a second dimension, and this time the cause is one line in the
+        router. A gate's collector runs along Z from its first tap to an exit, and
+        that exit must sit past the gate's own last tap. The exit becomes a rail
+        for the next stage, whose gates tap it, whose exits must sit past
+        <em>those</em> taps. Over 36 stages the Z coordinate ratchets upward and
+        never comes back down.</p>
+      <p>The widest stage has 119 gates, which needs <b>476 blocks of Z</b>. The
+        machine is <b>1,825 blocks deep</b>. Roughly three quarters of that depth
+        is drift, not logic — and every block of drift lengthens the collectors
+        crossing it, which is where the repeaters go.</p>
+    </div>
+    <details>
+      <summary>The ratchet, stage by stage</summary>
+      <div class="in"><div class="tw"><table>
+        <tr><th>stage</th><th>gates</th><th>rails span (Z)</th><th>exits span (Z)</th></tr>
+        <tr><td>0 — inputs</td><td class="n">—</td><td class="n">0 … 124</td><td class="n">—</td></tr>
+        <tr><td>3</td><td class="n">94</td><td class="n">16 … 336</td><td class="n">28 … 640</td></tr>
+        <tr><td>12</td><td class="n">47</td><td class="n">372 … 820</td><td class="n">380 … 840</td></tr>
+        <tr><td>24</td><td class="n">24</td><td class="n">740 … 988</td><td class="n">748 … 1016</td></tr>
+        <tr class="hi"><td>36 — outputs</td><td class="n">33</td><td class="n">992 … 1816</td>
+          <td class="n">1000 … 1824</td></tr>
+      </table></div></div>
+    </details>
+    <div class="col">
+      <p>The fix is specific: <b>alternate the collector direction stage by
+        stage</b>, so exits land below the taps on odd stages and above on even
+        ones. Z would then oscillate inside a band set by the widest stage instead
+        of ratcheting with depth. <span class="tag p">projected</span></p>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="mark">06 — Into the game, and what is left</p>
+      <h2>It exports, two vanilla ways</h2>
+    </div>
+    <div class="cards">
+      <div class="card"><h4>Structure files</h4>
+        <p>A grid of <code>.nbt</code> files a structure block loads, plus a
+          manifest giving each one's offset. Structure blocks stop at 48 blocks a
+          side, so a machine this size arrives as a jigsaw of 604 pieces.</p></div>
+      <div class="card"><h4>A datapack</h4>
+        <p><code>/setblock</code> and <code>/fill</code>, batched so a server can
+          run them without stalling, placed relative to wherever you stand. Runs
+          of identical blocks collapse into fills: 598,230 blocks become 85,965
+          commands.</p></div>
+      <div class="card"><h4>One convention to get right</h4>
+        <p>Minecraft's repeater <code>facing</code> runs output→input, the
+          opposite of this simulator's; a wall torch's points away from its
+          support. Both are flipped on the way out, and a test asserts each —
+          getting them wrong fails <em>silently</em>.</p></div>
+    </div>
+    <div class="col">
+      <ol class="next">
+        <li><b>Alternating collector direction</b> — the ratchet above. Biggest
+          single win on size, and size is latency here.</li>
+        <li><b>The torch-free inverting tap</b> — a comparator in subtract mode
+          inverts as fast as a torch and has no burnout rule, which would let the
+          whole machine run at delay 1.</li>
+        <li><b>Decimal entry.</b> Eight ten-key pads, one per digit position, and
+          BCD-to-binary on the way in — the converter here runs the other way. The
+          control wall would take them unchanged; the logic would not.</li>
+        <li><b>A second display beside the controls.</b> The wall fixed entry and
+          did nothing for reading: the digits are 657 blocks away and 192 up.</li>
+        <li>Multiply and divide, which need sequencing — a clock and a register
+          file — rather than one combinational pass.</li>
+      </ol>
+    </div>
+  </section>
+
+</main>
+
 <footer><div class="wrap">
-  Measured figures come from the simulator in this repository, on placed blocks.
-  Mk I remains verified: the 4-bit ALU is correct on all 2,048 vectors.
+  Every measured figure comes from the simulator in this repository, on placed
+  blocks. Mk I remains verified: the 4-bit ALU is correct on all 2,048 vectors.
 </div></footer>
 
 <script>
@@ -1214,27 +1255,71 @@ function paint(j,i){
   cols[j*3]=_c[0];cols[j*3+1]=_c[1];cols[j*3+2]=_c[2];
 }
 
-/* ---- geometry ---- */
+/* ---- geometry ----
+   Half of this world — 324,511 of 598,230 blocks — is plain structure: identical
+   grey cubes that never change colour, never change shape and exist only to hold
+   dust up. Drawing one instance each is a third of a million draws for scenery.
+   Blocks are stored in (y,z,x) order, so a floor slab is a *contiguous run* of
+   them, and a run collapses into one box stretched along X. Nothing is lost —
+   the cubes were identical — and the GPU gets a fraction of the work. */
+let runs=null,runsZ=null,showStructure=true;
 function buildInstances(){
-  const w=world,keep=[];
-  for(let i=0;i<w.n;i++){
-    if(w.kind[i]===K_SOLID){let hidden=true;
-      for(let d=0;d<6;d++){const nb=w.step(i,d);
-        if(nb<0||!(w.kind[nb]===K_SOLID||w.kind[nb]===K_LAMP)){hidden=false;break;}}
-      if(hidden)continue;}
-    keep.push(i);
-  }
-  inst=keep;const m=keep.length;
+  const w=world,item=[];          // {i, lx, lz, dead}
   instOf=new Int32Array(w.n).fill(-1);
+  const buried=i=>{
+    for(let d=0;d<6;d++){const nb=w.step(i,d);
+      if(nb<0||!(w.kind[nb]===K_SOLID||w.kind[nb]===K_LAMP))return false;}
+    return true;
+  };
+  // pass 1 — along X, which is free: the store is ordered (y,z,x), so a rail's
+  // floor is a contiguous span of indices
+  for(let i=0;i<w.n;i++){
+    const k=w.kind[i];
+    if(k===K_SOLID){
+      if(!showStructure||buried(i))continue;
+      const t=item[item.length-1];
+      if(t&&w.kind[t.i]===K_SOLID&&w.by[t.i]===w.by[i]&&w.bz[t.i]===w.bz[i]&&
+         w.bx[t.i]+t.lx===w.bx[i]){t.lx++;instOf[i]=item.length-1;continue;}
+    }
+    instOf[i]=item.length;item.push({i,lx:1,lz:1});
+  }
+  // pass 2 — along Z, which is not: a collector runs the other way, and its
+  // floor is one block every row. Index them by (y,x) and grow the box.
+  const open=new Map();
+  for(let j=0;j<item.length;j++){
+    const t=item[j];
+    if(w.kind[t.i]!==K_SOLID||t.lx!==1)continue;
+    const key=w.by[t.i]*100000+w.bx[t.i];
+    const q=open.get(key);
+    if(q!==undefined){
+      const u=item[q];
+      if(w.bz[u.i]+u.lz===w.bz[t.i]){
+        u.lz++;t.dead=true;instOf[t.i]=q;continue;
+      }
+    }
+    open.set(key,j);
+  }
+  const keep=[];runs=[];runsZ=[];
+  const remap=new Int32Array(item.length).fill(-1);
+  for(let j=0;j<item.length;j++){
+    if(item[j].dead)continue;
+    remap[j]=keep.length;keep.push(item[j].i);
+    runs.push(item[j].lx);runsZ.push(item[j].lz);
+  }
+  for(let i=0;i<w.n;i++)if(instOf[i]>=0)instOf[i]=remap[instOf[i]];
+
+  inst=keep;const m=keep.length;
   offs=new Float32Array(m*3);scales=new Float32Array(m*3);cols=new Float32Array(m*3);
   dyn=[];
   const[dx,dy,dz]=w.dims;
   for(let j=0;j<m;j++){
-    const i=keep[j],k=w.kind[i];
-    instOf[i]=j;
-    offs[j*3]=w.bx[i]-dx/2;offs[j*3+1]=w.by[i]-dy/2;offs[j*3+2]=w.bz[i]-dz/2;
+    const i=keep[j],k=w.kind[i],lx=runs[j],lz=runsZ[j];
+    offs[j*3]=w.bx[i]+(lx-1)/2-dx/2;
+    offs[j*3+1]=w.by[i]-dy/2;
+    offs[j*3+2]=w.bz[i]+(lz-1)/2-dz/2;
     let s=[1,1,1];
-    if(k===K_WIRE)s=[0.34,0.07,0.34];
+    if(k===K_SOLID)s=[lx,1,lz];
+    else if(k===K_WIRE)s=[0.34,0.07,0.34];
     else if(k===K_TORCH)s=[0.24,0.7,0.24];
     else if(k===K_REP||k===K_CMP)s=[0.9,0.22,0.9];
     else if(k===K_LEVER)s=[0.56,0.34,0.56];
@@ -1242,10 +1327,12 @@ function buildInstances(){
     scales.set(s,j*3);
     if(k!==K_SOLID&&k!==K_GLASS)dyn.push([j,i]);
   }
+  recent.clear();fires.clear();dirty.clear();
   repaintAll();
-  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.DYNAMIC_DRAW);
-  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.DYNAMIC_DRAW);
+  const el=$("hInst");
+  if(el)el.textContent=m.toLocaleString();
 }
+
 function repaintAll(){
   for(let j=0;j<inst.length;j++)paint(j,inst[j]);
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
@@ -1256,25 +1343,47 @@ function repaintAll(){
   gl.bufferData(gl.ARRAY_BUFFER,offs,gl.DYNAMIC_DRAW);
   invalidate();
 }
-/* Repaint only what moved. A wavefront touches a few hundred blocks out of
-   half a million, and the world is stored in (y,z,x) order, so the changed
-   instances land in a tight index range that uploads as one sub-range. */
-function repaintRange(lo,hi){
-  if(hi<lo)return;
+
+/* Upload only what moved. Colour, height and lift all carry state now, so all
+   three buffers go up — but over the dirty instances alone. An earlier version
+   uploaded one span from the lowest changed index to the highest, which is fine
+   while a wavefront stays inside one stage and turns into megabytes a tick when
+   it does not: the world is ordered (y,z,x), so two ends of the machine lighting
+   up at once spans nearly the whole buffer. Runs are merged across small gaps,
+   where one upload beats two. */
+const dirty=new Set();
+const GAP=192;
+function uploadRange(lo,hi){
   const a=lo*12,n0=lo*3,n1=(hi+1)*3;
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
   gl.bufferSubData(gl.ARRAY_BUFFER,a,cols.subarray(n0,n1));
-  // height and lift carry the signal level, so they move every tick too
   gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);
   gl.bufferSubData(gl.ARRAY_BUFFER,a,scales.subarray(n0,n1));
   gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);
   gl.bufferSubData(gl.ARRAY_BUFFER,a,offs.subarray(n0,n1));
+}
+function flushDirty(){
+  if(!dirty.size)return 0;
+  const js=[...dirty].sort((a,b)=>a-b);
+  dirty.clear();
+  for(const j of js)paint(j,inst[j]);
+  let lo=js[0],prev=js[0],uploads=0;
+  for(let q=1;q<js.length;q++){
+    if(js[q]-prev>GAP){uploadRange(lo,prev);uploads++;lo=js[q];}
+    prev=js[q];
+  }
+  uploadRange(lo,prev);uploads++;
   invalidate();
+  return uploads;
 }
 
 /* ---- render ---- */
 function draw(){
-  const w=cv.clientWidth,h=cv.clientHeight||380,dpr=Math.min(devicePixelRatio||1,2);
+  // A big scene is fill-bound before it is anything else, and a phone reports
+  // dpr 3 — nine times the fragments of dpr 1 for a display it holds at arm's
+  // length. Cap harder the more there is to draw.
+  const w=cv.clientWidth,h=cv.clientHeight||380;
+  const dpr=Math.min(devicePixelRatio||1,inst.length>160000?1.25:2);
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){
     cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);}
   gl.viewport(0,0,cv.width,cv.height);
@@ -1302,7 +1411,8 @@ let needsDraw=true,cut=1e9;
 const invalidate=()=>{needsDraw=true;};
 function loop(){
   advance();
-  const w=cv.clientWidth,h=cv.clientHeight||380,dpr=Math.min(devicePixelRatio||1,2);
+  const w=cv.clientWidth,h=cv.clientHeight||380;
+  const dpr=Math.min(devicePixelRatio||1,inst.length>160000?1.25:2);
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr))needsDraw=true;
   if(needsDraw){needsDraw=false;draw();}
   requestAnimationFrame(loop);
@@ -1430,7 +1540,7 @@ function inputPoints(){
   return p;
 }
 const VIEWS={
-  all:  ()=>{cam.az=1.62;cam.el=0.80;frameOn(allPoints(),1.04);},
+  all:  ()=>{cam.az=2.02;cam.el=0.60;frameOn(allPoints(),1.10);},
   disp: ()=>{cam.az=0.0;cam.el=1.42;frameOn(lampPoints(),1.15);},
   // the control wall is a wall: look at its face, not down on it
   ctrl: ()=>{cam.az=1.35;cam.el=0.22;frameOn(inputPoints(),1.15);},
@@ -1507,7 +1617,7 @@ function refreshPanel(){
   const ready=readyIdx>=0&&world.power[readyIdx]>0;
   $("value").textContent=v===null?"——":v;
   $("valstate").textContent=
-    !ready?"no operation selected":(v===null?"settling":"stable");
+    !ready?"no operation":(v===null?"settling":"stable");
 
   // Which operation is *selected* is a fact about the machine's latches, not
   // about which button was clicked last. Read it off the one-hot rails, so the
@@ -1557,27 +1667,20 @@ function stepTick(){
   eng.touched=touched;
   eng.tick();
   eng.touched=null;
-  let lo=Infinity,hi=-Infinity,fired=0;
+  let fired=0;
   for(const i of touched){
     const j=instOf[i];
     if(j<0)continue;
     const k=world.kind[i];
     if(k===K_TORCH||k===K_REP||k===K_CMP||k===K_LAMP){fires.set(j,eng.now);fired++;}
     else recent.set(j,eng.now);
-    if(j<lo)lo=j; if(j>hi)hi=j;
+    dirty.add(j);
   }
   lastFired=fired;lastChanged=touched.size-fired;
   // let old highlights decay back to their base colour
-  for(const[j,t]of recent){
-    if(eng.now-t>FADE)recent.delete(j);
-    if(j<lo)lo=j; if(j>hi)hi=j;
-  }
-  for(const[j,t]of fires){
-    if(eng.now-t>FIRE_FADE)fires.delete(j);
-    if(j<lo)lo=j; if(j>hi)hi=j;
-  }
-  for(let j=lo;j<=hi;j++)if(j>=0&&j<inst.length)paint(j,inst[j]);
-  repaintRange(lo,hi);
+  for(const[j,t]of recent){if(eng.now-t>FADE)recent.delete(j);dirty.add(j);}
+  for(const[j,t]of fires){if(eng.now-t>FIRE_FADE)fires.delete(j);dirty.add(j);}
+  flushDirty();
   return touched.size;
 }
 function advance(){
@@ -1603,7 +1706,7 @@ function settleNow(){
     releaseDue();
   }
   eng.runUntilStable(400000);
-  recent.clear();fires.clear();lastFired=0;lastChanged=0;
+  recent.clear();fires.clear();dirty.clear();lastFired=0;lastChanged=0;
   repaintAll();refreshPanel();
 }
 function pressButton(k){
@@ -1672,6 +1775,13 @@ $("bPlay").onclick=()=>setPlaying(!playing);
 $("bStep").onclick=()=>{setPlaying(false);stepTick();refreshPanel();};
 $("bSettle").onclick=()=>settleNow();
 $("speed").onchange=e=>{speed=+e.target.value;};
+/* Hiding the structure is a clarity control before it is a speed one: what is
+   left is exactly the circuit — dust, torches, repeaters, lamps and levers. */
+$("bStruct").onclick=e=>{
+  showStructure=!showStructure;
+  e.currentTarget.setAttribute("aria-pressed",showStructure?"false":"true");
+  buildInstances();
+};
 for(const k in VIEWS)$("look_"+k).onclick=()=>focus(k);
 addEventListener("keydown",e=>{
   if(e.key===" "){e.preventDefault();setPlaying(!playing);}

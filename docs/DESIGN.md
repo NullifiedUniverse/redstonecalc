@@ -677,3 +677,71 @@ running the length of the machine and descending ~190 blocks — about 50,000
 blocks, and a descending-run primitive this build does not have yet. That is a
 real piece of work and it is *output* handling; it is written down here rather
 than half-built.
+
+---
+
+## 16. The viewer — **measured**
+
+`docs/preview.html` is the only part of this project a person actually looks
+at, and for a long time it was a demo bolted under an essay. Three things were
+wrong with it: it drew far more than it needed to, it put ten stacked control
+groups in a rail beside the machine, and — §15 — it could disagree with the
+simulation it was displaying.
+
+### Drawing half of nothing
+
+The world is 598,230 blocks, and **324,511 of them are plain structure**:
+identical grey cubes that never change colour, never change shape, and exist
+only to hold dust up. One instance each is a third of a million draw
+instances spent on scenery.
+
+Blocks are stored in `(y, z, x)` order, so a rail's floor is a *contiguous run*
+of indices and collapses into one box stretched along X. A collector's floor
+runs the other way and is not contiguous — those are found in a second pass, by
+indexing the leftovers on `(y, x)` and growing the box along Z. Nothing is
+lost, because the cubes were identical:
+
+| | instances |
+|---|---|
+| one per block | 598,230 |
+| after merging runs along X | 494,561 |
+| **after merging runs along Z as well** | **310,407** |
+| structure hidden entirely (`circuit only`) | 273,719 |
+
+**Just under half the geometry, for about forty lines.** The longest slab is
+1,817 blocks — a collector floor running nearly the full depth of the machine,
+which is §12's Z ratchet showing up in the render budget too. A test walks a
+sample of every block and asserts it still lies inside the box that claims it,
+because a merge that runs one cell too far is exactly the kind of fault that
+looks like nothing.
+
+Two smaller things: the device pixel ratio is capped harder when there is more
+to draw (a phone reports 3, which is nine times the fragments of 1 for a screen
+held at arm's length), and per-tick uploads now cover the *dirty instances*
+rather than one span from the lowest changed index to the highest. That span is
+fine while a wavefront stays inside one stage and becomes megabytes a tick when
+it does not, because two ends of a machine ordered `(y, z, x)` lighting up at
+once covers nearly the whole buffer.
+
+### Showing the level, not the change
+
+Dust carries a strength of 15 down to 0, losing one per block. That is the
+single most important fact about redstone and the old page put it in a colour
+ramp alone — invisible on a wire a few pixels wide seen edge-on. Signal level
+is now **height as well as colour**: a line at 15 stands three times as tall as
+one at 1, so a signal decaying along a run is a ramp you can see and a wavefront
+is a ridge that travels. Torches shrink and darken when they burn out,
+repeaters lift when they pass and turn blue when a side locks them, comparators
+ramp with their output. Clicking any block reads it exactly — the ray is
+marched through the sparse grid rather than read back from an ID buffer, which
+keeps the render to one pass.
+
+### An instrument above, a notebook below
+
+The controls were a 360-pixel rail holding ten stacked groups. They are now a
+four-row bar under a full-width viewport, in the order you use them: the answer
+and its flags, the two operands, the eight operations, then transport — with
+the tick counters and the colour key on one thin strip closing the frame. The
+writing sits in a narrower column below, deep tables folded into disclosures,
+so the page has two clear parts rather than one long scroll of everything at
+once.

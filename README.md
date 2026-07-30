@@ -21,9 +21,12 @@ redstone — classic mechanics apply.
   operand bits and one-hot operation keys — on a single wall with a walkway.
 - **A Minecraft build export**: structure-block `.nbt` chunks and a vanilla
   datapack, both verified by reading them back and rebuilding.
-- **A browser page** (`docs/preview.html`) that runs the whole machine tick by
-  tick, with the propagating wavefront drawn as it goes, plus the older Mk I
-  demo (`docs/demo.html`).
+- **A browser page** (`docs/preview.html`) — an instrument above a notebook —
+  that runs the whole machine tick by tick, drawing signal *level* as height as
+  well as colour, with any block clickable for its exact strength and state.
+  Merging the 324,511 structure blocks into runs takes it from 598,230 draw
+  instances to 310,407; see DESIGN §16. The older Mk I demo is at
+  `docs/demo.html`.
 
 ## Mk I results — where the architecture came from
 
