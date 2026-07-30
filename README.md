@@ -26,7 +26,9 @@ redstone — classic mechanics apply.
   well as colour, with any block clickable for its exact strength and state.
   Merging the 324,511 structure blocks into runs takes it from 598,230 draw
   instances to 310,407; see DESIGN §16. The older Mk I demo is at
-  `docs/demo.html`.
+  `docs/demo.html`. `tools/check_preview.mjs` verifies it in a real browser;
+  `tools/check_mobile.mjs` does the same on a touch profile — gestures, tap
+  targets, clipping and rotation.
 
 ## Mk I results — where the architecture came from
 

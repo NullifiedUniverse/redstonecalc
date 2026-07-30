@@ -745,3 +745,50 @@ the tick counters and the colour key on one thin strip closing the frame. The
 writing sits in a narrower column below, deep tables folded into disclosures,
 so the page has two clear parts rather than one long scroll of everything at
 once.
+
+### On a phone, where it was reported from
+
+The page was first reported broken from a phone, and it turned out the phone
+was where almost none of it had been tested. `tools/check_mobile.mjs` drives a
+real touch profile and asserts the things a hand does, because every line in it
+corresponds to something that was actually broken:
+
+| | before | after |
+|---|---|---|
+| boot | 14.7 s | **6.6 s** |
+| rebuilding instances (`circuit only`) | 1,771 ms | **~350 ms** |
+| framing a view | 199 ms over 316,930 points | **0.1 ms over 8** |
+| pinch to zoom | *did not exist* | works |
+| two fingers | lurched the camera | pinch, no drift |
+| tapping a block | read nothing | reads it |
+| `setPointerCapture` | threw on every touch | caught |
+| turning the phone | kept the old aspect fit | refits, keeps your angle |
+
+Five of those are one bug: the input handler kept a single `drag` record, so a
+second finger overwrote the first. There was no pinch at all — only `wheel`,
+which a phone does not have — so **the machine could not be zoomed on the
+device it was reported from**. Pointers are a Map now: one finger orbits, two
+pinch, and a tap is a press that went nowhere while it was the only finger
+down, so letting go of a pinch is not a tap. A fingertip is not a pixel either,
+so a miss spirals outward a little before giving up.
+
+The rest was arithmetic. `buildInstances` allocated 310,000 small objects; it
+uses typed arrays now. It also ran a cull pass looking for solid blocks buried
+on all six sides — 2 million map lookups to find, measured, **exactly zero of
+them**. And `allPoints()` built a 316,930-element array on every view change to
+frame the machine, when eight corners of the world box say the same thing.
+
+That last one bit back. The corners frame the same *extent* but their centroid
+is the centre of the bounding box, not the centre of the machine — and this
+machine is a sparse, lopsided slab whose box centre is empty air. The camera
+aimed at nothing, which the desktop suite caught by firing a grid of rays
+through the view and hitting nothing at all. The fit is still eight corners;
+the *aim* is the centre of mass, computed once.
+
+One more, found by looking rather than by testing: on a 390-pixel phone the
+tenth operand bit was cut off. Sizing the cells in `vw` had worked in
+arithmetic that forgot the page's own padding, and `.rig` hides its overflow so
+its corners can be round — so the row spilled out of sight without the document
+ever getting wider, and the overflow assertion saw nothing. The cells share the
+row with `flex: 1 1 0` and a max width now, which cannot overflow at any size,
+and the check tests controls against their *container* rather than the page.

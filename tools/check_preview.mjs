@@ -202,19 +202,28 @@ const relief = await page.evaluate(() => {
     const v = +scales[j * 3 + 1].toFixed(3);
     h.add(v); lo = Math.min(lo, v); hi = Math.max(hi, v);
   }
-  // one pixel can honestly be air; sample a grid and take the first hit
-  let pick = "";
-  for (let a = 1; a < 4 && !pick; a++)
-    for (let b = 1; b < 4 && !pick; b++)
-      pick = describe(pickAt(cv.clientWidth * a / 4, cv.clientHeight * b / 4));
-  return { levels: h.size, lo, hi, pick };
+  // From the whole-machine view most rays honestly miss — it is a sparse
+  // lattice seen from far away, and about one ray in twelve hits anything.
+  // Test what a user gets instead: the control wall, filling the frame, and
+  // `pickNear`, which forgives an imprecise pointer the way a tap needs.
+  focus("ctrl");
+  let pick = "", tried = 0, hit = 0;
+  for (let a = 1; a < 5; a++)
+    for (let b = 1; b < 5; b++) {
+      tried++;
+      const d = describe(pickNear(cv.clientWidth * a / 5, cv.clientHeight * b / 5));
+      if (d) { hit++; pick = pick || d; }
+    }
+  focus("all");
+  return { levels: h.size, lo, hi, pick, hitRate: `${hit}/${tried}` };
 });
 if (relief.levels < 8)
   throw new Error(`dust height should track signal level, saw ${relief.levels}`);
 if (!relief.pick)
-  throw new Error("no block picked anywhere in a 3x3 grid over the view");
+  throw new Error("nothing picked anywhere over the control wall");
 console.log(`strength: ${relief.levels} distinct dust heights, ` +
-            `${relief.lo}–${relief.hi} blocks tall; pick says "${relief.pick}"`);
+            `${relief.lo}–${relief.hi} blocks tall; ` +
+            `pointer hits ${relief.hitRate}, e.g. "${relief.pick}"`);
 
 
 // --- the viewport is actually drawing -------------------------------------

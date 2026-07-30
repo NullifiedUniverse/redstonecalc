@@ -36,6 +36,9 @@
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
+/* no 300ms tap delay, no double-tap zoom on a control, no grey flash */
+button,select,input,summary{touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--basalt);color:var(--ink);font-family:var(--serif);
   font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
 .wrap{max-width:1120px;margin:0 auto;padding:0 1.15rem}
@@ -70,9 +73,12 @@ header.top{padding:2.6rem 0 1.5rem}
 /* ---- the instrument ---- */
 .rig{border:1px solid var(--seam);border-radius:var(--r);overflow:hidden;
   background:var(--slate);margin:1.4rem 0 0}
+/* dvh, because mobile browser chrome slides away and vh does not notice */
 #view{position:relative;background:var(--void);height:min(58vh,540px);
-  min-height:320px}
-canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  height:min(58dvh,540px);min-height:320px}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;
+  /* a long press on a 3D view should orbit, not raise iOS's text callout */
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas:active{cursor:grabbing}
 .overlay{position:absolute;display:flex;gap:.3rem;flex-wrap:wrap;
   max-width:calc(100% - 1.2rem)}
@@ -81,7 +87,7 @@ canvas:active{cursor:grabbing}
 .ghost{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;
   text-transform:uppercase;padding:.3rem .5rem;border-radius:5px;cursor:pointer;
   border:1px solid rgba(255,255,255,.13);background:rgba(8,10,14,.72);
-  color:#9aa2ac;backdrop-filter:blur(6px)}
+  color:#9aa2ac;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .ghost:hover{color:var(--ink);border-color:rgba(255,255,255,.28)}
 .ghost[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone)}
 .hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
@@ -127,10 +133,13 @@ canvas:active{cursor:grabbing}
 .opnds{display:flex;flex-direction:column;gap:.3rem}
 .opnd{display:flex;align-items:center;gap:.55rem}
 .opnd .nm{font-family:var(--mono);font-size:.78rem;color:var(--ash);width:1ch}
-.bits{display:flex;gap:.2rem}
+.bits{display:flex;gap:.2rem;flex:1 1 auto;min-width:0}
 /* a hair more air every four bits, so ten of them stay countable at a glance */
 .bit:nth-child(4n){margin-right:.34rem}
-.bit{flex:0 0 auto;width:clamp(19px,2.2vw,27px);height:clamp(19px,2.2vw,27px);
+/* Ten cells share whatever width there is and cap at 30px, so the row cannot
+   overflow its bay at any screen size. Sizing them in vw looked fine until the
+   arithmetic met the page's own padding and bit 0 slid under `.rig`'s clip. */
+.bit{flex:1 1 0;min-width:0;max-width:30px;aspect-ratio:1;min-height:24px;
   border:1px solid var(--seam);border-radius:4px;background:var(--slate2);
   cursor:pointer;font-family:var(--mono);font-size:.54rem;color:var(--dim);
   padding:0;line-height:1;
@@ -146,6 +155,7 @@ canvas:active{cursor:grabbing}
   color:var(--ink);cursor:pointer;transition:border-color .12s,color .12s}
 .key:hover{border-color:var(--redstone);color:var(--redstone)}
 .key[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone);
+  background:rgba(255,74,61,.12);            /* for Safari before color-mix */
   background:color-mix(in srgb,var(--redstone) 12%,transparent)}
 .key.down{box-shadow:inset 0 0 0 1.5px var(--torch)}
 .opstate{font-family:var(--mono);font-size:.57rem;letter-spacing:.06em;
@@ -159,8 +169,22 @@ canvas:active{cursor:grabbing}
 .transport button[aria-pressed="true"]{border-color:var(--redstone);
   color:var(--redstone)}
 .cutrow{display:flex;align-items:center;gap:.55rem}
-.cutrow input[type=range]{flex:1;min-width:90px;accent-color:var(--redstone);
-  height:3px}
+/* The track wants to look like a hairline and the control has to be thumb-sized:
+   those are different boxes. The input is 28px of hit area with a 3px track
+   drawn inside it. */
+.cutrow input[type=range]{flex:1;min-width:90px;height:28px;
+  -webkit-appearance:none;appearance:none;background:transparent;margin:0}
+.cutrow input[type=range]::-webkit-slider-runnable-track{height:3px;
+  border-radius:2px;background:var(--seam)}
+.cutrow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+  width:17px;height:17px;margin-top:-7px;border-radius:50%;border:none;
+  background:var(--redstone);cursor:pointer}
+.cutrow input[type=range]::-moz-range-track{height:3px;border-radius:2px;
+  background:var(--seam)}
+.cutrow input[type=range]::-moz-range-thumb{width:17px;height:17px;border:none;
+  border-radius:50%;background:var(--redstone);cursor:pointer}
+.cutrow input[type=range]:focus-visible{outline:2px solid var(--redstone);
+  outline-offset:2px}
 button:focus-visible,select:focus-visible,summary:focus-visible{
   outline:2px solid var(--redstone);outline-offset:2px}
 
@@ -232,12 +256,31 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   header.top{padding:2rem 0 1.1rem}
   .lede{font-size:1.02rem}
   .ghost.sep{margin-left:0}
+  /* a thumb, not a mouse */
+  .ghost{padding:.6rem .7rem;font-size:.62rem}
   .hint .wide{display:none} .hint .narrow{display:inline}
   .bar{grid-template-columns:1fr}
-  .bay{border-right:none;border-bottom:1px solid var(--seam)}
-  #view{height:46vh;min-height:260px}
+  .bay{border-right:none;border-bottom:1px solid var(--seam);padding:.9rem .8rem}
+  #view{height:46vh;height:46dvh;min-height:260px}
   .ops{grid-template-columns:repeat(4,1fr)}
-  .num{font-size:1.5rem}
+  .key{padding:.6rem 0;font-size:.74rem}
+  .opnds{gap:.65rem}
+  /* the decimal moves up beside the label so the bits get the whole width —
+     ten cells across a 390px phone is 24px each inline, 31px stacked */
+  .opnd{display:grid;grid-template-columns:1fr auto;
+    grid-template-areas:"nm val" "bits bits";gap:.2rem .5rem}
+  .opnd .nm{grid-area:nm;width:auto}
+  .opnd .val{grid-area:val}
+  .bits{grid-area:bits;gap:.22rem}
+  .bit{max-width:34px;font-size:.6rem}
+  .num{font-size:1.6rem}
+  .transport button,.transport select{padding:.6rem .7rem}
+  .strip{gap:.15rem 1rem;padding:.55rem .8rem}
+}
+/* below the narrowest phone, let the bit row breathe by dropping the numerals
+   inside the cells rather than shrinking the cells */
+@media (max-width:360px){
+  .bit{font-size:0}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -1264,73 +1307,71 @@ function paint(j,i){
    the cubes were identical — and the GPU gets a fraction of the work. */
 let runs=null,runsZ=null,showStructure=true;
 function buildInstances(){
-  const w=world,item=[];          // {i, lx, lz, dead}
-  instOf=new Int32Array(w.n).fill(-1);
-  const buried=i=>{
-    for(let d=0;d<6;d++){const nb=w.step(i,d);
-      if(nb<0||!(w.kind[nb]===K_SOLID||w.kind[nb]===K_LAMP))return false;}
-    return true;
-  };
-  // pass 1 — along X, which is free: the store is ordered (y,z,x), so a rail's
-  // floor is a contiguous span of indices
-  for(let i=0;i<w.n;i++){
+  const w=world,n=w.n;
+  // Typed arrays, not an array of objects: 310,000 little {i,lx,lz} allocations
+  // was most of a 1.8-second rebuild on a phone. There is no cull pass either —
+  // it looked for solid blocks buried on all six sides and there are exactly
+  // zero of them in this world (measured), so it was 2 million map lookups
+  // spent proving nothing.
+  const bi=new Int32Array(n),blx=new Int32Array(n),blz=new Int32Array(n);
+  const dead=new Uint8Array(n);
+  instOf=new Int32Array(n).fill(-1);
+  let m=0;
+  for(let i=0;i<n;i++){
     const k=w.kind[i];
     if(k===K_SOLID){
-      if(!showStructure||buried(i))continue;
-      const t=item[item.length-1];
-      if(t&&w.kind[t.i]===K_SOLID&&w.by[t.i]===w.by[i]&&w.bz[t.i]===w.bz[i]&&
-         w.bx[t.i]+t.lx===w.bx[i]){t.lx++;instOf[i]=item.length-1;continue;}
-    }
-    instOf[i]=item.length;item.push({i,lx:1,lz:1});
-  }
-  // pass 2 — along Z, which is not: a collector runs the other way, and its
-  // floor is one block every row. Index them by (y,x) and grow the box.
-  const open=new Map();
-  for(let j=0;j<item.length;j++){
-    const t=item[j];
-    if(w.kind[t.i]!==K_SOLID||t.lx!==1)continue;
-    const key=w.by[t.i]*100000+w.bx[t.i];
-    const q=open.get(key);
-    if(q!==undefined){
-      const u=item[q];
-      if(w.bz[u.i]+u.lz===w.bz[t.i]){
-        u.lz++;t.dead=true;instOf[t.i]=q;continue;
+      if(!showStructure)continue;
+      if(m>0&&w.kind[bi[m-1]]===K_SOLID&&w.by[bi[m-1]]===w.by[i]&&
+         w.bz[bi[m-1]]===w.bz[i]&&w.bx[bi[m-1]]+blx[m-1]===w.bx[i]){
+        blx[m-1]++;instOf[i]=m-1;continue;          // extend the slab along X
       }
+    }
+    instOf[i]=m;bi[m]=i;blx[m]=1;blz[m]=1;m++;
+  }
+  // along Z, which the (y,z,x) store does not make contiguous: index the
+  // leftovers on (y,x) and grow the box
+  const open=new Map();
+  for(let j=0;j<m;j++){
+    const i=bi[j];
+    if(w.kind[i]!==K_SOLID||blx[j]!==1)continue;
+    const key=w.by[i]*100000+w.bx[i];
+    const q=open.get(key);
+    if(q!==undefined&&w.bz[bi[q]]+blz[q]===w.bz[i]){
+      blz[q]++;dead[j]=1;instOf[i]=q;continue;
     }
     open.set(key,j);
   }
+  const remap=new Int32Array(m).fill(-1);
   const keep=[];runs=[];runsZ=[];
-  const remap=new Int32Array(item.length).fill(-1);
-  for(let j=0;j<item.length;j++){
-    if(item[j].dead)continue;
-    remap[j]=keep.length;keep.push(item[j].i);
-    runs.push(item[j].lx);runsZ.push(item[j].lz);
+  for(let j=0;j<m;j++){
+    if(dead[j])continue;
+    remap[j]=keep.length;keep.push(bi[j]);runs.push(blx[j]);runsZ.push(blz[j]);
   }
-  for(let i=0;i<w.n;i++)if(instOf[i]>=0)instOf[i]=remap[instOf[i]];
+  for(let i=0;i<n;i++)if(instOf[i]>=0)instOf[i]=remap[instOf[i]];
 
-  inst=keep;const m=keep.length;
-  offs=new Float32Array(m*3);scales=new Float32Array(m*3);cols=new Float32Array(m*3);
+  inst=keep;const c=keep.length;
+  offs=new Float32Array(c*3);scales=new Float32Array(c*3);cols=new Float32Array(c*3);
   dyn=[];
   const[dx,dy,dz]=w.dims;
-  for(let j=0;j<m;j++){
+  for(let j=0;j<c;j++){
     const i=keep[j],k=w.kind[i],lx=runs[j],lz=runsZ[j];
     offs[j*3]=w.bx[i]+(lx-1)/2-dx/2;
     offs[j*3+1]=w.by[i]-dy/2;
     offs[j*3+2]=w.bz[i]+(lz-1)/2-dz/2;
-    let s=[1,1,1];
-    if(k===K_SOLID)s=[lx,1,lz];
-    else if(k===K_WIRE)s=[0.34,0.07,0.34];
-    else if(k===K_TORCH)s=[0.24,0.7,0.24];
-    else if(k===K_REP||k===K_CMP)s=[0.9,0.22,0.9];
-    else if(k===K_LEVER)s=[0.56,0.34,0.56];
-    else if(k===K_GLASS){s=[1,0.14,1];offs[j*3+1]-=0.43;}   // a floor plate
-    scales.set(s,j*3);
+    let sc=[1,1,1];
+    if(k===K_SOLID)sc=[lx,1,lz];
+    else if(k===K_WIRE)sc=[0.34,0.07,0.34];
+    else if(k===K_TORCH)sc=[0.24,0.7,0.24];
+    else if(k===K_REP||k===K_CMP)sc=[0.9,0.22,0.9];
+    else if(k===K_LEVER)sc=[0.56,0.34,0.56];
+    else if(k===K_GLASS){sc=[1,0.14,1];offs[j*3+1]-=0.43;}   // a floor plate
+    scales.set(sc,j*3);
     if(k!==K_SOLID&&k!==K_GLASS)dyn.push([j,i]);
   }
   recent.clear();fires.clear();dirty.clear();
   repaintAll();
   const el=$("hInst");
-  if(el)el.textContent=m.toLocaleString();
+  if(el)el.textContent=c.toLocaleString();
 }
 
 function repaintAll(){
@@ -1492,6 +1533,19 @@ function describe(i){
   if(k===K_GLASS)return`walkway (glass, carries no power) · ${at}`;
   return`block · ${at}`;
 }
+/* A fingertip is not a pixel. If the exact ray misses, spiral outward a little
+   before giving up — on a phone the difference between "tap a block to read it"
+   working and not is entirely this. */
+function pickNear(px,py){
+  let hit=pickAt(px,py);
+  if(hit>=0)return hit;
+  for(let r=7;r<=21;r+=7)
+    for(let a=0;a<8;a++){
+      hit=pickAt(px+Math.cos(a*Math.PI/4)*r,py+Math.sin(a*Math.PI/4)*r);
+      if(hit>=0)return hit;
+    }
+  return -1;
+}
 let picked=-1;
 function showPick(i){
   picked=i;
@@ -1502,11 +1556,25 @@ function showPick(i){
 function refreshPick(){if(picked>=0)$("inspect").textContent=describe(picked);}
 
 /* ---- camera ---- */
-function frameOn(points,margin){
+/* The machine's centre of mass, once. Framing on the *box* centre instead put
+   the camera's aim in the empty middle of a sparse, lopsided slab — cheap, and
+   wrong: a grid of rays through the view hit nothing at all. */
+let centroid=null;
+function worldCentre(){
+  if(centroid)return centroid;
+  const w=world;let sx=0,sy=0,sz=0;
+  for(let i=0;i<w.n;i++){sx+=w.bx[i];sy+=w.by[i];sz+=w.bz[i];}
+  centroid=[sx/w.n,sy/w.n,sz/w.n];
+  return centroid;
+}
+let framed=null;
+function frameOn(points,margin,centre){
+  framed={points,margin,centre};
   const[dx,dy,dz]=world.dims,n=points.length||1;
   let cx=0,cy=0,cz=0;
-  for(const p of points){cx+=p[0];cy+=p[1];cz+=p[2];}
-  target=[cx/n-dx/2,cy/n-dy/2,cz/n-dz/2];
+  if(centre){[cx,cy,cz]=centre;}
+  else{for(const p of points){cx+=p[0];cy+=p[1];cz+=p[2];}cx/=n;cy/=n;cz/=n;}
+  target=[cx-dx/2,cy-dy/2,cz-dz/2];
   const f=[Math.cos(cam.el)*Math.sin(cam.az),Math.sin(cam.el),
            Math.cos(cam.el)*Math.cos(cam.az)];
   const right=norm(cross([0,1,0],f)),up=cross(f,right);
@@ -1521,15 +1589,12 @@ function frameOn(points,margin){
   invalidate();
 }
 function allPoints(){
-  // a merged run is stored by its first block, so its far end has to be offered
-  // to the framing too or the camera crops the machine by half a slab
-  const p=[];
-  for(let j=0;j<inst.length;j++){
-    const i=inst[j];
-    p.push([world.bx[i],world.by[i],world.bz[i]]);
-    if(runs[j]>1||runsZ[j]>1)
-      p.push([world.bx[i]+runs[j]-1,world.by[i],world.bz[i]+runsZ[j]-1]);
-  }
+  // The eight corners of the world box, not every block in it. `dims` comes
+  // from the machine's own bounds, so the corners frame exactly what half a
+  // million points would — and building that array cost 200 ms and 300,000
+  // allocations every time you changed view on a phone.
+  const[dx,dy,dz]=world.dims,p=[];
+  for(const x of[0,dx-1])for(const y of[0,dy-1])for(const z of[0,dz-1])p.push([x,y,z]);
   return p;
 }
 function lampPoints(){
@@ -1547,7 +1612,7 @@ function inputPoints(){
   return p;
 }
 const VIEWS={
-  all:  ()=>{cam.az=2.02;cam.el=0.60;frameOn(allPoints(),1.10);},
+  all:  ()=>{cam.az=2.02;cam.el=0.60;frameOn(allPoints(),1.10,worldCentre());},
   disp: ()=>{cam.az=0.0;cam.el=1.42;frameOn(lampPoints(),1.15);},
   // the control wall is a wall: look at its face, not down on it
   ctrl: ()=>{cam.az=1.35;cam.el=0.22;frameOn(inputPoints(),1.15);},
@@ -1791,28 +1856,79 @@ $("bStruct").onclick=e=>{
 };
 for(const k in VIEWS)$("look_"+k).onclick=()=>focus(k);
 addEventListener("keydown",e=>{
+  // a focused button already answers to space; do not toggle play as well
+  const t=e.target&&e.target.tagName;
+  if(t==="BUTTON"||t==="SELECT"||t==="INPUT"||t==="SUMMARY")return;
   if(e.key===" "){e.preventDefault();setPlaying(!playing);}
   else if(e.key==="."){setPlaying(false);stepTick();refreshPanel();}
 });
 
-let drag=null;
-cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,
-  x0:e.clientX,y0:e.clientY};
-  cv.setPointerCapture(e.pointerId);});
-cv.addEventListener("pointermove",e=>{if(!drag)return;
-  cam.az-=(e.clientX-drag.x)*0.008;
-  cam.el=Math.max(0.05,Math.min(1.5,cam.el+(e.clientY-drag.y)*0.006));
-  drag.x=e.clientX;drag.y=e.clientY;invalidate();});
-cv.addEventListener("pointerup",e=>{
-  // a click is a drag that went nowhere; anything else was an orbit
-  if(drag&&Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<4){
-    const r=cv.getBoundingClientRect();
-    showPick(pickAt(e.clientX-r.left,e.clientY-r.top));
+/* Pointers, plural. The old handler kept one `drag` record, so a second finger
+   overwrote the first and a pinch came out as a lurching orbit — and there was
+   no pinch at all, only `wheel`, which a phone does not have. One finger
+   orbits; two pinch to zoom. */
+const ptr=new Map();
+let pinch=null;
+const ORBIT_X=0.008,ORBIT_Y=0.006,TAP_SLOP=12,TAP_MS=600;
+cv.addEventListener("pointerdown",e=>{
+  ptr.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
+                       t:performance.now()});
+  // throws if the pointer is already gone, which touch emulation does do
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  if(ptr.size===2){
+    const[a,b]=[...ptr.values()];
+    pinch={d0:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),dist0:cam.dist};
   }
-  drag=null;});
+});
+cv.addEventListener("pointermove",e=>{
+  const q=ptr.get(e.pointerId);
+  if(!q)return;
+  const dx=e.clientX-q.x,dy=e.clientY-q.y;
+  q.x=e.clientX;q.y=e.clientY;
+  if(ptr.size===1){
+    cam.az-=dx*ORBIT_X;
+    cam.el=Math.max(0.05,Math.min(1.5,cam.el+dy*ORBIT_Y));
+    invalidate();
+  }else if(ptr.size===2&&pinch){
+    const[a,b]=[...ptr.values()];
+    const d=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
+    // fingers apart = closer in, which is what every map does
+    cam.dist=Math.max(0.02,Math.min(4,pinch.dist0*pinch.d0/d));
+    invalidate();
+  }
+});
+function liftPointer(e){
+  const q=ptr.get(e.pointerId);
+  ptr.delete(e.pointerId);
+  if(ptr.size<2)pinch=null;
+  if(!q)return;
+  // A tap is a press that went nowhere, and only when it was the only finger
+  // down — half of a pinch is not a tap. The time limit is for touch, where a
+  // long press means something else; a mouse click may take as long as it likes.
+  if(ptr.size===0&&Math.hypot(e.clientX-q.x0,e.clientY-q.y0)<TAP_SLOP&&
+     (e.pointerType!=="touch"||performance.now()-q.t<TAP_MS)){
+    const r=cv.getBoundingClientRect();
+    showPick(pickNear(e.clientX-r.left,e.clientY-r.top));
+  }
+}
+cv.addEventListener("pointerup",liftPointer);
+cv.addEventListener("pointercancel",e=>{ptr.delete(e.pointerId);
+  if(ptr.size<2)pinch=null;});
 cv.addEventListener("wheel",e=>{e.preventDefault();
   cam.dist=Math.max(0.02,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));
   invalidate();},{passive:false});
+
+/* Turning a phone sideways changes the aspect ratio by a factor of five, and
+   the fit distance was computed for the old one — so the machine came back
+   cropped or tiny. Refit to whatever was last framed, keeping the angle the
+   viewer chose. */
+let refit=0;
+addEventListener("resize",()=>{
+  clearTimeout(refit);
+  refit=setTimeout(()=>{
+    if(framed)frameOn(framed.points,framed.margin,framed.centre);
+    invalidate();},160);
+});
 
 (async()=>{
   const status=$("boot");
