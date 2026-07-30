@@ -167,6 +167,12 @@ def export_machine(delay=3):
         "digits": [str(k) for k in reversed(range(m.ndigits))],
         "switches": {k: rel(v) for k, v in m.levers.items()},
         "buttons": {str(k): rel(v) for k, v in m.keys.items()},
+        # the one-hot rail each key latches into. The page used to show which
+        # button was last *clicked*, which is not the same thing as which
+        # operation the machine is holding — and when the two disagreed the page
+        # confidently displayed the wrong one. Read it off the rails instead.
+        "oplatch": {str(k): rel(m.layout.levers[f"K{k}"])
+                    for k in range(len(OPS))},
         "lamps": {f"{d}_{s}": [rel(p) for p in m.lamps[d][s]]
                   for d in [str(k) for k in range(m.ndigits)] for s in SEGS},
         "flaglamps": {f: rel(m.lamps["F"][f]) for f in FLAGS},

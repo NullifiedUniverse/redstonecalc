@@ -58,6 +58,17 @@ canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 canvas:active{cursor:grabbing}
 .hint{position:absolute;left:.75rem;bottom:.6rem;font-family:var(--mono);
   font-size:.63rem;color:#5c636d;letter-spacing:.06em;pointer-events:none}
+.inspect{position:absolute;right:.7rem;bottom:.6rem;max-width:min(90%,30rem);
+  font-family:var(--mono);font-size:.66rem;letter-spacing:.02em;
+  color:var(--lamp);background:rgba(7,9,12,.86);border:1px solid #2b323c;
+  border-radius:5px;padding:.3rem .5rem;pointer-events:none}
+.legend{display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:center;
+  font-family:var(--mono);font-size:.58rem;letter-spacing:.05em;
+  color:var(--dim)}
+.legend span{display:flex;align-items:center;gap:.3rem}
+.ramp{width:74px;height:9px;border-radius:2px;border:1px solid var(--line);
+  background:linear-gradient(90deg,#2b2e36,#4d1010,#8a1410,#c92318,#ff3b30)}
+.chip{width:9px;height:9px;border-radius:2px;border:1px solid var(--line)}
 .look{position:absolute;left:.7rem;top:.7rem;display:flex;gap:.3rem}
 .look button{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;
   text-transform:uppercase;padding:.25rem .5rem;border-radius:4px;cursor:pointer;
@@ -101,6 +112,11 @@ canvas:active{cursor:grabbing}
 .key:hover{border-color:var(--redstone);color:var(--redstone)}
 .key[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone);
   background:rgba(255,59,48,.10)}
+/* the lever is physically down right now, which is not the same as latched */
+.key.down{box-shadow:inset 0 0 0 1px var(--torch)}
+.opstate{font-family:var(--mono);font-size:.6rem;letter-spacing:.06em;
+  color:var(--dim);margin-top:-.35rem}
+.opstate.bad{color:var(--redstone)}
 .opnd{display:flex;align-items:center;gap:.5rem}
 .opnd .nm{font-family:var(--mono);font-size:.75rem;color:var(--muted);width:.9rem}
 .bits{display:flex;gap:.15rem;flex:1}
@@ -128,6 +144,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--redstone);
   font-size:.67rem;color:var(--muted);font-variant-numeric:tabular-nums}
 .stat b{color:var(--ink);font-weight:600}
 .stat b.bad{color:var(--redstone)}
+.legendnote{margin:0;font-size:.63rem;color:var(--dim);line-height:1.45}
 
 /* ---- tables and bars ---- */
 .tw{overflow-x:auto;margin:.9rem 0}
@@ -179,11 +196,18 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 <div class="wrap">
 
   <h2>The machine, thinking</h2>
-  <p class="prose">Flip bits into A and B, then press an operation. The button
-    is held down for 40 game ticks and released, exactly as a stone button
-    behaves, and the machine is then simulated tick by tick: white is the
-    wavefront — every block whose state changed in the last few ticks — and it
-    fades back to the block's own colour behind.</p>
+  <p class="prose">Flip bits into A and B, then choose an operation. Its lever
+    is held down for 40 game ticks and released, and the machine is simulated
+    tick by tick from there.</p>
+  <p class="prose">What you are watching is <em>signal level</em>, not on and
+    off. Redstone dust carries a strength from 15 down to 0, losing one per
+    block, and here that level is the wire's colour <em>and</em> its height — a
+    line at 15 stands three times as tall as one at 1. A signal fading along a
+    run is therefore a visible ramp, and a wavefront is a ridge that travels.
+    Components that actually switch get their own hotter flash, held longer
+    than the dust highlight, because those are the events and the dust between
+    them is the consequence. Click any block to read its exact strength and
+    state.</p>
   <p class="prose">Be clear what <b>1&times;</b> is asking for: that is
     Minecraft's own 20 ticks per second, and this machine takes <b>2,640 game
     ticks</b> — a little over two minutes — to get from the keypress to the
@@ -200,7 +224,8 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
         <button type="button" id="look_disp" aria-pressed="false">display</button>
         <button type="button" id="look_ctrl" aria-pressed="false">controls</button>
       </div>
-      <div class="hint">drag to orbit · scroll to zoom</div>
+      <div class="hint">drag to orbit · scroll to zoom · click a block to read it</div>
+      <div class="inspect" id="inspect" hidden></div>
     </div>
     <div class="pad">
       <div class="readout" id="readout"></div>
@@ -209,6 +234,7 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 
       <span class="lbl">Operation — a lever, on then off</span>
       <div class="ops" id="ops"></div>
+      <div class="opstate" id="opstate">none latched — ADD by default</div>
 
       <span class="lbl">Operands — levers, on the same wall</span>
       <div id="operands" style="display:flex;flex-direction:column;gap:.35rem"></div>
@@ -239,6 +265,20 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
       <div class="stat"><span>blocks simulated</span><b id="hBlocks">—</b></div>
       <div class="stat"><span>gates / depth</span>
         <b><span id="hGates">—</span> / <span id="hDepth">—</span></b></div>
+
+      <span class="lbl">What you are looking at</span>
+      <div class="legend">
+        <span><i class="ramp"></i>dust 0→15</span>
+        <span><i class="chip" style="background:#ffa93d"></i>torch lit</span>
+        <span><i class="chip" style="background:#432f28"></i>torch out</span>
+        <span><i class="chip" style="background:#b84d42"></i>repeater on</span>
+        <span><i class="chip" style="background:#5c85b8"></i>repeater locked</span>
+        <span><i class="chip" style="background:#ffe685"></i>lamp</span>
+        <span><i class="chip" style="background:#8ab3c9"></i>walkway</span>
+      </div>
+      <p class="legendnote">Signal level is height as well as colour: a wire at
+        15 stands three times as tall as one at 1, so a signal fading along a
+        run is a visible ramp and a wavefront is a ridge that moves.</p>
     </div>
   </div>
 
@@ -453,6 +493,28 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     32-net relay running the length of it, and it is written down rather than
     half-built.</p>
 
+  <h3>A third silent failure, this time in the interface
+    <span class="tag m">measured</span></h3>
+  <p class="prose">Reported from a phone: A&nbsp;=&nbsp;10, B&nbsp;=&nbsp;72,
+    ADD highlighted, answer <b>20</b>. Twenty is not a wrong sum — it is
+    <code>10&nbsp;&lt;&lt;&nbsp;1</code>, exactly right for SHL. The redstone
+    was doing precisely what it had been asked; the page had asked wrongly.</p>
+  <p class="prose">This page holds an operation lever down for 40 game ticks
+    and then releases it, and it tracked <em>one</em> pending release. Press a
+    second operation inside that window and the first record was overwritten,
+    so that lever was never let go. Two keys held down is not a fault in the
+    keypad — it has a perfectly good answer, both latches store 1 and the
+    opcode becomes their OR — and <code>SHL(110) | ADD(000)</code> is SHL. The
+    machine then computed SHL under ADD's highlight, and reported itself
+    stable, because it was.</p>
+  <p class="prose">Two fixes, and the second is the one that matters. The page
+    now releases every key still held before pressing a new one, the way a hand
+    leaves one lever before reaching for the next. And the highlight is no
+    longer a memory of what was clicked: it is read back from the keypad's
+    one-hot rails, the same way the digits are read off the lamps. If two
+    latches are ever lit, the page says so and names the OR. A page that
+    reports the machine cannot disagree with it.</p>
+
   <h2>Where the size goes — and the one fix left
     <span class="tag m">measured</span></h2>
   <p class="prose">Mk I's lesson was that 85% of the latency was wire. Mk III
@@ -630,26 +692,79 @@ function baseColour(w,i,out){
   const k=w.kind[i];
   if(k===K_LAMP){const on=w.power[i];
     out[0]=on?1.0:0.13;out[1]=on?0.90:0.13;out[2]=on?0.52:0.15;return;}
-  if(k===K_WIRE){const p=w.power[i];
-    if(!p){out[0]=0.20;out[1]=0.21;out[2]=0.24;return;}
-    const t=p/15;out[0]=0.28+0.7*t;out[1]=0.06+0.15*t;out[2]=0.05+0.12*t;return;}
+  if(k===K_WIRE){
+    // Dust carries a *level*, 0 to 15, and losing one per block is the single
+    // most important fact about redstone. Ramp the whole way rather than
+    // on/off, and keep 0 visibly dead rather than merely dim.
+    const p=w.power[i];
+    if(!p){out[0]=0.17;out[1]=0.18;out[2]=0.21;return;}
+    const t=p/15;
+    out[0]=0.30+0.70*t;out[1]=0.05+0.19*t*t;out[2]=0.05+0.11*t*t;return;}
   if(k===K_TORCH){const on=w.lit[i];
     out[0]=on?1.0:0.26;out[1]=on?0.66:0.21;out[2]=on?0.24:0.17;return;}
-  if(k===K_REP){const on=w.lit[i];
+  if(k===K_REP){
+    if(eng.locked(i)){                    // frozen by a repeater at its side
+      out[0]=0.36;out[1]=0.52;out[2]=0.72;return;}
+    const on=w.lit[i];
     out[0]=on?0.72:0.42;out[1]=on?0.30:0.44;out[2]=on?0.26:0.48;return;}
+  if(k===K_CMP){const p=w.power[i]/15;
+    out[0]=0.26+0.30*p;out[1]=0.34+0.46*p;out[2]=0.38+0.47*p;return;}
   if(k===K_LEVER){const on=w.lit[i];
     out[0]=on?0.95:0.66;out[1]=on?0.33:0.70;out[2]=on?0.28:0.76;return;}
   if(k===K_GLASS){                          // the walkway in front of the panel
     out[0]=0.55;out[1]=0.70;out[2]=0.79;return;}
   out[0]=0.34;out[1]=0.37;out[2]=0.43;      // plain structure
 }
+
+/* ---- shape: strength and state, in three dimensions ----
+   Colour alone puts the whole story in one channel, and on a wire seen edge-on
+   at this scale a shade is close to invisible. So the level is *also* the
+   height: a dust line at 15 stands three times as tall as one at 1, and a
+   signal decaying along a run reads as a ramp you can see from across the
+   machine. Torches shrink when they go out; repeaters lift when they fire. */
+const DUST_FLOOR=-0.475;
+function shape(j,i){
+  const w=world,k=w.kind[i],dy=w.dims[1];
+  const by=w.by[i]-dy/2;
+  if(k===K_WIRE){
+    const t=w.power[i]/15;
+    const h=0.05+0.25*t;
+    scales[j*3]=0.30+0.12*t;scales[j*3+2]=0.30+0.12*t;
+    scales[j*3+1]=h;
+    offs[j*3+1]=by+DUST_FLOOR+h/2;
+    return;
+  }
+  if(k===K_TORCH){
+    const h=w.lit[i]?0.72:0.44;
+    scales[j*3+1]=h;
+    offs[j*3+1]=by-0.5+h/2;
+    return;
+  }
+  if(k===K_REP||k===K_CMP){
+    const on=k===K_REP?w.lit[i]:w.power[i]>0;
+    const h=on?0.30:0.20;
+    scales[j*3+1]=h;
+    offs[j*3+1]=by-0.5+h/2;
+    return;
+  }
+  if(k===K_LEVER){
+    const h=w.lit[i]?0.42:0.30;
+    scales[j*3+1]=h;
+    offs[j*3+1]=by-0.5+h/2;
+  }
+}
+
 const _c=[0,0,0];
 function paint(j,i){
   baseColour(world,i,_c);
-  // Dust whose level moved is lifted toward white — the propagating edge.
+  shape(j,i);
+  // Dust whose level moved is lifted toward white — the propagating edge. Not
+  // all the way, though: washing it out was hiding the very thing the ramp is
+  // there to show, so the flash now sits on top of the level rather than
+  // replacing it.
   const t=recent.get(j);
   if(t!==undefined){
-    const g=Math.max(0,1-(eng.now-t)/FADE)*0.85;
+    const g=Math.max(0,1-(eng.now-t)/FADE)*0.55;
     _c[0]+=(1-_c[0])*g;_c[1]+=(1-_c[1])*g;_c[2]+=(1-_c[2])*g;
   }
   // A torch or repeater that actually *switched* gets its own, hotter flash and
@@ -686,7 +801,7 @@ function buildInstances(){
     instOf[i]=j;
     offs[j*3]=w.bx[i]-dx/2;offs[j*3+1]=w.by[i]-dy/2;offs[j*3+2]=w.bz[i]-dz/2;
     let s=[1,1,1];
-    if(k===K_WIRE){s=[0.34,0.07,0.34];offs[j*3+1]-=0.44;}
+    if(k===K_WIRE)s=[0.34,0.07,0.34];
     else if(k===K_TORCH)s=[0.24,0.7,0.24];
     else if(k===K_REP||k===K_CMP)s=[0.9,0.22,0.9];
     else if(k===K_LEVER)s=[0.56,0.34,0.56];
@@ -695,13 +810,17 @@ function buildInstances(){
     if(k!==K_SOLID&&k!==K_GLASS)dyn.push([j,i]);
   }
   repaintAll();
-  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);gl.bufferData(gl.ARRAY_BUFFER,scales,gl.DYNAMIC_DRAW);
 }
 function repaintAll(){
   for(let j=0;j<inst.length;j++)paint(j,inst[j]);
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
   gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,scales,gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,offs,gl.DYNAMIC_DRAW);
   invalidate();
 }
 /* Repaint only what moved. A wavefront touches a few hundred blocks out of
@@ -709,8 +828,14 @@ function repaintAll(){
    instances land in a tight index range that uploads as one sub-range. */
 function repaintRange(lo,hi){
   if(hi<lo)return;
+  const a=lo*12,n0=lo*3,n1=(hi+1)*3;
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
-  gl.bufferSubData(gl.ARRAY_BUFFER,lo*12,cols.subarray(lo*3,(hi+1)*3));
+  gl.bufferSubData(gl.ARRAY_BUFFER,a,cols.subarray(n0,n1));
+  // height and lift carry the signal level, so they move every tick too
+  gl.bindBuffer(gl.ARRAY_BUFFER,scaleBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER,a,scales.subarray(n0,n1));
+  gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER,a,offs.subarray(n0,n1));
   invalidate();
 }
 
@@ -749,6 +874,89 @@ function loop(){
   if(needsDraw){needsDraw=false;draw();}
   requestAnimationFrame(loop);
 }
+
+/* ---- pick a block and say what it is ----
+   Colour and height say how much signal is where; this says exactly how much,
+   on the block you point at. The ray is marched through the sparse grid rather
+   than read back from an ID buffer, which keeps the render path to one pass. */
+function rayThrough(px,py){
+  const w=cv.clientWidth,h=cv.clientHeight||380;
+  const[dx,dy,dz]=world.dims,R=Math.max(dx,dy,dz),d=R*cam.dist;
+  const eye=[target[0]+Math.cos(cam.el)*Math.sin(cam.az)*d,
+             target[1]+Math.sin(cam.el)*d,
+             target[2]+Math.cos(cam.el)*Math.cos(cam.az)*d];
+  const fwd=norm([target[0]-eye[0],target[1]-eye[1],target[2]-eye[2]]);
+  const right=norm(cross(fwd,[0,1,0])),up=cross(right,fwd);
+  const t=Math.tan(FOV/2),ar=w/h;
+  const sx=(2*px/w-1)*t*ar,sy=(1-2*py/h)*t;
+  const dir=norm([fwd[0]+right[0]*sx+up[0]*sy,
+                  fwd[1]+right[1]*sx+up[1]*sy,
+                  fwd[2]+right[2]*sx+up[2]*sy]);
+  // index space: cell (i,j,k) spans [i,i+1), and block i sits at its centre
+  return{o:[eye[0]+dx/2+0.5,eye[1]+dy/2+0.5,eye[2]+dz/2+0.5],d:dir};
+}
+function pickAt(px,py){
+  const[dx,dy,dz]=world.dims;
+  const{o,d}=rayThrough(px,py);
+  // clip to the box first, or the march starts thousands of cells outside it
+  let t0=0,t1=Infinity;
+  const hi=[dx,dy,dz];
+  for(let a=0;a<3;a++){
+    if(Math.abs(d[a])<1e-9){if(o[a]<0||o[a]>hi[a])return -1;continue;}
+    let lo=(0-o[a])/d[a],up=(hi[a]-o[a])/d[a];
+    if(lo>up){const q=lo;lo=up;up=q;}
+    t0=Math.max(t0,lo);t1=Math.min(t1,up);
+    if(t0>t1)return -1;
+  }
+  let p=[o[0]+d[0]*t0,o[1]+d[1]*t0,o[2]+d[2]*t0];
+  let c=[Math.min(dx-1,Math.max(0,Math.floor(p[0]))),
+         Math.min(dy-1,Math.max(0,Math.floor(p[1]))),
+         Math.min(dz-1,Math.max(0,Math.floor(p[2])))];
+  const stp=[d[0]>0?1:-1,d[1]>0?1:-1,d[2]>0?1:-1];
+  const dt=[Math.abs(1/d[0]),Math.abs(1/d[1]),Math.abs(1/d[2])];
+  const next=[0,0,0];
+  for(let a=0;a<3;a++)
+    next[a]=Math.abs(d[a])<1e-9?Infinity
+      :((stp[a]>0?c[a]+1-p[a]:p[a]-c[a])*dt[a]);
+  for(let n=0;n<8000;n++){
+    const i=world.at(c[0],c[1],c[2]);
+    if(i>=0&&instOf[i]>=0&&(world.by[i]-dy/2)<=cut)return i;
+    const a=next[0]<next[1]?(next[0]<next[2]?0:2):(next[1]<next[2]?1:2);
+    c[a]+=stp[a];next[a]+=dt[a];
+    if(c[a]<0||c[a]>=[dx,dy,dz][a])return -1;
+  }
+  return -1;
+}
+const DIRNAME=["north","south","west","east","up","down"];
+function describe(i){
+  if(i<0)return"";
+  const w=world,k=w.kind[i];
+  const at=`${w.bx[i]}, ${w.by[i]}, ${w.bz[i]}`;
+  if(k===K_WIRE)
+    return`redstone dust · strength ${w.power[i]} of 15 · ${at}`;
+  if(k===K_TORCH)
+    return`torch · ${w.lit[i]?"lit":"out"}${eng.burned.has(i)?" · BURNED OUT":""} · ${at}`;
+  if(k===K_REP)
+    return`repeater · delay ${w.delay(i)} (${w.delay(i)*2} gt) · `
+      +`${w.lit[i]?"passing":"low"}${eng.locked(i)?" · locked":""} · `
+      +`facing ${DIRNAME[w.facing(i)]} · ${at}`;
+  if(k===K_CMP)
+    return`comparator · out ${w.power[i]} of 15 · ${at}`;
+  if(k===K_LEVER)
+    return`lever · ${w.lit[i]?"on":"off"} · ${at}`;
+  if(k===K_LAMP)
+    return`lamp · ${w.power[i]?"lit":"dark"} · ${at}`;
+  if(k===K_GLASS)return`walkway (glass, carries no power) · ${at}`;
+  return`block · ${at}`;
+}
+let picked=-1;
+function showPick(i){
+  picked=i;
+  const el=$("inspect");
+  el.textContent=i<0?"":describe(i);
+  el.hidden=i<0;
+}
+function refreshPick(){if(picked>=0)$("inspect").textContent=describe(picked);}
 
 /* ---- camera ---- */
 function frameOn(points,margin){
@@ -804,7 +1012,7 @@ function focus(which){
 const SEGS="abcdefg";
 const NUMERAL={abcdef:0,bc:1,abdeg:2,abcdg:3,bcfg:4,acdfg:5,acdefg:6,abc:7,
                abcdefg:8,abcdfg:9};
-let cells={},flagIdx={},switchIdx={},buttonIdx={},readyIdx=-1;
+let cells={},flagIdx={},switchIdx={},buttonIdx={},latchIdx={},readyIdx=-1;
 
 function buildReadout(){
   const host=$("readout");host.innerHTML="";cells={};
@@ -867,6 +1075,22 @@ function refreshPanel(){
   $("value").textContent=v===null?"——":v;
   $("valstate").textContent=
     !ready?"no operation selected":(v===null?"settling":"stable");
+
+  // Which operation is *selected* is a fact about the machine's latches, not
+  // about which button was clicked last. Read it off the one-hot rails, so the
+  // page can never again claim ADD while the keypad is holding SHL. More than
+  // one lit is a real state — the opcode is then their OR — and it says so.
+  const on=[];
+  for(const b in latchIdx){
+    const lit=world.power[latchIdx[b]]>0;
+    if(lit)on.push(circ.ops[+b]);
+    $("op"+b).setAttribute("aria-pressed",lit?"true":"false");
+    $("op"+b).classList.toggle("down",!!world.lit[buttonIdx[b]]);
+  }
+  $("opstate").textContent=on.length>1
+    ? on.join(" + ")+" — both latched, the opcode is their OR"
+    : (on.length?on[0]+" latched":"none latched — ADD by default");
+  $("opstate").classList.toggle("bad",on.length>1);
   for(const f in flagIdx)
     $("fl_"+f).classList.toggle("on",world.power[flagIdx[f]]>0);
   if(circ.switches&&circ.width){
@@ -878,6 +1102,7 @@ function refreshPanel(){
           world.lit[switchIdx[pad+i]]?"true":"false");
     }
   }
+  refreshPick();
   $("tTick").textContent=eng.now.toLocaleString();
   $("tFired").textContent=lastFired
     ? `${lastFired} switched, ${lastChanged} dust`
@@ -888,10 +1113,13 @@ function refreshPanel(){
 }
 
 /* ---- the tick loop: this is the whole point ---- */
-let playing=false,speed=20,acc=0,last=0,release=null;
+let playing=false,speed=20,acc=0,last=0;
+/* every key currently held down, and the tick it should pop back out on.
+   A Map rather than one record: see pressButton. */
+const held=new Map();
 let lastFired=0,lastChanged=0;
 function stepTick(){
-  if(release&&eng.now>=release.at){eng.setLever(release.pos,false);release=null;}
+  releaseDue();
   const touched=new Set();
   eng.touched=touched;
   eng.tick();
@@ -927,7 +1155,7 @@ function advance(){
   let n=0;
   while(acc>=1&&n<600){acc-=1;stepTick();n++;}
   if(n)refreshPanel();
-  if(!eng.queue.length&&!release){setPlaying(false);acc=0;}
+  if(!eng.queue.length&&!held.size){setPlaying(false);acc=0;}
 }
 function setPlaying(v){
   playing=v;last=performance.now();
@@ -937,18 +1165,35 @@ function setPlaying(v){
 function settleNow(){
   setPlaying(false);
   fires.clear();
-  if(release){eng.run(Math.max(0,release.at-eng.now));
-    eng.setLever(release.pos,false);release=null;}
+  if(held.size){
+    eng.run(Math.max(0,Math.max(...held.values())-eng.now));
+    releaseDue();
+  }
   eng.runUntilStable(400000);
   recent.clear();fires.clear();lastFired=0;lastChanged=0;
   repaintAll();refreshPanel();
 }
 function pressButton(k){
-  eng.setLever(buttonIdx[k],true);
-  release={pos:buttonIdx[k],at:eng.now+(circ.hold||40)};
+  // A hand lets go of one lever before it reaches for the next, and the page
+  // has to do the same. Holding two operation keys down at once is a state the
+  // keypad has a perfectly good answer for — both latches store 1 and the
+  // opcode becomes their OR — but it is not what anyone means by clicking a
+  // second button, and this page used to create it by accident: it tracked one
+  // pending release, so a second press overwrote the first and left that lever
+  // down for ever. ADD after SHL then showed SHL's answer under ADD's
+  // highlight. Release everything still held, then press.
   for(const b in buttonIdx)
-    $("op"+b).setAttribute("aria-pressed",b===k?"true":"false");
+    if(b!==k&&world.lit[buttonIdx[b]])eng.setLever(buttonIdx[b],false);
+  held.clear();
+  eng.setLever(buttonIdx[k],true);
+  held.set(buttonIdx[k],eng.now+(circ.hold||40));
   setPlaying(true);refreshPanel();
+}
+/* Let go of every key whose hold has expired. */
+function releaseDue(){
+  if(!held.size)return;
+  for(const[pos,at]of[...held])
+    if(eng.now>=at){eng.setLever(pos,false);held.delete(pos);}
 }
 function toggleBit(pad,i){
   const p=switchIdx[pad+i];
@@ -959,6 +1204,7 @@ function buildControls(){
   const ops=$("ops");ops.innerHTML="";buttonIdx={};
   (circ.ops||[]).forEach((nm,k)=>{
     buttonIdx[String(k)]=world.at(...circ.buttons[String(k)]);
+    if(circ.oplatch)latchIdx[String(k)]=world.at(...circ.oplatch[String(k)]);
     const b=document.createElement("button");
     b.className="key";b.type="button";b.id="op"+k;b.textContent=nm;
     b.onclick=()=>pressButton(String(k));
@@ -1000,13 +1246,20 @@ addEventListener("keydown",e=>{
 });
 
 let drag=null;
-cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY};
+cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,
+  x0:e.clientX,y0:e.clientY};
   cv.setPointerCapture(e.pointerId);});
 cv.addEventListener("pointermove",e=>{if(!drag)return;
   cam.az-=(e.clientX-drag.x)*0.008;
   cam.el=Math.max(0.05,Math.min(1.5,cam.el+(e.clientY-drag.y)*0.006));
   drag.x=e.clientX;drag.y=e.clientY;invalidate();});
-cv.addEventListener("pointerup",()=>drag=null);
+cv.addEventListener("pointerup",e=>{
+  // a click is a drag that went nowhere; anything else was an orbit
+  if(drag&&Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<4){
+    const r=cv.getBoundingClientRect();
+    showPick(pickAt(e.clientX-r.left,e.clientY-r.top));
+  }
+  drag=null;});
 cv.addEventListener("wheel",e=>{e.preventDefault();
   cam.dist=Math.max(0.02,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));
   invalidate();},{passive:false});

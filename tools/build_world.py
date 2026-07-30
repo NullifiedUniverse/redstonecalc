@@ -140,9 +140,16 @@ the whole wall is workable without moving more than a few steps.
 
 Flip the operand levers, then flip an operation lever on and off again the way
 you would press a button — the keypad latches on the way down and holds the
-choice after you let go. The answer appears on the lamp digits at the far end
-of the build; it is a long walk, and that is the one part of using this thing
-that is still bad.
+choice after you let go.
+
+**One operation lever at a time.** The keypad is one-hot and it answers two
+keys held down honestly rather than refusing: both latch, and the opcode
+becomes their OR. Leave SHL on and flip ADD and the machine computes SHL,
+correctly and without complaint. They are on the wall in front of you, so a
+glance along the row is the check.
+
+The answer appears on the lamp digits at the far end of the build; it is a long
+walk, and that is the one part of using this thing that is still bad.
 
 """.format(optable=optable, x=rs[0][0], z0=min(p[2] for p in rs), z1=max(p[2] for p in rs),
            k1=min(p[2] for p in rs) + 2, k2=min(p[2] for p in rs) + 4,

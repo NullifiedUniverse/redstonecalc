@@ -165,6 +165,16 @@ along its row's own height at its own panel Z, up a tower at its own turn
 column, along Z at that column, then in at one shared height on the target's own
 Z, which is unique because two controls cannot drive the same cell.
 
+One more failure worth recording, because it was the same shape as all the
+others and lived somewhere new. A user reported ADD showing 20 for 10 + 72 —
+which is `10 << 1`, exactly right for SHL. The simulator was correct from cold
+and after every other operation; the *page* held one pending key release, so
+pressing a second operation inside the 40-tick hold orphaned the first lever
+and left it down. Two keys held is a state the keypad answers honestly: both
+latch, and the opcode is their OR. The page now releases what it holds before
+pressing, and reads the selected operation back off the one-hot rails instead
+of remembering which button was clicked — see DESIGN §15.
+
 The fifth row of that table is the one that matters: editing a couple of bits is
 what using a calculator consists of, and that went from 93 blocks of walking to
 11. What the panel does *not* fix, and the same tool says so, is that the digits

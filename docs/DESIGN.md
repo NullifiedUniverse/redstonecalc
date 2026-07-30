@@ -630,6 +630,40 @@ one repeater in the middle sat off. `line()` now takes an explicit `step` and
 closes the same latent hole in the loom, where a source two blocks north of its
 feed lane would have failed the same way.
 
+### A third silent failure, and it was in the page
+
+Reported from a phone, after all of the above was green: A = 10, B = 72, ADD
+highlighted, answer **20**. Twenty is not a wrong sum. It is `10 << 1` —
+exactly right for SHL — and the simulator confirmed it immediately:
+
+    ADD  10,72 ->  82 want 82  OK   rails A=10 B=72  latched=[0]
+
+correct from cold, and correct after every one of the other seven operations.
+The redstone was doing what it was asked. The page was asking wrongly.
+
+`docs/preview_template.html` holds an operation lever down for 40 game ticks
+and then releases it, and it tracked **one** pending release. Press a second
+operation inside that window and the first record was overwritten, so that
+lever was never let go. Two keys held down is not a fault in the keypad — §10's
+design has a perfectly good answer for it, both latches store 1 and the opcode
+becomes their OR — and `SHL(110) | ADD(000)` is SHL. So the machine computed
+SHL, under ADD's highlight, and reported itself stable, because it was.
+
+The same shape as every other bug in this document: nothing crashed, nothing
+lit up red, and the wrong answer was internally consistent. What is new is
+where it lived. The redstone had three independent checks on it by then — a
+rule suite, a second engine, and an exhaustive ALU sweep — and the interface
+had none, so that is where the next bug went.
+
+Two fixes. The page now releases every key still held before pressing a new
+one, the way a hand leaves one lever before reaching for the next. And the
+highlight is no longer a memory of what was clicked: it is read back from the
+keypad's one-hot rails, exactly as the digits are read off the lamps, so a page
+that reports the machine cannot disagree with it — and when two latches are
+lit it says so and names the OR. `tools/check_preview.mjs` now replays the
+reported sequence and asserts all four: the answer, no lever left down, one
+latch, and the highlight matching the latch.
+
 ### What is still not solved
 
 The same tool measures the thing the panel does *not* fix:

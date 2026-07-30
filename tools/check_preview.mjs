@@ -108,6 +108,69 @@ for (const group of [cases, consec]) {
     }
   }
 }
+// --- the interface itself, which is where the last real bug lived ----------
+// A user pressed SHL, then ADD, and got SHL's answer under ADD's highlight:
+// the page tracked one pending release, so the second press orphaned the
+// first lever and left it down. Two keys held is a state the keypad answers
+// honestly — both latch and the opcode is their OR — so the page must never
+// create it by accident, and must report what the machine holds rather than
+// what was clicked.
+const ui = await page.evaluate(async () => {
+  const setAB = (a, b) => {
+    for (const [pad, v] of [["A", a], ["B", b]])
+      for (let i = 0; i < circ.width; i++)
+        if (!!world.lit[switchIdx[pad + i]] !== !!((v >> i) & 1)) {
+          toggleBit(pad, i); eng.run(2);
+        }
+  };
+  const down = () => circ.ops.filter((n, k) => world.lit[buttonIdx[String(k)]]);
+  const latched = () => circ.ops.filter(
+    (n, k) => world.power[latchIdx[String(k)]] > 0);
+
+  setAB(10, 72);
+  pressButton("6"); settleNow();                  // SHL: 10 << 1
+  const shl = { value: readValue(), down: down(), latched: latched() };
+
+  pressButton("6"); eng.run(10); pressButton("0");  // ADD before SHL pops out
+  settleNow();
+  const then = { value: readValue(), down: down(), latched: latched(),
+    highlighted: circ.ops.filter((n, k) =>
+      document.getElementById("op" + k).getAttribute("aria-pressed") === "true") };
+  return { shl, then };
+});
+if (ui.shl.value !== 20)
+  throw new Error(`SHL 10 should be 20, got ${ui.shl.value}`);
+if (ui.then.value !== 82)
+  throw new Error(`ADD 10,72 after SHL should be 82, got ${ui.then.value}` +
+                  ` (levers down: ${ui.then.down})`);
+if (ui.then.down.length)
+  throw new Error(`levers left held down: ${ui.then.down}`);
+if (ui.then.latched.length !== 1 || ui.then.latched[0] !== "ADD")
+  throw new Error(`keypad should latch ADD alone, holds ${ui.then.latched}`);
+if (ui.then.highlighted.join() !== ui.then.latched.join())
+  throw new Error(`page highlights ${ui.then.highlighted} but the machine ` +
+                  `holds ${ui.then.latched}`);
+console.log(`controls: pressing ADD 10 gt into SHL's hold releases SHL, ` +
+            `latches ADD alone, and reads 82`);
+
+// --- strength is rendered, not just coloured ------------------------------
+const relief = await page.evaluate(() => {
+  const h = new Set();
+  let lo = Infinity, hi = -Infinity;
+  for (const [j, i] of dyn) if (world.kind[i] === K_WIRE) {
+    const v = +scales[j * 3 + 1].toFixed(3);
+    h.add(v); lo = Math.min(lo, v); hi = Math.max(hi, v);
+  }
+  const mid = pickAt(cv.clientWidth / 2, cv.clientHeight / 2);
+  return { levels: h.size, lo, hi, pick: describe(mid) };
+});
+if (relief.levels < 8)
+  throw new Error(`dust height should track signal level, saw ${relief.levels}`);
+if (!relief.pick)
+  throw new Error("clicking the middle of the view picked nothing");
+console.log(`strength: ${relief.levels} distinct dust heights, ` +
+            `${relief.lo}–${relief.hi} blocks tall; pick says "${relief.pick}"`);
+
 const burned = await page.evaluate(() => eng.burned.size);
 console.log(`operations: ${cases.length + consec.length - bad}/` +
             `${cases.length + consec.length} correct ` +
