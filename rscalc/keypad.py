@@ -23,6 +23,13 @@ Layout per key, at the target's Z::
     x:  -15   -14   -13 .. -8      -7 .. -3    -2      -1     0
         bus   BUTTON  delay chain    dust     LATCH   dust   -> rail
                                              (locked from Z+1)
+
+`remote=True` leaves the BUTTON cell empty for someone else to fill with a
+strongly powered block — a control panel's torch tower, say. That cell is a
+solid block either way, so the bus to its west and the delay chain to its east
+read it exactly as they read a lever, and both still see the signal in the same
+instant. The release race the delay chain exists to win is therefore unchanged;
+only where the player's hand goes moves.
 """
 
 from __future__ import annotations
@@ -38,13 +45,16 @@ LATCH_X = -2
 BUS_Y = -2           # the inverted-lock distribution bus runs below
 
 
-def build_keypad(w: World, targets, name="K"):
+def build_keypad(w: World, targets, name="K", remote=False):
     """Wire N buttons to N one-hot outputs, each feeding one target.
 
     `targets` is the list of positions the keypad must drive, in key order —
     they are the input rails of whatever reads the keypad. Returns the button
     positions, keyed by index. Ten keys makes a digit pad; eight makes an
     operation selector; the mechanism does not care.
+
+    With `remote`, the returned positions are cells the caller must arrange to
+    power — the keypad places no lever there and no support under it.
     """
     assert len(targets) >= 2, "a one-hot pad needs at least two keys"
     # Measured working range: 6, 8, 10 and 12 keys all latch one-hot with no
@@ -63,8 +73,9 @@ def build_keypad(w: World, targets, name="K"):
 
     for key, (tx, ty, tz) in enumerate(targets):
         # data path: button -> repeater chain -> latch -> target
-        w.solid((BUTTON_X, ty - 1, tz))
-        w.lever((BUTTON_X, ty, tz), attach="down", on=False)
+        if not remote:
+            w.solid((BUTTON_X, ty - 1, tz))
+            w.lever((BUTTON_X, ty, tz), attach="down", on=False)
         buttons[key] = (BUTTON_X, ty, tz)
 
         x = BUTTON_X + 1

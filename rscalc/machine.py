@@ -1,12 +1,12 @@
 """Mk III — a 10-bit calculator, complete, in one world.
 
-    20 operand levers  ->  A, B
-    8-button keypad    ->  one-hot latches -> 3-bit opcode
-                       ->  10-bit ALU (8 operations, 4 flags)
-                       ->  binary to BCD (double dabble)
-                       ->  four seven-segment decoders
-                       ->  wiring loom
-                       ->  four lamp digits + a flag row
+    28 levers on one wall  ->  A, B, and the operation
+    the 8 operation levers ->  one-hot latches -> 3-bit opcode
+                           ->  10-bit ALU (8 operations, 4 flags)
+                           ->  binary to BCD (double dabble)
+                           ->  four seven-segment decoders
+                           ->  wiring loom
+                           ->  four lamp digits + a flag row
 
 Every stage is redstone. The pieces are separate modules with their own tests —
 `alu`, `bcd`, `display`, `keypad`, `harness`, `logic` — and this file is the
@@ -33,6 +33,7 @@ from .display import (build_digit, build_lamp_row, seven_seg, lit_segments,
 from .harness import route, TURN_PITCH
 from .keypad import build_keypad, press
 from .logic import encode_onehot, any_of
+from .panel import build_control_panel, PANEL_PITCH
 
 WIDTH = 10
 FLAGS = ["CARRY", "ZERO", "NEG", "OVF"]
@@ -42,9 +43,13 @@ FLAGS = ["CARRY", "ZERO", "NEG", "OVF"]
 N_GAPS = 3
 #: The repeater setting the machine is stable at. Delay 2 burns 117 torches
 #: out over fourteen vectors and delay 3 survives gentle sequences but not
-#: violent ones; delay 4 is clean on every sequence tried, at 2,584 game ticks
-#: from keypress to answer.
+#: violent ones; delay 4 is clean on every sequence tried.
 DEFAULT_DELAY = 4
+#: worst settle measured over the 79 vectors in `tests/test_machine.py` at
+#: DEFAULT_DELAY — from the operation lever going down to the last lamp holding
+#: still, about two and a quarter minutes in game. Quoted in the build output's
+#: README so a builder knows what they are waiting for.
+SETTLE_GT = 2644
 #: game ticks between one operand lever moving and the next. Zero means every
 #: input changes in the same instant, which no player can do and which the
 #: machine does not survive — see `Machine.set_operands`.
@@ -88,8 +93,17 @@ def build_netlist(width=WIDTH, carry="cla"):
     return nl
 
 
-def build_machine(width=WIDTH, carry="cla", repeater_delay=DEFAULT_DELAY):
-    """Place the whole machine. Returns everything a test or a page needs."""
+def build_machine(width=WIDTH, carry="cla", repeater_delay=DEFAULT_DELAY,
+                  compact_input=True):
+    """Place the whole machine. Returns everything a test or a page needs.
+
+    `compact_input` routes all 28 controls — the operand levers and the eight
+    operation keys — onto one wall a player can work standing still, instead of
+    leaving the levers spread along eighty blocks of rail with the keypad on a
+    different level. Measured with `tools/ergonomics.py`; pass False for the
+    layout the compiler leaves behind, which is what the measurement compares
+    against.
+    """
     nl = build_netlist(width, carry)
     ndigits = nl.ndigits
     w = World()
@@ -98,18 +112,45 @@ def build_machine(width=WIDTH, carry="cla", repeater_delay=DEFAULT_DELAY):
     (x0, y0, z0), (x1, y1, z1) = w.bounds()
 
     # ---- player controls ---------------------------------------------------
-    # operand bits are levers you flip; the operation is a button you press
-    levers = {}
-    for i in range(width):
-        for pad in ("A", "B"):
-            name = f"{pad}{i}"
+    # All 28 are levers. The operation ones are flipped on and then off again,
+    # the way you would press a button: the keypad latches on the way down and
+    # holds the choice after the lever falls back.
+    names = [f"{pad}{i}" for i in range(width) for pad in ("A", "B")]
+    key_rails = [L.levers[f"K{k}"] for k in range(len(OPS))]
+    if compact_input:
+        # Every control on one wall. The operation keys come first, so they sit
+        # beside the low-order bits — the ones an operator actually edits —
+        # and the operand bits follow interleaved, A above B in one column each.
+        feeds = build_keypad(w, key_rails, remote=True)
+        controls = ([(f"OP{k}", feeds[k]) for k in range(len(OPS))]
+                    + [(n, (L.levers[n][0] - 2,) + tuple(L.levers[n][1:]))
+                       for n in names])
+        rows = 2
+        # centre the panel on the keypad's Z, on an even lane so no net's Z-run
+        # ends up one cell from its target (two towers need dust between them)
+        kzs = [t[2] for t in key_rails]
+        span = PANEL_PITCH * (-(-len(controls) // rows) - 1)
+        origin_z = (min(kzs) + max(kzs)) // 2 - span // 2
+        placed = build_control_panel(w, [c[1] for c in controls], rows=rows,
+                                     origin_z=origin_z - origin_z % 2)
+        at = dict(zip([c[0] for c in controls], placed))
+        levers = {n: at[n] for n in names}
+        keys = {k: at[f"OP{k}"] for k in range(len(OPS))}
+        # the dust each operand rail reads, off the top of its panel tower
+        for name in names:
+            rx, ry, rz = L.levers[name]
+            w.solid((rx - 1, ry - 1, rz))
+            w.wire((rx - 1, ry, rz))
+    else:
+        levers = {}
+        for name in names:
             rx, ry, rz = L.levers[name]
             w.solid((rx - 2, ry - 1, rz))
             w.lever((rx - 2, ry, rz), attach="down", on=False)
             w.solid((rx - 1, ry - 1, rz))
             w.wire((rx - 1, ry, rz))
             levers[name] = (rx - 2, ry, rz)
-    keys = build_keypad(w, [L.levers[f"K{k}"] for k in range(len(OPS))])
+        keys = build_keypad(w, key_rails)
 
     # ---- where the display sits --------------------------------------------
     outs = dict(L.outputs)

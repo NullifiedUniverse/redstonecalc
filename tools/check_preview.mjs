@@ -159,6 +159,10 @@ await page.evaluate(async () => {
 await page.waitForTimeout(400);
 await page.screenshot({ path: "out/preview_machine.png" });
 await page.locator(".console").screenshot({ path: "out/shot_console.png" });
+// and the control wall, which is the thing a player actually touches
+await page.evaluate(() => document.getElementById("look_ctrl").click());
+await page.waitForTimeout(400);
+await page.locator("#view").screenshot({ path: "out/shot_controls.png" });
 
 console.log(errs.length ? "ERRORS:\n" + errs.join("\n") : "no page errors");
 const ok = !errs.length && bad === 0 && burned === 0;

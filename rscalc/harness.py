@@ -43,15 +43,27 @@ def tower(w: World, x, y, z, height):
     return (x, y + height, z)
 
 
-def line(w: World, a, b, y, fixed, axis, lead=True):
+def line(w: World, a, b, y, fixed, axis, lead=True, step=None):
     """A straight dust run along `axis` at height `y`, with repeaters.
 
     `lead` starts the run on a repeater, which is what picks the signal up off
     a tower's strongly-powered top block and restores it to 15.
+
+    `step` is which way the run *flows*, +1 or -1. It only has to be given when
+    the run is a single cell, because then `a` and `b` cannot say: a lone
+    repeater still has to face somewhere, and facing the wrong way it reads the
+    cell it should be feeding and delivers nothing. That cost an afternoon —
+    every other leg of the route was live and one repeater in the middle sat
+    off, so it is an assertion now rather than a guess.
     """
     if (b - a) == 0 and not lead:
         return
-    step = 1 if b >= a else -1
+    assert step in (None, 1, -1), step
+    assert a != b or step is not None, (
+        f"one-cell run at {axis}={a}: pass step to say which way it flows")
+    if step is None:
+        step = 1 if b >= a else -1
+    assert (b - a) * step >= 0, f"run from {a} to {b} cannot flow {step:+}"
     facing = ({"x": "east", "z": "south"} if step > 0
               else {"x": "west", "z": "north"})[axis]
     since = MAX_RUN if lead else 0
@@ -99,7 +111,7 @@ def route(w: World, nets, ya, yb, y_disp, turn_x0):
         else:
             tower(w, turn, ya, sz, yb - ya)
             zstep = 1 if dz > sz else -1
-            line(w, sz + zstep, dz - zstep, yb, turn, "z")
+            line(w, sz + zstep, dz - zstep, yb, turn, "z", step=zstep)
             tower(w, turn, yb, dz, y_disp - yb)
             stats["towers"] += 3
 

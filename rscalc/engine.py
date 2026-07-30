@@ -466,10 +466,10 @@ class Engine:
             return self.block_power(step(cpos, b.attach)) == 0
         if b.kind == "repeater":
             back = step(cpos, OPPOSITE[b.facing])
-            return self._input_power(back) > 0
+            return self._input_power(back, cpos) > 0
         if b.kind == "comparator":
             back = step(cpos, OPPOSITE[b.facing])
-            rear = self._input_power(back)
+            rear = self._input_power(back, cpos)
             sides = 0
             for d in HORIZONTAL:
                 if AXIS[d] == AXIS[b.facing]:
@@ -482,8 +482,14 @@ class Engine:
             return self._lamp_powered(cpos)
         return None
 
-    def _input_power(self, pos):
-        """Power a repeater/comparator reads from the block at `pos`."""
+    def _input_power(self, pos, into):
+        """Power a repeater or comparator at `into` reads from the cell `pos`.
+
+        `into` matters: a repeater or comparator only emits from its *front*, so
+        one sitting behind another but facing away or sideways feeds it nothing.
+        Reading it regardless of orientation was a real bug here, found by
+        differential testing against `tests/refsim.py`.
+        """
         w = self.w
         b = w.get(pos)
         if b is None:
@@ -498,9 +504,9 @@ class Engine:
         if k == "redstone_block":
             return 15
         if k == "repeater":
-            return 15 if b.powered else 0
+            return 15 if (b.powered and step(pos, b.facing) == into) else 0
         if k == "comparator":
-            return b.out
+            return b.out if step(pos, b.facing) == into else 0
         if k in CONDUCTIVE:
             return self.block_power(pos)
         return 0
@@ -634,14 +640,17 @@ class Engine:
             guard += 1
             if guard > 10000:
                 raise RuntimeError("redstone failed to settle (combinational loop?)")
-            nets = self._dirty_nets
-            self._dirty_nets = set()
-            for nid in nets:
-                if self._recompute_net(nid):
-                    self._dirty_comps.update(self.comps_by_net.get(nid, ()))
-                else:
-                    # first pass still needs listeners evaluated
-                    if changed is None:
+            # Drain the dust to a fixed point *before* asking any component what
+            # it wants. Interleaving the two lets a component be scheduled off an
+            # intermediate dust level that the tick never actually had, which
+            # then reschedules when the dust converges — an invented glitch, and
+            # glitches are exactly what burns torches out. Found by differential
+            # testing against tests/refsim.py, which settles dust first.
+            while self._dirty_nets:
+                nets = self._dirty_nets
+                self._dirty_nets = set()
+                for nid in nets:
+                    if self._recompute_net(nid) or changed is None:
                         self._dirty_comps.update(self.comps_by_net.get(nid, ()))
             comps = self._dirty_comps
             self._dirty_comps = set()

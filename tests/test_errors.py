@@ -5,6 +5,7 @@ looked healthy and computed nonsense. So these tests check the invariants the
 rest of the design leans on, and check that the failure modes are loud:
 
   * the wiring loom never routes two nets through the same cell
+  * the control panel never routes a net back over its own lever
   * a gate cannot tap one rail through both polarities
   * constants fold instead of producing unbuildable gates
   * lint catches unsupported dust and torches
@@ -100,6 +101,50 @@ def test_loom_routes_never_cross():
     assert not m.world.lint(), m.world.lint()[:3]
     print(f"  loom: {n_nets} nets, no shared cells, "
           f"{len(handover)} hand-over cells as designed: OK")
+
+
+def test_panel_routes_never_cross():
+    """The control panel makes the same claim as the loom, and got it wrong.
+
+    Its first version ran each net east out of the lever and then west to the
+    turn column, so the run doubled back over the lever and buried it in dust.
+    Every lever still *existed* in the returned dict, the world still passed
+    lint, and the machine quietly read zero for both operands. So: watch every
+    write, one net at a time, and let nothing share a cell.
+    """
+    import rscalc.machine as M
+    import rscalc.panel as P
+
+    orig = P.route_control
+    with WriteSpy() as spy:
+        def routed(w, i, target, rows=2, origin_z=0):
+            spy.phase = f"control{i}"
+            return orig(w, i, target, rows, origin_z)
+
+        P.route_control = routed
+        spy.phase = "machine"
+        try:
+            m = M.build_machine(repeater_delay=2)
+        finally:
+            P.route_control = orig
+
+    # the instrumentation has to have run, or "no clashes" means nothing
+    tagged = {v for v in spy.owner.values() if v.startswith("control")}
+    assert len(tagged) == 2 * m.width + len(m.keys), (
+        f"only {len(tagged)} nets were watched; the patch did not take")
+
+    bad = [c for c in spy.clashes
+           if c[0].startswith("control") or c[1].startswith("control")]
+    assert not bad, (f"{len(bad)} cells shared with a panel net, first {bad[:3]}")
+
+    # and the levers the machine hands out are really levers
+    controls = ([m.levers[f"{p}{i}"] for i in range(m.width) for p in "AB"]
+                + [m.keys[k] for k in sorted(m.keys)])
+    wrong = [p for p in controls if m.world.kind(p) != "lever"]
+    assert not wrong, f"{len(wrong)} of {len(controls)} controls are not levers"
+    assert len(set(controls)) == len(controls), "two controls on one cell"
+    print(f"  panel: {len(controls)} controls, all still levers, "
+          f"no cell shared with anything: OK")
 
 
 # --- the netlist refuses what it cannot build --------------------------------

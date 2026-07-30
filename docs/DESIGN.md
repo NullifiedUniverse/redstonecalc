@@ -327,10 +327,11 @@ operate, and the torch-free tap in the plan is what should halve it.
 
 ## 11. Mk III — ten bits, and four bugs that all looked like nothing
 
-The 10-bit machine (`rscalc/machine.py`) is 590,555 blocks: an 8-operation ALU,
+The 10-bit machine (`rscalc/machine.py`) is 598,230 blocks: an 8-operation ALU,
 a combinational binary-to-BCD converter, four seven-segment decoders, a 32-net
-loom and four lamp digits with a flag row, driven by 20 levers and an 8-button
-keypad. It runs at repeater delay 4.
+loom and four lamp digits with a flag row, driven by 28 levers on one wall — 20
+operand bits and the 8 one-hot operation keys (§15). It runs at repeater
+delay 4.
 
 Every fault found while building it had the same shape — the build looked
 healthy and computed nonsense. That is worth recording more than the successes.
@@ -373,7 +374,7 @@ rather than failing quietly.
 
 ### A cached state that was only mostly right
 
-Relaxing 590,555 blocks to their resting state takes about five minutes, so it
+Relaxing six hundred thousand blocks to their resting state takes minutes, so it
 is cached to disk and keyed to a digest of the placed blocks. The first version
 saved each block's `power` and `lit` — which is complete for dust and torches,
 and silently wrong for everything else: a repeater's output lives in `powered`
@@ -435,17 +436,24 @@ game ticks. Mk III is 36 stages deep, and hazard glitching in a network that
 deep does exactly that. Two independent things reduce it, and only one of them
 is free.
 
-**Repeater delay**, over the same fourteen vectors:
+**Repeater delay**, over sixteen vectors, re-measured on the build with the
+control wall (§15) — which matters, because that wall added 196 torches:
 
 | delay | result |
 |---|---|
-| 2 (4 gt) | 5/14 correct, **117 torches burned out** |
-| 3 (6 gt) | 14/14 on a gentle sequence — but see below |
-| **4 (8 gt)** | **16/16 correct, none burned**, 2,584 gt to the answer |
+| 2 (4 gt) | 2/16 correct, **146 torches burned out** |
+| 3 (6 gt) | 16/16 correct, but **one torch burned out** on the ordinary sequence |
+| **4 (8 gt)** | **16/16 correct, none burned**, 2,640 gt to the answer |
 
-**How fast the inputs move.** Delay 3 looked clean until it was given a hostile
-sequence: operand pairs chosen to change ten or more levers at once. Over ten
-such vectors, varying only how far apart the lever flips were placed in time:
+The middle row moved. On the build before the control wall, delay 3 was clean
+over the same vectors and only failed when handed a hostile sequence; 196 more
+torches was enough to make an ordinary one cost a torch. Burnout margin is not
+a property of the logic — it scales with how much torch there is to glitch.
+
+**How fast the inputs move.** Delay 3 on the earlier build looked clean until it
+was given a hostile sequence: operand pairs chosen to change ten or more levers
+at once. Over ten such vectors, varying only how far apart the lever flips were
+placed in time:
 
 | game ticks between lever flips | correct | torches burned |
 |---|---|---|
@@ -466,3 +474,172 @@ The honest summary: this machine needs both a slower repeater setting than Mk II
 speed. The structural fix remains the torch-free
 comparator tap — it has no burnout rule at all, so the whole question would stop
 existing rather than being paid for in latency.
+
+## 14. Verifying the simulator separately, and the bug that found
+
+Every test up to this point checked the *machine* against arithmetic. None of
+them checked the *simulator* against Minecraft — they all shared one
+understanding of the rules, so a misunderstanding would have been invisible.
+
+Two independent checks now exist.
+
+### Each rule, alone
+
+`tests/test_minecraft_rules.py` states thirteen rules and gives each its own
+minimal circuit, so anyone who wants to confirm one against the game can build
+exactly that and look:
+
+| | rule | checked by |
+|---|---|---|
+| R1 | strength 0-15, one level lost per dust block | a 20-block line, every cell read |
+| R2 | full-strength sources | lever, block, torch, repeater front |
+| R3 | strong power: dust beside a strongly powered block reads 15 | a torch under a block, dust beside it |
+| R4 | weak power does not carry on | dust into a block, dust past it stays dark |
+| R5 | what dust connects to, including staircases | connection table |
+| R6 | pointing follows connection: dot, line, corner | all three shapes |
+| R7 | torch inverts its support, 2 gt late | tick-by-tick |
+| R8 | more than 8 state changes in 60 gt burns a torch out | 8 survive, the 9th kills it, spacing avoids it |
+| R9 | repeaters delay 2/4/6/8 gt, restore to 15, block reverse flow | all four settings |
+| R10 | a repeater held from the side freezes | the latch protocol |
+| R11 | comparator compare and subtract | five rear/side combinations, both modes |
+| R12 | lamps light from either kind of power | dust on top, torch beside, and dark otherwise |
+| R13 | one pending update per component, re-read on firing | a pulse shorter than the delay is swallowed |
+
+### Each engine, against another engine
+
+`tests/refsim.py` implements those rules a *second* time, deliberately badly:
+no precomputed nets, no link tables, no dirty sets. Every tick it re-floods
+every dust cell from every source and asks every component directly what it
+wants. It is far too slow for a real build, and that is the whole point — its
+only job is to disagree.
+
+They are then run side by side and **every block is compared at every tick**: 40
+random circuits (2,880 ticks) and a compiled gate array (480 ticks). This does
+not prove the rules match Minecraft — only the game can do that, which is why
+each rule above is also a circuit you can build. It proves the fast engine the
+whole project rests on behaves like the slow obvious one, which is the part that
+could drift silently.
+
+### It found a real bug immediately
+
+`_input_power` — what a repeater or comparator reads out of the cell behind it —
+returned a powered repeater's output **without checking which way that repeater
+faced**. A repeater sitting behind another but pointing away or sideways would
+feed it anyway. Fixed in both the Python engine and the JavaScript port, since a
+divergence there would make the page and the tests disagree about the same
+build.
+
+The compiled machine turned out not to depend on it: rails and collectors put a
+solid block or dust behind every repeater, never another repeater. But that was
+luck, not design, and it is exactly the class of fault that would have produced
+a machine that worked in simulation and failed in the game.
+
+### And it corrected a wrong assumption in the reference
+
+The second disagreement went the other way. On a gate array the two engines
+diverged for eleven ticks and then reconverged. The cause: the reference applied
+the value that had been *scheduled*, while the fast engine re-read the input when
+the update fired. Minecraft does the latter — a component schedules at most one
+pending update, and a further change before it fires does not schedule a second
+one. So a pulse shorter than a repeater's delay leaves nothing behind at all.
+The fast engine was right; the reference was rewritten to match, and that became
+rule R13.
+
+One real deviation was fixed along the way as a result of looking: the fast
+engine used to interleave dust propagation with component evaluation inside a
+tick, which let a component be scheduled off an intermediate dust level the tick
+never actually had — an invented glitch, and glitches are precisely what burns
+torches out. Both engines now drain the dust to a fixed point before asking any
+component what it wants.
+
+## 15. Making it usable in game — **measured**
+
+Correctness tests say nothing about whether a player can operate the thing.
+`tools/ergonomics.py` measures the part they miss, in the units that matter in
+game: clicks, blocks walked, blocks *climbed*, and how many separate spots you
+have to stand in given Java Edition's ~4.5 block reach — measured from the
+player's eyes, 1.62 blocks above the floor, because that is what makes a wall
+with two rows on it work at all.
+
+The machine as the compiler leaves it is miserable to use:
+
+| | controls left on the rails | one control wall |
+|---|---|---|
+| Controls on one wall | 20 of 28 | **28 of 28** |
+| Controls span, along Z | 121 blocks | **27 blocks** |
+| Standing spots for a full entry | 10 | **6** |
+| Walked, full entry | 115 blocks | **23 blocks** |
+| Walked, three-bit edit | 93 blocks | **11 blocks** |
+| Cost | — | +7,675 blocks (+1.3%) |
+
+The compiler puts input rails on a four-block Z pitch, so twenty operand bits
+land spread over eighty blocks whether you like it or not, and the keypad's
+buttons sit at the rail plane a dozen blocks above where the levers end up.
+`rscalc/panel.py` routes all of it onto one wall: fourteen columns on a
+two-block pitch, two rows four apart, operation keys first so they sit beside
+the low-order bits — the ones an operator actually edits — then bit *i* with A
+above B in a single column.
+
+The keypad's buttons come along by *substitution* rather than by rewiring. A
+key's button cell is a solid block that feeds the shared "any key is down" bus
+to its west and its own delay chain to its east; `build_keypad(remote=True)`
+simply leaves that cell empty, and the panel's torch tower tops out exactly
+there. Both readers still see the signal in the same instant, so the release
+race the delay chain exists to win (§10) is unchanged — only where the player's
+hand goes has moved.
+
+There is a glass walkway in front of the wall, and it is not decoration: with
+feet level with the bottom row, the top row is four blocks up, which from eye
+height is a 2.6-block reach. One standing level serves both rows, which is why
+the table has no climbing in it. Glass because it is non-conductive in this
+model and in the game, so extending the walkway can never carry power into the
+panel.
+
+The routing is crossing-free by construction rather than by search, which after
+§11's loom bug was a deliberate choice. Each net takes four legs and every leg
+sits on a coordinate nothing else shares: out along its row's own height at its
+own panel Z, up a tower at its own turn column, along Z at that column, then in
+at one shared height on the target's own Z — unique because two controls cannot
+drive the same cell. Turn columns go out in index order and the lower row comes
+second within a column, so its taller tower stands west of anywhere the upper
+row's run reaches. Nothing has to be searched and nothing can collide.
+
+### Two silent failures, one of them twice
+
+Writing it that way did not stop me building it wrong, and both failures were
+invisible: the world passed lint, every lever existed at the position the
+machine reported, and the answer was quietly zero.
+
+**The run doubled back over its own lever.** The first version put the lever's
+dust on its east side and then ran west to the turn column — straight back
+through the dust and the lever, overwriting both with plain dust. `World.set`
+overwrites silently, so nothing complained; the levers were still in the
+returned dict and `m.levers["A0"]` still pointed at a cell that now held
+redstone dust. Both the dust and the run now start *west* of the lever, so
+nothing ever crosses that cell, and `test_panel_routes_never_cross` watches
+every write on the full machine: no two nets may share a cell, and all 28
+controls must still be levers. That second assertion is the one that would have caught it in seconds.
+
+**A one-cell run has no direction.** With the operation keys on the panel, a
+net's Z-run can be exactly one cell long — and `line()` inferred which way a
+run flowed from its endpoints, which for a single cell say nothing. It guessed
+south; that net needed north; the lone repeater faced the tower it was supposed
+to be feeding and delivered nothing. Every other leg of the route was live and
+one repeater in the middle sat off. `line()` now takes an explicit `step` and
+*asserts* when a one-cell run does not say which way it flows, which also
+closes the same latent hole in the loom, where a source two blocks north of its
+feed lane would have failed the same way.
+
+### What is still not solved
+
+The same tool measures the thing the panel does *not* fix:
+
+    then read the answer   657 blocks away, 192 up
+
+The controls are at the input end of a machine 865 blocks long, and the digits
+are at the far end of it and near the top. Every operation ends with a walk.
+Fixing it means a second display beside the control wall, fed by a 32-net relay
+running the length of the machine and descending ~190 blocks — about 50,000
+blocks, and a descending-run primitive this build does not have yet. That is a
+real piece of work and it is *output* handling; it is written down here rather
+than half-built.

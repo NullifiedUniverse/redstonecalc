@@ -166,8 +166,8 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
   <div class="wrap">
     <p class="eyebrow">Mk III · Minecraft Java 26.2 · tick-accurate simulation</p>
     <h1>A 10-bit calculator made of <em>redstone</em></h1>
-    <p class="lede">Twenty levers, eight buttons, four lamp digits and half a
-      million blocks in between. Set the operands, press an operation, and
+    <p class="lede">Twenty-eight levers on one wall, four lamp digits and half a
+      million blocks in between. Set the operands, choose an operation, and
       watch the answer propagate — one game tick at a time, at the speed it
       would run in Minecraft.</p>
     <p class="mono-note">Everything tagged <span class="tag m">measured</span>
@@ -185,7 +185,7 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     wavefront — every block whose state changed in the last few ticks — and it
     fades back to the block's own colour behind.</p>
   <p class="prose">Be clear what <b>1&times;</b> is asking for: that is
-    Minecraft's own 20 ticks per second, and this machine takes <b>2,584 game
+    Minecraft's own 20 ticks per second, and this machine takes <b>2,640 game
     ticks</b> — a little over two minutes — to get from the keypress to the
     lamps. The wait is the real one. The default 10&times; makes it about
     thirteen seconds, and <b>skip to settled</b> jumps straight to the
@@ -207,10 +207,10 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
       <div class="valline"><b id="value">——</b><span id="valstate">idle</span></div>
       <div class="flagrow" id="flagrow"></div>
 
-      <span class="lbl">Operation — a button you press</span>
+      <span class="lbl">Operation — a lever, on then off</span>
       <div class="ops" id="ops"></div>
 
-      <span class="lbl">Operands — levers you flip</span>
+      <span class="lbl">Operands — levers, on the same wall</span>
       <div id="operands" style="display:flex;flex-direction:column;gap:.35rem"></div>
 
       <span class="lbl">Simulation</span>
@@ -233,6 +233,7 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
                aria-label="hide everything above this height">
       </div>
       <div class="stat"><span>game tick</span><b id="tTick">0</b></div>
+      <div class="stat"><span>last tick</span><b id="tFired">quiet</b></div>
       <div class="stat"><span>events pending</span><b id="tQueue">0</b></div>
       <div class="stat"><span>torches burned out</span><b id="tBurn">none</b></div>
       <div class="stat"><span>blocks simulated</span><b id="hBlocks">—</b></div>
@@ -247,8 +248,8 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
   <p class="prose">Every stage is redstone; nothing is emulated. The pieces are
     separate modules in the source, each with its own tests, and they compile
     into one netlist and one placed world:</p>
-  <pre>20 operand levers ──▶ A, B
- 8-button keypad  ──▶ one-hot latches ──▶ 3-bit opcode
+  <pre>28 levers, 2 rows ──▶ A, B, and the operation   (one wall, one place to stand)
+ 8 of them latch one-hot ──▶ 3-bit opcode
                   ──▶ 10-bit ALU  (8 operations, 4 flags)
                   ──▶ binary to BCD  (combinational double dabble)
                   ──▶ four seven-segment decoders  (leading zeros blanked)
@@ -284,8 +285,8 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
 
   <h2>What was verified, and how <span class="tag m">measured</span></h2>
   <p class="prose">Modules are tested exhaustively where the input space allows
-    it, and the whole machine is driven only through its levers and buttons with
-    the answer read off the lamps — nothing reaches inside.</p>
+    it, and the whole machine is driven only through the levers a player would
+    touch, with the answer read off the lamps — nothing reaches inside.</p>
   <div class="tw"><table>
     <tr><th>module</th><th>what was checked</th><th>coverage</th><th>result</th></tr>
     <tr><td>Redstone mechanics</td><td>strong/weak power, dust decay, torch
@@ -327,21 +328,27 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
     times in 60 game ticks, and hazard glitching in a network 36 stages deep
     does exactly that. Two independent things reduce it, and the second one is
     the interesting one.</p>
-  <p class="prose"><strong>Slower repeaters</strong>, over the same fourteen
-    vectors:</p>
+  <p class="prose"><strong>Slower repeaters</strong>, over sixteen vectors,
+    re-measured on the build with the control wall — which matters, because that
+    wall added 196 torches:</p>
   <div class="tw"><table>
     <tr><th>repeater delay</th><th>result</th></tr>
     <tr><td>2 <small>(4 gt)</small></td>
-      <td class="n">5/14 correct, <b>117 torches burned out</b></td></tr>
+      <td class="n">2/16 correct, <b>146 torches burned out</b></td></tr>
     <tr><td>3 <small>(6 gt)</small></td>
-      <td class="n">14/14 on a gentle sequence — but see below</td></tr>
+      <td class="n">16/16 correct, but <b>one torch burned out</b></td></tr>
     <tr class="hi"><td>4 <small>(8 gt)</small></td>
-      <td class="n"><b>16/16 correct, none burned</b>, 2,584 gt to the answer</td></tr>
+      <td class="n"><b>16/16 correct, none burned</b>, 2,640 gt to the answer</td></tr>
   </table></div>
-  <p class="prose"><strong>Inputs that arrive at human speed.</strong> Delay 3
-    looked clean until it was handed a hostile sequence — operand pairs chosen
-    to change ten or more levers at once. Varying only how far apart the flips
-    were placed in time, over ten such vectors:</p>
+  <p class="prose">The middle row moved. Before the control wall, delay 3 was
+    clean over the same vectors and only failed on a hostile sequence; 196 more
+    torches was enough to make an ordinary one cost a torch. Burnout margin is
+    not a property of the logic — it scales with how much torch there is to
+    glitch.</p>
+  <p class="prose"><strong>Inputs that arrive at human speed.</strong> On the
+    earlier build, delay 3 only failed once it was handed a hostile sequence —
+    operand pairs chosen to change ten or more levers at once. Varying only how
+    far apart the flips were placed in time, over ten such vectors:</p>
   <div class="tw"><table>
     <tr><th>game ticks between lever flips</th><th>correct</th><th>torches burned</th></tr>
     <tr><td>0 — every lever in the same instant</td><td class="n">5/10</td><td class="n">5</td></tr>
@@ -359,6 +366,92 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
   <p class="prose">The structural fix is the torch-free tap below: a comparator
     has no burnout rule at all, so the question would stop existing rather than
     being paid for in latency.</p>
+
+  <h2>Is the simulator right? <span class="tag m">measured</span></h2>
+  <p class="prose">Everything above checks the machine against arithmetic. None
+    of it checks the <em>simulator</em> against Minecraft — those tests all share
+    one understanding of the rules, so a misunderstanding would be invisible to
+    every one of them. Two separate checks now exist.</p>
+  <p class="prose"><strong>Each rule, alone.</strong> Thirteen rules, each with
+    its own minimal circuit, so anyone who wants to confirm one against the game
+    can build exactly that and look: dust decay over twenty blocks, strong versus
+    weak power, dot/line/corner pointing, torch inversion timing, burnout at the
+    ninth state change inside 60 ticks, all four repeater settings, repeater
+    locking, both comparator modes, lamp powering, and the fact that a pulse
+    shorter than a repeater's delay is swallowed entirely.</p>
+  <p class="prose"><strong>Each engine, against another engine.</strong> The rules
+    are implemented a second time, deliberately badly — no precomputed nets, no
+    dirty sets, every tick re-flooding every dust cell from every source. The two
+    run side by side and <em>every block is compared at every tick</em>: 40 random
+    circuits and a compiled gate array. That does not prove the rules match
+    Minecraft, which is why each rule is also a circuit you can build. It proves
+    the fast engine everything rests on behaves like the slow obvious one.</p>
+  <p class="prose">It found a real bug on the first run. What a repeater reads
+    out of the cell behind it ignored <strong>which way that cell's repeater
+    faced</strong>, so one pointing away would feed it anyway — fixed in both the
+    Python engine and the JavaScript one this page runs. The machine happened not
+    to depend on it, because rails always put dust or a solid block behind a
+    repeater, but that was luck rather than design.</p>
+
+  <h2>Using it in game <span class="tag m">measured</span></h2>
+  <p class="prose">Correctness says nothing about whether a player can operate
+    the thing. The compiler puts input rails on a four-block Z pitch, so twenty
+    operand bits land spread over eighty blocks, and the keypad's buttons sit a
+    dozen blocks above where those levers end up. Measured in Minecraft's own
+    units — clicks, blocks walked, blocks climbed, and how many standing spots
+    its ~4.5 block reach forces, taken from the player's eyes — that was
+    miserable:</p>
+  <div class="tw"><table>
+    <tr><th></th><th>controls left on the rails</th><th>one control wall</th></tr>
+    <tr><td>Controls on one wall</td><td class="n">20 of 28</td>
+        <td class="n"><b>28 of 28</b></td></tr>
+    <tr><td>Controls span, along Z</td><td class="n">121 blocks</td>
+        <td class="n"><b>27 blocks</b></td></tr>
+    <tr><td>Standing spots, full entry</td><td class="n">10</td>
+        <td class="n"><b>6</b></td></tr>
+    <tr><td>Walked, full entry</td><td class="n">115 blocks</td>
+        <td class="n"><b>23 blocks</b></td></tr>
+    <tr class="hi"><td>Walked, three-bit edit</td><td class="n">93 blocks</td>
+        <td class="n"><b>11 blocks</b></td></tr>
+    <tr><td>Cost</td><td class="n">—</td>
+        <td class="n">+7,675 blocks (+1.3%)</td></tr>
+  </table></div>
+  <p class="prose">All 28 controls go on one wall: fourteen columns on a
+    two-block pitch, two rows four apart, operation keys first so they sit beside
+    the low-order bits, then bit <em>i</em> with A above B in a single column. The
+    glass walkway in front of it is not decoration — with your feet level with
+    the bottom row, the top row is a 2.6-block reach, which is why the table has
+    no climbing in it.</p>
+  <p class="prose">The operation keys moved by <em>substitution</em> rather than
+    rewiring. A key's button cell is a solid block that feeds the shared
+    &ldquo;any key is down&rdquo; bus one way and its own delay chain the other;
+    the keypad now simply leaves that cell empty and the panel's torch tower tops
+    out exactly there. Both readers still see the signal in the same instant, so
+    the release race the delay chain exists to win is untouched.</p>
+  <p class="prose">The routing is crossing-free <em>by construction</em> rather
+    than by search — after the loom bug below, that was a deliberate choice. Each
+    net takes four legs and every leg sits on a coordinate nothing else shares:
+    out along its row's own height at its own panel Z, up a tower at its own turn
+    column, along Z at that column, then in at one shared height on the target's
+    own Z, unique because two controls cannot drive the same cell.</p>
+  <p class="prose">It did not stop me building it wrong twice, and both failures
+    were silent: lint passed, every lever existed where the machine said it did,
+    and the answer was quietly zero. First the run doubled back over its own
+    lever and buried it in dust — <code>World.set</code> overwrites without
+    complaint. Then, with the keys on the panel, a net's Z-run could be a single
+    cell, and <code>line()</code> inferred a run's direction from its endpoints,
+    which for one cell say nothing: it guessed south, that net needed north, and
+    one repeater in the middle of a live route sat facing the tower it was
+    supposed to feed. Both are assertions now — a test watches every write on
+    the full machine and insists all 28 controls are still levers, and a one-cell
+    run has to say which way it flows.</p>
+  <p class="prose">The row that matters is the fifth: editing a couple of bits is
+    what using a calculator consists of, and that went from 93 blocks of walking
+    to eleven. What the panel does <em>not</em> fix, and the same tool reports it,
+    is that the digits are 657 blocks away and 192 up — the controls are at the
+    input end of a machine 865 blocks long. That needs a second display fed by a
+    32-net relay running the length of it, and it is written down rather than
+    half-built.</p>
 
   <h2>Where the size goes — and the one fix left
     <span class="tag m">measured</span></h2>
@@ -430,8 +523,16 @@ footer{border-top:1px solid var(--line);margin-top:3rem;padding:1.5rem 0 2.5rem;
       <li>Multiply and divide. The ALU has the eight operations a
         combinational unit can do in one pass; the other two need sequencing,
         which means a clock and a register file.</li>
-      <li>A decimal keypad for the operands, which needs BCD-to-binary on the
-        way in — the converter here runs the other way.</li>
+      <li><strong>Decimal entry</strong>, which is the last big thing standing
+        between this and something a person would call usable: eight ten-key
+        pads, one per digit position, and BCD-to-binary on the way in — the
+        converter here runs the other way. The control wall already carries
+        every input on a two-block pitch, so the panel would take them
+        unchanged; the logic would not.</li>
+      <li><strong>A second display beside the controls.</strong> The wall fixed
+        entry and did nothing for reading: the digits are 657 blocks away and
+        192 up. That needs a 32-net relay the length of the build and a
+        descending run, which this router cannot yet place.</li>
     </ol>
   </div>
 
@@ -521,8 +622,10 @@ let target=[0,0,0];
 const $=id=>document.getElementById(id);
 
 /* ---- colour ---- */
-const FADE=6;                 // ticks a change stays highlighted
-let recent=new Map();         // instance -> tick it last changed
+const FADE=6;                 // ticks a dust level change stays highlighted
+const FIRE_FADE=10;           // a component firing is held longer: it is the event
+let recent=new Map();         // instance -> tick its dust level last changed
+let fires=new Map();          // instance -> tick a component last switched
 function baseColour(w,i,out){
   const k=w.kind[i];
   if(k===K_LAMP){const on=w.power[i];
@@ -536,17 +639,29 @@ function baseColour(w,i,out){
     out[0]=on?0.72:0.42;out[1]=on?0.30:0.44;out[2]=on?0.26:0.48;return;}
   if(k===K_LEVER){const on=w.lit[i];
     out[0]=on?0.95:0.66;out[1]=on?0.33:0.70;out[2]=on?0.28:0.76;return;}
+  if(k===K_GLASS){                          // the walkway in front of the panel
+    out[0]=0.55;out[1]=0.70;out[2]=0.79;return;}
   out[0]=0.34;out[1]=0.37;out[2]=0.43;      // plain structure
 }
 const _c=[0,0,0];
 function paint(j,i){
   baseColour(world,i,_c);
+  // Dust whose level moved is lifted toward white — the propagating edge.
   const t=recent.get(j);
   if(t!==undefined){
-    // a block that just changed is lifted toward white, fading over a few
-    // ticks — it is the propagating edge made visible, nothing more
     const g=Math.max(0,1-(eng.now-t)/FADE)*0.85;
     _c[0]+=(1-_c[0])*g;_c[1]+=(1-_c[1])*g;_c[2]+=(1-_c[2])*g;
+  }
+  // A torch or repeater that actually *switched* gets its own, hotter flash and
+  // holds it longer. Those are the events; the dust between them is just the
+  // consequence, and the two should not look the same.
+  const f=fires.get(j);
+  if(f!==undefined){
+    const g=Math.max(0,1-(eng.now-f)/FIRE_FADE);
+    const p=g*g;                        // sharp at the moment it fires
+    _c[0]+=(1.0-_c[0])*p;
+    _c[1]+=(0.98-_c[1])*p;
+    _c[2]+=(0.75-_c[2])*p;
   }
   cols[j*3]=_c[0];cols[j*3+1]=_c[1];cols[j*3+2]=_c[2];
 }
@@ -575,8 +690,9 @@ function buildInstances(){
     else if(k===K_TORCH)s=[0.24,0.7,0.24];
     else if(k===K_REP||k===K_CMP)s=[0.9,0.22,0.9];
     else if(k===K_LEVER)s=[0.56,0.34,0.56];
+    else if(k===K_GLASS){s=[1,0.14,1];offs[j*3+1]-=0.43;}   // a floor plate
     scales.set(s,j*3);
-    if(k!==K_SOLID)dyn.push([j,i]);
+    if(k!==K_SOLID&&k!==K_GLASS)dyn.push([j,i]);
   }
   repaintAll();
   gl.bindBuffer(gl.ARRAY_BUFFER,offBuf);gl.bufferData(gl.ARRAY_BUFFER,offs,gl.STATIC_DRAW);
@@ -675,7 +791,8 @@ function inputPoints(){
 const VIEWS={
   all:  ()=>{cam.az=1.62;cam.el=0.80;frameOn(allPoints(),1.04);},
   disp: ()=>{cam.az=0.0;cam.el=1.42;frameOn(lampPoints(),1.15);},
-  ctrl: ()=>{cam.az=-1.57;cam.el=1.05;frameOn(inputPoints(),1.05);},
+  // the control wall is a wall: look at its face, not down on it
+  ctrl: ()=>{cam.az=1.35;cam.el=0.22;frameOn(inputPoints(),1.15);},
 };
 function focus(which){
   for(const k in VIEWS)
@@ -762,6 +879,9 @@ function refreshPanel(){
     }
   }
   $("tTick").textContent=eng.now.toLocaleString();
+  $("tFired").textContent=lastFired
+    ? `${lastFired} switched, ${lastChanged} dust`
+    : (lastChanged ? `${lastChanged} dust` : "quiet");
   $("tQueue").textContent=eng.queue.length.toLocaleString();
   $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
   $("tBurn").classList.toggle("bad",eng.burned.size>0);
@@ -769,22 +889,30 @@ function refreshPanel(){
 
 /* ---- the tick loop: this is the whole point ---- */
 let playing=false,speed=20,acc=0,last=0,release=null;
+let lastFired=0,lastChanged=0;
 function stepTick(){
   if(release&&eng.now>=release.at){eng.setLever(release.pos,false);release=null;}
   const touched=new Set();
   eng.touched=touched;
   eng.tick();
   eng.touched=null;
-  let lo=Infinity,hi=-Infinity;
+  let lo=Infinity,hi=-Infinity,fired=0;
   for(const i of touched){
     const j=instOf[i];
     if(j<0)continue;
-    recent.set(j,eng.now);
+    const k=world.kind[i];
+    if(k===K_TORCH||k===K_REP||k===K_CMP||k===K_LAMP){fires.set(j,eng.now);fired++;}
+    else recent.set(j,eng.now);
     if(j<lo)lo=j; if(j>hi)hi=j;
   }
+  lastFired=fired;lastChanged=touched.size-fired;
   // let old highlights decay back to their base colour
   for(const[j,t]of recent){
-    if(eng.now-t>FADE){recent.delete(j);}
+    if(eng.now-t>FADE)recent.delete(j);
+    if(j<lo)lo=j; if(j>hi)hi=j;
+  }
+  for(const[j,t]of fires){
+    if(eng.now-t>FIRE_FADE)fires.delete(j);
     if(j<lo)lo=j; if(j>hi)hi=j;
   }
   for(let j=lo;j<=hi;j++)if(j>=0&&j<inst.length)paint(j,inst[j]);
@@ -808,10 +936,12 @@ function setPlaying(v){
 }
 function settleNow(){
   setPlaying(false);
+  fires.clear();
   if(release){eng.run(Math.max(0,release.at-eng.now));
     eng.setLever(release.pos,false);release=null;}
   eng.runUntilStable(400000);
-  recent.clear();repaintAll();refreshPanel();
+  recent.clear();fires.clear();lastFired=0;lastChanged=0;
+  repaintAll();refreshPanel();
 }
 function pressButton(k){
   eng.setLever(buttonIdx[k],true);

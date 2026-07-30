@@ -455,15 +455,17 @@ class Engine{
     if(k===K_LAMP) return [0,1,2,3,4,5].map(d=>w.step(c,d));
     return [];
   }
-  inputPower(p){
+  // `into` matters: a repeater or comparator only emits from its front, so one
+  // sitting behind another but facing away feeds it nothing.
+  inputPower(p,into){
     if(p<0)return 0;
     const w=this.w,k=w.kind[p];
     if(k===K_WIRE)return w.power[p];
     if(k===K_TORCH)return w.lit[p]?15:0;
     if(k===K_LEVER)return w.lit[p]?15:0;
     if(k===K_RBLOCK)return 15;
-    if(k===K_REP)return w.lit[p]?15:0;
-    if(k===K_CMP)return w.power[p];
+    if(k===K_REP)return (w.lit[p]&&w.step(p,w.facing(p))===into)?15:0;
+    if(k===K_CMP)return w.step(p,w.facing(p))===into?w.power[p]:0;
     if(CONDUCT(k))return this.blockPower(p);
     return 0;
   }
@@ -481,9 +483,9 @@ class Engine{
   desired(c){
     const w=this.w,k=w.kind[c];
     if(k===K_TORCH) return this.blockPower(w.step(c,w.attach(c)))===0?1:0;
-    if(k===K_REP)   return this.inputPower(w.step(c,OPP[w.facing(c)]))>0?1:0;
+    if(k===K_REP)   return this.inputPower(w.step(c,OPP[w.facing(c)]),c)>0?1:0;
     if(k===K_CMP){
-      const f=w.facing(c),rear=this.inputPower(w.step(c,OPP[f]));
+      const f=w.facing(c),rear=this.inputPower(w.step(c,OPP[f]),c);
       let side=0;
       for(const d of HORIZ) if(AXIS[d]!==AXIS[f]) side=Math.max(side,this.sidePower(c,d));
       return ((w.meta[c]>>3)&1)?Math.max(rear-side,0):(side<=rear?rear:0);
@@ -553,10 +555,15 @@ class Engine{
     let guard=0;
     while(this.dn.size||this.dc.size){
       if(++guard>20000) throw new Error("failed to settle");
-      const nets=this.dn; this.dn=new Set();
-      for(const id of nets){
-        const ch=this.recomputeNet(id);
-        if(ch||full) for(const c of (this.byNet.get(id)||[])) this.dc.add(c);
+      // Drain the dust to a fixed point before asking any component what it
+      // wants: interleaving the two invents glitches off intermediate dust
+      // levels the tick never had. Matches rscalc/engine.py exactly.
+      while(this.dn.size){
+        const nets=this.dn; this.dn=new Set();
+        for(const id of nets){
+          const ch=this.recomputeNet(id);
+          if(ch||full) for(const c of (this.byNet.get(id)||[])) this.dc.add(c);
+        }
       }
       const cs=this.dc; this.dc=new Set();
       for(const c of cs){
@@ -707,6 +714,7 @@ function styleOf(i){
   if(k===K_LEVER)return {s:[0.34,0.5,0.34],dyn:true};
   if(k===K_LAMP) return {s:[1,1,1],dyn:true};
   if(k===K_RBLOCK)return {s:[1,1,1],dyn:false};
+  if(k===K_GLASS)return {s:[1,0.14,1],dyn:false};
   return {s:[1,1,1],dyn:false};
 }
 function colorOf(i){
@@ -723,6 +731,7 @@ function colorOf(i){
   if(k===K_LEVER)return world.lit[i]?[0.95,0.35,0.30]:[0.40,0.40,0.44];
   if(k===K_LAMP) return world.power[i]?[1.0,0.90,0.55]:[0.32,0.30,0.26];
   if(k===K_RBLOCK)return [0.75,0.10,0.10];
+  if(k===K_GLASS)return [0.55,0.70,0.79];
   return [0.36,0.39,0.44];
 }
 function buildInstances(){
