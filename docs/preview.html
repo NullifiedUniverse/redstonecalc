@@ -311,9 +311,9 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
         <button type="button" class="ghost" id="look_ctrl" aria-pressed="false">controls</button>
         <button type="button" class="ghost sep" id="bStruct" aria-pressed="false">circuit only</button>
       </div>
-      <div class="hint"><span class="wide">drag to orbit &middot; scroll to zoom &middot;
-        click a block to read it</span><span class="narrow">drag &middot; pinch &middot;
-        tap a block</span></div>
+      <div class="hint"><span class="wide">drag to orbit &middot; scroll to zoom
+        &middot; click a block to read it, twice to fly in</span><span
+        class="narrow">drag &middot; pinch &middot; tap a block, twice to fly in</span></div>
       <div class="inspect" id="inspect" hidden></div>
     </div>
 
@@ -1128,26 +1128,65 @@ class Engine{
 
 /* --------------------------------------------------------------- renderer */
 const cv=document.getElementById("cv");
-const gl=cv.getContext("webgl",{antialias:true,alpha:false,preserveDrawingBuffer:true});
+// No preserveDrawingBuffer: it makes the browser keep a copy of the backbuffer
+// every frame, which is exactly the wrong trade on the phones this has to run
+// on. Anything reading pixels back must draw and read in the same task.
+const gl=cv.getContext("webgl",{antialias:true,alpha:false});
+const deriv=gl.getExtension("OES_standard_derivatives");
 const VS=`attribute vec3 aPos;attribute vec3 aNorm;attribute vec3 iOff;
 attribute vec3 iScale;attribute vec3 iCol;uniform mat4 uMVP;uniform float uYMax;
-varying vec3 vN;varying vec3 vC;varying float vD;
+varying vec3 vN;varying vec3 vC;varying float vD;varying vec3 vW;
 void main(){vN=aNorm;vC=iCol;
   if(iOff.y>uYMax){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
-  gl_Position=uMVP*vec4(aPos*iScale+iOff,1.0);
+  vec3 p=aPos*iScale+iOff;
+  vW=p;                       // world position, in blocks, for the block grid
+  gl_Position=uMVP*vec4(p,1.0);
   vD=gl_Position.w;}`;
-// Two lights and distance fog. The machine is 1,825 blocks long, and without
-// something to separate near from far it reads as one flat grey mat.
-const FS=`precision mediump float;
-varying vec3 vN;varying vec3 vC;varying float vD;
-uniform float uFogNear;uniform float uFogFar;uniform vec3 uBg;
+
+/* Voxel shading, in three parts.
+
+   Face light: Minecraft shades a block face by which way it points — top
+   brightest, bottom darkest, the two horizontal axes in between — and nothing
+   else says "this is made of blocks" so immediately.
+
+   Block seams: merging 324,511 structure blocks into stretched runs halved the
+   geometry and quietly took the seams with it, so a floor read as one smooth
+   bar. The grid is in *world* coordinates, so a 596-block slab gets its lines
+   back in exactly the places the blocks were, for no geometry at all. Line
+   width comes from the screen-space derivative where that is available, so the
+   seams antialias instead of shimmering, and fade out with distance.
+
+   Emissive: a lit lamp is a light, not a surface. Bright colours keep their
+   own value rather than being shaded down into the scene. */
+const FS=(deriv?"#extension GL_OES_standard_derivatives : enable\n":"")+`
+precision mediump float;
+varying vec3 vN;varying vec3 vC;varying float vD;varying vec3 vW;
+uniform float uFogNear;uniform float uFogFar;uniform vec3 uBg;uniform vec3 uHalf;
 void main(){
   vec3 n=normalize(vN);
+  float face=n.y>0.5?1.0:(n.y<-0.5?0.58:(abs(n.x)>0.5?0.70:0.84));
   float key=max(dot(n,normalize(vec3(0.45,0.85,0.28))),0.0);
   float fill=max(dot(n,normalize(vec3(-0.5,0.25,-0.7))),0.0);
-  vec3 c=vC*(0.42+0.62*key+0.18*fill);
-  float f=clamp((vD-uFogNear)/max(1.0,uFogFar-uFogNear),0.0,1.0);
-  gl_FragColor=vec4(mix(c,uBg,f*0.72),1.0);}`;
+  // hemispheric ambient: cool from the sky, warm from the floor
+  vec3 amb=mix(vec3(0.34,0.30,0.28),vec3(0.60,0.66,0.76),n.y*0.5+0.5);
+  vec3 c=vC*face*(0.50+0.52*key+0.16*fill)*(0.72+0.62*amb);
+
+  vec3 f=fract(vW+uHalf);
+  vec3 d=min(f,1.0-f);
+  vec3 m=1.0-abs(n);                      // ignore the axis the face lies on
+  float e=min(mix(1.0,d.x,m.x),min(mix(1.0,d.y,m.y),mix(1.0,d.z,m.z)));
+`+(deriv?`
+  float w=max(length(vec2(dFdx(e),dFdy(e)))*1.6,0.006);
+`:`
+  float w=clamp(vD*0.0016,0.008,0.30);
+`)+`
+  c*=mix(0.74,1.0,smoothstep(0.0,w,e));
+
+  float lum=dot(vC,vec3(0.3,0.6,0.1));
+  c=mix(c,vC,smoothstep(0.42,0.92,lum)*0.72);
+
+  float fg=clamp((vD-uFogNear)/max(1.0,uFogFar-uFogNear),0.0,1.0);
+  gl_FragColor=vec4(mix(c,uBg,fg*0.72),1.0);}`;
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
   if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
 const prog=gl.createProgram();
@@ -1162,7 +1201,8 @@ const U={mvp:gl.getUniformLocation(prog,"uMVP"),
   ymax:gl.getUniformLocation(prog,"uYMax"),
   fogNear:gl.getUniformLocation(prog,"uFogNear"),
   fogFar:gl.getUniformLocation(prog,"uFogFar"),
-  bg:gl.getUniformLocation(prog,"uBg")};
+  bg:gl.getUniformLocation(prog,"uBg"),
+  half:gl.getUniformLocation(prog,"uHalf")};
 const CV=[],CN=[],CI=[];
 [[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
  [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
@@ -1194,7 +1234,7 @@ function lookAt(e,c,u){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
     -dot(x,e),-dot(y,e),-dot(z,e),1]);}
 
 let world,eng,circ;
-let inst,instOf,offs,scales,cols,dyn;
+let inst,instOf,offs,scales,cols;
 const FOV=0.85;
 const cam={az:1.62,el:0.80,dist:1.0};
 let target=[0,0,0];
@@ -1351,7 +1391,6 @@ function buildInstances(){
 
   inst=keep;const c=keep.length;
   offs=new Float32Array(c*3);scales=new Float32Array(c*3);cols=new Float32Array(c*3);
-  dyn=[];
   const[dx,dy,dz]=w.dims;
   for(let j=0;j<c;j++){
     const i=keep[j],k=w.kind[i],lx=runs[j],lz=runsZ[j];
@@ -1366,7 +1405,6 @@ function buildInstances(){
     else if(k===K_LEVER)sc=[0.56,0.34,0.56];
     else if(k===K_GLASS){sc=[1,0.14,1];offs[j*3+1]-=0.43;}   // a floor plate
     scales.set(sc,j*3);
-    if(k!==K_SOLID&&k!==K_GLASS)dyn.push([j,i]);
   }
   recent.clear();fires.clear();dirty.clear();
   repaintAll();
@@ -1441,6 +1479,7 @@ function draw(){
   gl.uniform1f(U.fogNear,d*0.55);
   gl.uniform1f(U.fogFar,d*2.1);
   gl.uniform3f(U.bg,bg[0]/255,bg[1]/255,bg[2]/255);
+  gl.uniform3f(U.half,dx/2,dy/2,dz/2);
   const bind=(b,l,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
     gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(vbo,A.pos,0);bind(nbo,A.norm,0);
@@ -1452,6 +1491,7 @@ let needsDraw=true,cut=1e9;
 const invalidate=()=>{needsDraw=true;};
 function loop(){
   advance();
+  if(stepFly()||stepSpin())invalidate();
   const w=cv.clientWidth,h=cv.clientHeight||380;
   const dpr=Math.min(devicePixelRatio||1,inst.length>160000?1.25:2);
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr))needsDraw=true;
@@ -1466,11 +1506,8 @@ function loop(){
 function rayThrough(px,py){
   const w=cv.clientWidth,h=cv.clientHeight||380;
   const[dx,dy,dz]=world.dims,R=Math.max(dx,dy,dz),d=R*cam.dist;
-  const eye=[target[0]+Math.cos(cam.el)*Math.sin(cam.az)*d,
-             target[1]+Math.sin(cam.el)*d,
-             target[2]+Math.cos(cam.el)*Math.cos(cam.az)*d];
-  const fwd=norm([target[0]-eye[0],target[1]-eye[1],target[2]-eye[2]]);
-  const right=norm(cross(fwd,[0,1,0])),up=cross(right,fwd);
+  const{f,fwd,right,up}=basis(cam.az,cam.el);
+  const eye=[target[0]+f[0]*d,target[1]+f[1]*d,target[2]+f[2]*d];
   const t=Math.tan(FOV/2),ar=w/h;
   const sx=(2*px/w-1)*t*ar,sy=(1-2*py/h)*t;
   const dir=norm([fwd[0]+right[0]*sx+up[0]*sy,
@@ -1555,7 +1592,22 @@ function showPick(i){
 }
 function refreshPick(){if(picked>=0)$("inspect").textContent=describe(picked);}
 
-/* ---- camera ---- */
+/* ---- camera ----
+   Nothing here snaps any more. Changing view flies to it over half a second,
+   a flick keeps spinning and slows down, and two fingers pan as well as pinch —
+   because a machine 1,825 blocks long is something you move around in, not a
+   diagram you cut to. Anyone who has asked their system not to animate gets the
+   old instant behaviour. */
+const REDUCE=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const FLY_MS=560;
+/* Distance is a fraction of the machine's longest side, which is 1,825 blocks —
+   so a floor of 0.02 meant you could never get closer than about thirty-six
+   blocks, and the close-up views were being clamped out to it without saying
+   so. Seven blocks is close enough to read a repeater's delay. */
+const MIN_DIST=0.004,MAX_DIST=4;
+const ease=t=>t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+let framed=null,fly=null,spinAz=0,spinEl=0;
+
 /* The machine's centre of mass, once. Framing on the *box* centre instead put
    the camera's aim in the empty middle of a sparse, lopsided slab — cheap, and
    wrong: a grid of rays through the view hit nothing at all. */
@@ -1567,34 +1619,90 @@ function worldCentre(){
   centroid=[sx/w.n,sy/w.n,sz/w.n];
   return centroid;
 }
-let framed=null;
-function frameOn(points,margin,centre){
-  framed={points,margin,centre};
+/* The camera basis, shared by framing, panning and picking so the three cannot
+   disagree about which way is right. */
+function basis(az,el){
+  const f=[Math.cos(el)*Math.sin(az),Math.sin(el),Math.cos(el)*Math.cos(az)];
+  const fwd=[-f[0],-f[1],-f[2]];              // eye = target + f*d
+  const right=norm(cross(fwd,[0,1,0]));
+  return{f,fwd,right,up:cross(right,fwd)};
+}
+/* Where the camera has to sit, at these angles, to hold these points. */
+function fitFor(points,margin,centre,az,el){
   const[dx,dy,dz]=world.dims,n=points.length||1;
   let cx=0,cy=0,cz=0;
-  if(centre){[cx,cy,cz]=centre;}
+  if(centre){cx=centre[0];cy=centre[1];cz=centre[2];}
   else{for(const p of points){cx+=p[0];cy+=p[1];cz+=p[2];}cx/=n;cy/=n;cz/=n;}
-  target=[cx-dx/2,cy-dy/2,cz-dz/2];
-  const f=[Math.cos(cam.el)*Math.sin(cam.az),Math.sin(cam.el),
-           Math.cos(cam.el)*Math.cos(cam.az)];
-  const right=norm(cross([0,1,0],f)),up=cross(f,right);
+  const tgt=[cx-dx/2,cy-dy/2,cz-dz/2];
+  const{f,right,up}=basis(az,el);
   const ar=(cv.clientWidth||900)/(cv.clientHeight||380),t=Math.tan(FOV/2);
   let d=1;
   for(const p of points){
-    const q=[p[0]-dx/2-target[0],p[1]-dy/2-target[1],p[2]-dz/2-target[2]];
+    const q=[p[0]-dx/2-tgt[0],p[1]-dy/2-tgt[1],p[2]-dz/2-tgt[2]];
     const fw=dot(q,f);
     d=Math.max(d,fw+Math.abs(dot(q,up))/t,fw+Math.abs(dot(q,right))/(t*ar));
   }
-  cam.dist=d*margin/Math.max(dx,dy,dz);
-  invalidate();
+  return{dist:Math.max(MIN_DIST,d*margin/Math.max(dx,dy,dz)),target:tgt};
 }
+function flyTo(az,el,dist,tgt,ms){
+  spinAz=spinEl=0;
+  dist=Math.max(MIN_DIST,Math.min(MAX_DIST,dist));
+  if(REDUCE||!ms){cam.az=az;cam.el=el;cam.dist=dist;target=tgt;fly=null;
+    invalidate();return;}
+  fly={t:performance.now(),ms,a0:cam.az,e0:cam.el,d0:cam.dist,g0:target.slice(),
+       a1:az,e1:el,d1:dist,g1:tgt};
+}
+function stepFly(){
+  if(!fly)return false;
+  const k=Math.min(1,(performance.now()-fly.t)/fly.ms),e=ease(k);
+  cam.az=fly.a0+(fly.a1-fly.a0)*e;
+  cam.el=fly.e0+(fly.e1-fly.e0)*e;
+  cam.dist=fly.d0+(fly.d1-fly.d0)*e;
+  target=[fly.g0[0]+(fly.g1[0]-fly.g0[0])*e,
+          fly.g0[1]+(fly.g1[1]-fly.g0[1])*e,
+          fly.g0[2]+(fly.g1[2]-fly.g0[2])*e];
+  if(k>=1)fly=null;
+  return true;
+}
+/* A flick keeps going and slows down. */
+const SPIN_MAX=0.055,SPIN_DECAY=0.90;
+function stepSpin(){
+  if(Math.abs(spinAz)<3e-4&&Math.abs(spinEl)<3e-4){spinAz=spinEl=0;return false;}
+  cam.az-=spinAz;
+  cam.el=Math.max(0.05,Math.min(1.5,cam.el+spinEl));
+  spinAz*=SPIN_DECAY;spinEl*=SPIN_DECAY;
+  return true;
+}
+const capSpin=v=>Math.max(-SPIN_MAX,Math.min(SPIN_MAX,v));
+/* Drag the world under the pointer: one screen pixel is one world unit at the
+   depth the camera is aimed at. */
+function panBy(px,py){
+  const R=Math.max(...world.dims),d=R*cam.dist;
+  const{right,up}=basis(cam.az,cam.el);
+  const k=2*d*Math.tan(FOV/2)/(cv.clientHeight||380);
+  for(let i=0;i<3;i++)target[i]-=right[i]*px*k-up[i]*py*k;
+  fly=null;invalidate();
+}
+function frameOn(points,margin,centre,az,el,ms){
+  framed={points,margin,centre,az,el};
+  const a=az===undefined?cam.az:az,e=el===undefined?cam.el:el;
+  const fit=fitFor(points,margin,centre,a,e);
+  flyTo(a,e,fit.dist,fit.target,ms===undefined?FLY_MS:ms);
+}
+/* A sample of the machine, built once and kept.
+
+   Framing on every block cost 200 ms and 300,000 allocations on each view
+   change. Framing on the eight corners of the world box costs nothing, but the
+   box is not the machine: this is a thin diagonal slab inside a 865×195×1825
+   volume, so fitting the box leaves the machine floating in half a frame of
+   nothing. One block in twenty-three is enough to find the silhouette, and it
+   is built once. */
+let framePts=null;
 function allPoints(){
-  // The eight corners of the world box, not every block in it. `dims` comes
-  // from the machine's own bounds, so the corners frame exactly what half a
-  // million points would — and building that array cost 200 ms and 300,000
-  // allocations every time you changed view on a phone.
-  const[dx,dy,dz]=world.dims,p=[];
-  for(const x of[0,dx-1])for(const y of[0,dy-1])for(const z of[0,dz-1])p.push([x,y,z]);
+  if(framePts)return framePts;
+  const w=world,p=[];
+  for(let i=0;i<w.n;i+=23)p.push([w.bx[i],w.by[i],w.bz[i]]);
+  framePts=p;
   return p;
 }
 function lampPoints(){
@@ -1612,15 +1720,26 @@ function inputPoints(){
   return p;
 }
 const VIEWS={
-  all:  ()=>{cam.az=2.02;cam.el=0.60;frameOn(allPoints(),1.10,worldCentre());},
-  disp: ()=>{cam.az=0.0;cam.el=1.42;frameOn(lampPoints(),1.15);},
+  all:  ms=>frameOn(allPoints(),1.10,worldCentre(),2.02,0.60,ms),
+  disp: ms=>frameOn(lampPoints(),1.15,null,0.0,1.42,ms),
   // the control wall is a wall: look at its face, not down on it
-  ctrl: ()=>{cam.az=1.35;cam.el=0.22;frameOn(inputPoints(),1.15);},
+  ctrl: ms=>frameOn(inputPoints(),1.15,null,1.35,0.22,ms),
 };
-function focus(which){
+function focus(which,ms){
   for(const k in VIEWS)
     $("look_"+k).setAttribute("aria-pressed",k===which?"true":"false");
-  VIEWS[which]();
+  VIEWS[which](ms);
+}
+/* Double-tap or double-click a block to go and look at it. */
+function focusBlock(i){
+  if(i<0)return;
+  const[dx,dy,dz]=world.dims;
+  // `dist` is a fraction of the machine's longest side, so an absolute number
+  // means nothing: 0.055 is *further out* than the control-wall view already
+  // is. Ask for a couple of dozen blocks of frame, and never zoom out.
+  const want=26/Math.max(dx,dy,dz);
+  flyTo(cam.az,cam.el,Math.min(cam.dist,want),
+        [world.bx[i]-dx/2,world.by[i]-dy/2,world.bz[i]-dz/2],FLY_MS);
 }
 
 /* ---- the machine's own readout, one cell per lamp block ---- */
@@ -1868,23 +1987,25 @@ addEventListener("keydown",e=>{
    no pinch at all, only `wheel`, which a phone does not have. One finger
    orbits; two pinch to zoom. */
 const ptr=new Map();
-let pinch=null;
-const ORBIT_X=0.008,ORBIT_Y=0.006,TAP_SLOP=12,TAP_MS=600;
+let pinch=null,lastTap=0,lastHit=-1,lastTapAt=null;
+const ORBIT_X=0.008,ORBIT_Y=0.006,TAP_SLOP=12,TAP_MS=600,DBL_MS=600,DBL_SLOP=34;
 cv.addEventListener("pointerdown",e=>{
+  spinAz=spinEl=0;fly=null;
   ptr.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
-                       t:performance.now()});
+                       vx:0,vy:0,vt:0,t:performance.now()});
   // throws if the pointer is already gone, which touch emulation does do
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
   if(ptr.size===2){
     const[a,b]=[...ptr.values()];
-    pinch={d0:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),dist0:cam.dist};
+    pinch={d0:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),dist0:cam.dist,
+           mx:(a.x+b.x)/2,my:(a.y+b.y)/2};
   }
 });
 cv.addEventListener("pointermove",e=>{
   const q=ptr.get(e.pointerId);
   if(!q)return;
   const dx=e.clientX-q.x,dy=e.clientY-q.y;
-  q.x=e.clientX;q.y=e.clientY;
+  q.x=e.clientX;q.y=e.clientY;q.vx=dx;q.vy=dy;q.vt=performance.now();
   if(ptr.size===1){
     cam.az-=dx*ORBIT_X;
     cam.el=Math.max(0.05,Math.min(1.5,cam.el+dy*ORBIT_Y));
@@ -1893,7 +2014,11 @@ cv.addEventListener("pointermove",e=>{
     const[a,b]=[...ptr.values()];
     const d=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
     // fingers apart = closer in, which is what every map does
-    cam.dist=Math.max(0.02,Math.min(4,pinch.dist0*pinch.d0/d));
+    cam.dist=Math.max(MIN_DIST,Math.min(MAX_DIST,pinch.dist0*pinch.d0/d));
+    // and the midpoint drags the machine along with it
+    const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+    panBy(mx-pinch.mx,my-pinch.my);
+    pinch.mx=mx;pinch.my=my;
     invalidate();
   }
 });
@@ -1902,20 +2027,42 @@ function liftPointer(e){
   ptr.delete(e.pointerId);
   if(ptr.size<2)pinch=null;
   if(!q)return;
+  const moved=Math.hypot(e.clientX-q.x0,e.clientY-q.y0);
   // A tap is a press that went nowhere, and only when it was the only finger
   // down — half of a pinch is not a tap. The time limit is for touch, where a
   // long press means something else; a mouse click may take as long as it likes.
-  if(ptr.size===0&&Math.hypot(e.clientX-q.x0,e.clientY-q.y0)<TAP_SLOP&&
+  if(ptr.size===0&&moved<TAP_SLOP&&
      (e.pointerType!=="touch"||performance.now()-q.t<TAP_MS)){
     const r=cv.getBoundingClientRect();
-    showPick(pickNear(e.clientX-r.left,e.clientY-r.top));
+    const px=e.clientX-r.left,py=e.clientY-r.top;
+    const hit=pickNear(px,py);
+    const now=performance.now();
+    // A second tap in the same place means "go and look at it". Either the
+    // same block or the same few pixels will do: at the control wall's zoom one
+    // screen pixel spans more than one block, so a finger that lands a pixel
+    // over reads a different block entirely — identity alone is too strict, and
+    // pixels alone miss when the view has moved under a steady finger.
+    if(hit>=0&&now-lastTap<DBL_MS&&
+       (hit===lastHit||(lastTapAt&&
+        Math.hypot(px-lastTapAt[0],py-lastTapAt[1])<DBL_SLOP))){
+      focusBlock(hit);lastTap=0;lastHit=-1;lastTapAt=null;
+    }else{
+      showPick(hit);lastTap=now;lastHit=hit;lastTapAt=[px,py];
+    }
+    return;
+  }
+  // let go while still moving and the view keeps turning, then settles
+  if(ptr.size===0&&performance.now()-q.vt<120){
+    spinAz=capSpin(q.vx*ORBIT_X);spinEl=capSpin(q.vy*ORBIT_Y);
   }
 }
 cv.addEventListener("pointerup",liftPointer);
 cv.addEventListener("pointercancel",e=>{ptr.delete(e.pointerId);
   if(ptr.size<2)pinch=null;});
 cv.addEventListener("wheel",e=>{e.preventDefault();
-  cam.dist=Math.max(0.02,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));
+  fly=null;spinAz=spinEl=0;
+  cam.dist=Math.max(MIN_DIST,Math.min(MAX_DIST,
+    cam.dist*(1+Math.sign(e.deltaY)*0.12)));
   invalidate();},{passive:false});
 
 /* Turning a phone sideways changes the aspect ratio by a factor of five, and
@@ -1926,7 +2073,9 @@ let refit=0;
 addEventListener("resize",()=>{
   clearTimeout(refit);
   refit=setTimeout(()=>{
-    if(framed)frameOn(framed.points,framed.margin,framed.centre);
+    // snap: a rotation is not a journey
+    if(framed)frameOn(framed.points,framed.margin,framed.centre,
+                      cam.az,cam.el,0);
     invalidate();},160);
 });
 
@@ -1949,7 +2098,7 @@ addEventListener("resize",()=>{
     hBlocks:circ.n.toLocaleString(),hGates:circ.gates,hDepth:circ.depth,
     hWidth:circ.width+"-bit",hDelay:"delay "+circ.delay}))
     if($(k))$(k).textContent=v;
-  focus("all");refreshPanel();
+  focus("all",0);refreshPanel();
   status.textContent="";
   $("boot").hidden=true;
   loop();

@@ -792,3 +792,56 @@ its corners can be round — so the row spilled out of sight without the documen
 ever getting wider, and the overflow assertion saw nothing. The cells share the
 row with `flex: 1 1 0` and a max width now, which cannot overflow at any size,
 and the check tests controls against their *container* rather than the page.
+
+### Making it look like blocks, and behave like a viewer
+
+Three passes over the renderer, each with a number attached.
+
+**The merge had quietly erased the block seams.** Collapsing 324,511 structure
+blocks into stretched runs halved the geometry (§16) and took the grid with it,
+so a floor read as one smooth bar. The seams are back without a single extra
+triangle: the fragment shader takes the *world* position, and darkens where it
+crosses a block boundary. A 596-block slab gets its lines exactly where its
+blocks were. Line width comes from the screen-space derivative where the
+extension is available, so seams antialias rather than shimmer and fade out
+with distance instead of turning into moiré.
+
+Two more things in the same shader. Faces are shaded by which way they point —
+top brightest, bottom darkest, the horizontal axes between — which is what
+Minecraft does and what makes a voxel read as a voxel. And bright colours keep
+their own value rather than being shaded down into the scene, so a lit lamp
+looks like a light rather than a yellow surface.
+
+**Performance.** `preserveDrawingBuffer` was on, which makes the browser keep a
+copy of the backbuffer every frame — exactly the wrong trade on a phone; the
+one thing that needed it was a test, which now draws and reads in the same
+task. `dyn`, an array of 273,000 two-element arrays, was rebuilt on every
+instance rebuild and read by nothing but a test. Together those took the
+rebuild from **350 ms to 92 ms** — on top of the 1,771 ms it started at.
+
+**Distance had a floor of 0.02**, and distance is a fraction of the machine's
+longest side — 1,825 blocks — so *you could never get closer than about
+thirty-six blocks*, and the close-up views were being clamped out to it without
+saying so. The floor is seven blocks now, and the control-wall view frames what
+it was always trying to frame.
+
+**Framing was fitted to the wrong thing, twice.** Walking every block cost
+199 ms and 300,000 allocations per view change. Eight corners of the world box
+cost nothing — but the box is not the machine, which is a thin diagonal slab
+inside an 865×195×1825 volume, so the fit left it floating in half a frame of
+nothing (and, separately, aimed the camera at the empty box centre). One block
+in twenty-three, sampled once and kept: **1 ms, and the machine actually fills
+the view.**
+
+**The viewer moves like a viewer.** Changing view flies over half a second on
+an eased curve rather than cutting. A flick keeps turning and slows to rest.
+Two fingers pan as well as pinch. A second tap in the same place flies in to
+the block — matched on *either* the same block or the same few pixels, because
+at the control wall's zoom one screen pixel spans more than one block, so a
+finger landing a pixel over reads a different block entirely. Anyone who has
+asked their system for reduced motion gets the instant behaviour throughout.
+
+One note for whoever tests this next: the container renders in software, and a
+heavy frame starves `setTimeout` *inside the page* for seconds at a time. A
+double-tap dispatched from Node with an 80 ms wait arrived 3 seconds later. Any
+gesture with timing in it has to be dispatched inside one page task.

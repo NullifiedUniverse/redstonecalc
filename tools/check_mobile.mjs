@@ -18,6 +18,13 @@ page.on("pageerror", e => errs.push("pageerror: " + e.message));
 page.on("console", m => { if (m.type() === "error") errs.push("console: " + m.text()); });
 const fail = [];
 const want = (ok, msg) => { if (!ok) fail.push(msg); };
+/* The view now has memory — a flick keeps turning, a view change flies, a tap
+   arms the next one as a possible double. Each assertion below is about one
+   gesture, so quiet all of that between them; otherwise the tests measure each
+   other. */
+const calm = () => page.evaluate(() => {
+  spinAz = spinEl = 0; fly = null; lastTap = 0; lastHit = -1; lastTapAt = null;
+});
 
 const t0 = Date.now();
 await page.goto("file://" + path.resolve("docs/preview.html"));
@@ -36,7 +43,9 @@ const cost = await page.evaluate(() => {
 });
 console.log("cost:", cost);
 want(cost.rebuildMs < 900, `rebuilding instances takes ${cost.rebuildMs}ms`);
-want(cost.framePoints <= 8, `framing walks ${cost.framePoints} points`);
+// what matters is that framing is cheap, not how it gets there: the box
+// corners were free and framed the box rather than the machine
+want(cost.framingMs < 12, `framing a view takes ${cost.framingMs}ms`);
 
 // --- gestures --------------------------------------------------------------
 const box = await page.locator("#cv").boundingBox();
@@ -56,6 +65,7 @@ want(Math.abs(orbit.az) > 0.1 && Math.abs(orbit.el) > 0.01, "one finger does not
 want(orbit.dist === 0, "one finger changed the zoom");
 console.log("one finger orbits, and only orbits");
 
+await calm();
 await page.evaluate(() => { window.__c = { ...cam }; });
 await touch("pointerdown", 1, mid.x - 40, mid.y, true);
 await touch("pointerdown", 2, mid.x + 40, mid.y, false);
@@ -75,8 +85,44 @@ want(!(await page.evaluate(() => document.getElementById("inspect").textContent)
      "letting go of a pinch was treated as a tap");
 console.log(`pinch: open ×${open.ratio.toFixed(2)}, close ×${shut.toFixed(2)}, no drift`);
 
+// --- two fingers also pan, and a flick keeps turning ------------------------
+await calm();
+await page.evaluate(() => { focus("ctrl", 0); window.__t = target.slice(); });
+await touch("pointerdown", 11, mid.x - 40, mid.y, true);
+await touch("pointerdown", 12, mid.x + 40, mid.y, false);
+await touch("pointermove", 11, mid.x + 30, mid.y + 30, true);
+await touch("pointermove", 12, mid.x + 110, mid.y + 30, false);
+await touch("pointerup", 11, mid.x + 30, mid.y + 30, true);
+await touch("pointerup", 12, mid.x + 110, mid.y + 30, false);
+const panned = await page.evaluate(() =>
+  target.some((v, i) => Math.abs(v - window.__t[i]) > 0.5));
+want(panned, "two fingers did not pan the view");
+if (panned) console.log("two fingers pan as well as pinch");
+
+// The whole flick goes in one page task: this container renders in software,
+// which starves setTimeout inside the page for seconds at a time, so anything
+// timed from Node measures the renderer rather than the interaction.
+const flick = await page.evaluate(() => {
+  focus("ctrl", 0); spinAz = spinEl = 0;
+  const r = cv.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const ev = (t, cx, bt) => cv.dispatchEvent(new PointerEvent(t,
+    { pointerId: 91, pointerType: "touch", isPrimary: true, bubbles: true,
+      clientX: cx, clientY: y, buttons: bt }));
+  ev("pointerdown", x, 1); ev("pointermove", x + 18, 1); ev("pointerup", x + 18, 0);
+  const spun = spinAz;
+  const before = cam.az;
+  for (let i = 0; i < 200; i++) stepSpin();   // drive the decay directly
+  return { spun, capped: Math.abs(spun) <= 0.0551,
+           turned: Math.abs(cam.az - before) > 1e-3, rest: spinAz === 0 };
+});
+want(Math.abs(flick.spun) > 1e-4, "letting go mid-drag did not keep the view turning");
+want(flick.capped, `a flick span at ${flick.spun.toFixed(3)} rad/frame`);
+want(flick.turned && flick.rest, "the spin did not decay to rest");
+if (flick.turned && flick.rest) console.log("a flick keeps turning, then settles");
+
 // --- a tap anywhere over the machine reads a block --------------------------
-await page.evaluate(() => { focus("ctrl"); showPick(-1); });
+await calm();
+await page.evaluate(() => { focus("ctrl", 0); showPick(-1); });
 await page.waitForTimeout(300);
 await touch("pointerdown", 3, mid.x, mid.y, true);
 await touch("pointerup", 3, mid.x + 4, mid.y + 3, true);   // fingers wobble
@@ -84,8 +130,29 @@ const read = await page.evaluate(() => document.getElementById("inspect").textCo
 want(!!read, "tapping the machine read nothing");
 if (read) console.log(`tap reads: "${read}"`);
 
+// --- a second tap in the same place goes and looks at the block -------------
+await calm();
+const dbl = await page.evaluate(() => {
+  focus("ctrl", 0);
+  const before = cam.dist, tgt = target.slice();
+  const r = cv.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const ev = (t, cx, id, bt) => cv.dispatchEvent(new PointerEvent(t,
+    { pointerId: id, pointerType: "touch", isPrimary: true, bubbles: true,
+      clientX: cx, clientY: y, buttons: bt }));
+  ev("pointerdown", x, 81, 1); ev("pointerup", x, 81, 0);
+  const oneTapFlew = !!fly;
+  ev("pointerdown", x + 1, 82, 1); ev("pointerup", x + 1, 82, 0);
+  return { oneTapFlew, flew: !!fly, closer: fly ? fly.d1 < before : false,
+           moved: fly ? fly.g1.some((v, i) => Math.abs(v - tgt[i]) > 0.5) : false };
+});
+want(!dbl.oneTapFlew, "a single tap moved the camera");
+want(dbl.flew && dbl.closer && dbl.moved,
+     "a second tap in the same place did not fly to the block");
+if (dbl.flew && dbl.closer) console.log("double tap flies to the block");
+
 // --- rotation refits the view ----------------------------------------------
-await page.evaluate(() => { focus("all"); window.__d = cam.dist; window.__az = cam.az; });
+await calm();
+await page.evaluate(() => { focus("all", 0); window.__d = cam.dist; window.__az = cam.az; });
 await page.setViewportSize({ width: 844, height: 390 });
 // the refit is debounced, and a viewport change can fire resize more than once,
 // which restarts it — so poll rather than guess a wait

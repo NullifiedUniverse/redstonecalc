@@ -198,7 +198,7 @@ console.log(`controls: pressing ADD 10 gt into SHL's hold releases SHL, ` +
 const relief = await page.evaluate(() => {
   const h = new Set();
   let lo = Infinity, hi = -Infinity;
-  for (const [j, i] of dyn) if (world.kind[i] === K_WIRE) {
+  for (let j = 0; j < inst.length; j++) if (world.kind[inst[j]] === K_WIRE) {
     const v = +scales[j * 3 + 1].toFixed(3);
     h.add(v); lo = Math.min(lo, v); hi = Math.max(hi, v);
   }
@@ -206,7 +206,7 @@ const relief = await page.evaluate(() => {
   // lattice seen from far away, and about one ray in twelve hits anything.
   // Test what a user gets instead: the control wall, filling the frame, and
   // `pickNear`, which forgives an imprecise pointer the way a tap needs.
-  focus("ctrl");
+  focus("ctrl", 0);          // snap: a view change animates now
   let pick = "", tried = 0, hit = 0;
   for (let a = 1; a < 5; a++)
     for (let b = 1; b < 5; b++) {
@@ -214,7 +214,7 @@ const relief = await page.evaluate(() => {
       const d = describe(pickNear(cv.clientWidth * a / 5, cv.clientHeight * b / 5));
       if (d) { hit++; pick = pick || d; }
     }
-  focus("all");
+  focus("all", 0);
   return { levels: h.size, lo, hi, pick, hitRate: `${hit}/${tried}` };
 });
 if (relief.levels < 8)
@@ -229,6 +229,7 @@ console.log(`strength: ${relief.levels} distinct dust heights, ` +
 // --- the viewport is actually drawing -------------------------------------
 const px = await page.evaluate(() => {
   const c = document.getElementById("cv"), g = c.getContext("webgl");
+  draw();     // no preserveDrawingBuffer: read back in the same task as the draw
   const buf = new Uint8Array(c.width * c.height * 4);
   g.readPixels(0, 0, c.width, c.height, g.RGBA, g.UNSIGNED_BYTE, buf);
   const seen = new Set();
