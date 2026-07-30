@@ -1088,8 +1088,15 @@ function frameOn(points,margin){
   invalidate();
 }
 function allPoints(){
+  // a merged run is stored by its first block, so its far end has to be offered
+  // to the framing too or the camera crops the machine by half a slab
   const p=[];
-  for(const i of inst)p.push([world.bx[i],world.by[i],world.bz[i]]);
+  for(let j=0;j<inst.length;j++){
+    const i=inst[j];
+    p.push([world.bx[i],world.by[i],world.bz[i]]);
+    if(runs[j]>1||runsZ[j]>1)
+      p.push([world.bx[i]+runs[j]-1,world.by[i],world.bz[i]+runsZ[j]-1]);
+  }
   return p;
 }
 function lampPoints(){

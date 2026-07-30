@@ -257,15 +257,20 @@ await page.evaluate(async () => {
     for (let i = 0; i < circ.width; i++)
       if (!!world.lit[switchIdx[pad + i]] !== !!((v >> i) & 1)) toggleBit(pad, i);
   pressButton("0"); settleNow();
+  // the tick loop never stops on its own after a press, and Playwright waits
+  // for a stable box before it will photograph one
+  setPlaying(false);
   document.getElementById("look_disp").click();
 });
-await page.waitForTimeout(400);
+await page.waitForTimeout(500);
 await page.screenshot({ path: "out/preview_machine.png" });
-await page.locator(".console").screenshot({ path: "out/shot_console.png" });
+await page.locator(".rig").screenshot({ path: "out/shot_console.png",
+                                        animations: "disabled" });
 // and the control wall, which is the thing a player actually touches
 await page.evaluate(() => document.getElementById("look_ctrl").click());
-await page.waitForTimeout(400);
-await page.locator("#view").screenshot({ path: "out/shot_controls.png" });
+await page.waitForTimeout(500);
+await page.locator("#view").screenshot({ path: "out/shot_controls.png",
+                                         animations: "disabled" });
 
 console.log(errs.length ? "ERRORS:\n" + errs.join("\n") : "no page errors");
 const ok = !errs.length && bad === 0 && burned === 0;
