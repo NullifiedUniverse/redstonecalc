@@ -1,5 +1,5 @@
 """Inject the circuit bundles into the demo and preview pages."""
-import os, sys
+import os
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 demo_src = open(os.path.join(ROOT, "docs/demo_template.html")).read()

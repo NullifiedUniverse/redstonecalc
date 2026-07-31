@@ -226,6 +226,60 @@ console.log(`strength: ${relief.levels} distinct dust heights, ` +
             `pointer hits ${relief.hitRate}, e.g. "${relief.pick}"`);
 
 
+// --- coloured light is live, and costs nothing when nothing is lit --------
+// The light volume is baked on the CPU and uploaded as a texture, and it is
+// only rebuilt when a *light* changes — a settling wavefront repaints thousands
+// of dust cells a tick and none of them emit. Both halves of that are worth
+// asserting: that torches switching moves the volume, and that dust moving on
+// its own does not make it re-bake.
+const light = await page.evaluate(() => {
+  const sum = () => {
+    let s = 0;
+    for (let i = 0; i < lightPix.length; i += 7) s += lightPix[i];
+    return s;
+  };
+  bakeLight();
+  const before = sum();
+  // burn a torch out by hand: the instance's colour changes, so its light must
+  const j = glowIdx[(glowIdx.length / 2) | 0];
+  const i = inst[j];
+  const wasLit = world.lit[i];
+  world.lit[i] = 0;
+  bakeLight();
+  const dark = sum();
+  world.lit[i] = wasLit;
+  bakeLight();
+  const back = sum();
+
+  // and now the cheap half: mark a dust instance dirty and check the volume is
+  // not asked to rebuild for it
+  let dust = -1;
+  for (let k = 0; k < inst.length && dust < 0; k++)
+    if (world.kind[inst[k]] === K_WIRE) dust = k;
+  lightDirty = false;
+  dirty.add(dust);
+  flushDirty();
+  const dustAsks = lightDirty;
+  lightDirty = false;
+  dirty.add(j);
+  flushDirty();
+  const lightAsks = lightDirty;
+  return { before, dark, back, dustAsks, lightAsks,
+           cell: lg.cell, tex: `${lg.tw}x${lg.th}` };
+});
+if (!(light.dark < light.before))
+  throw new Error("putting a torch out did not dim the light volume");
+if (light.back !== light.before)
+  throw new Error("relighting it did not restore the light volume");
+if (light.dustAsks)
+  throw new Error("a dust cell changing asked the light volume to rebuild");
+if (!light.lightAsks)
+  throw new Error("a torch changing did NOT ask the light volume to rebuild");
+console.log(`light: ${light.cell}-block cells in a ${light.tex} atlas; ` +
+            `a torch going out dims it (${light.before} -> ${light.dark}) ` +
+            `and only lights ask it to rebuild`);
+
+
 // --- the viewport is actually drawing -------------------------------------
 const px = await page.evaluate(() => {
   const c = document.getElementById("cv"), g = c.getContext("webgl");
@@ -273,6 +327,9 @@ await page.evaluate(async () => {
   document.getElementById("look_disp").click();
 });
 await page.waitForTimeout(500);
+// Screenshots are for looking at after a run, not for keeping: `out/*.png` is
+// ignored. Tracking these meant every test run dirtied the tree and every
+// commit carried a few hundred kilobytes of binary nobody ever opened.
 await page.screenshot({ path: "out/preview_machine.png" });
 await page.locator(".rig").screenshot({ path: "out/shot_console.png",
                                         animations: "disabled" });

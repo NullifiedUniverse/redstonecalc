@@ -138,10 +138,3 @@ def route_control(w: World, i, target, rows=2, origin_z=0):
     line(w, turn + 1, tx - 1, Y_APPROACH, tz, "x", lead=True)
     tower(w, tx, Y_APPROACH, tz, ty - Y_APPROACH)
     return (PANEL_X, py, pz)
-
-
-def panel_extent(levers):
-    """(width along Z, height along Y) of the finished panel."""
-    zs = [p[2] for p in levers]
-    ys = [p[1] for p in levers]
-    return max(zs) - min(zs) + 1, max(ys) - min(ys) + 1

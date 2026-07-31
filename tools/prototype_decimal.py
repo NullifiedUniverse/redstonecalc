@@ -6,9 +6,16 @@ the start, the display is a flat 4->7 lookup with no conversion at all.
 
 This builds both halves for real, compiles them to blocks and simulates them,
 so the plan can quote measured numbers.
+
+    python3 tools/prototype_decimal.py            # the decoder and the adder
+    python3 tools/prototype_decimal.py --carry    # ripple vs digit lookahead
+
+The second is where PLAN.md's cross-digit lookahead table comes from. It used to
+sit below the `__main__` guard, which meant the code behind a documented
+measurement could not be run at all without editing the file.
 """
 
-import sys, os, itertools
+import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rscalc.engine import World, Engine
@@ -89,7 +96,14 @@ def build_decimal_adder(digits=3, with_display=True):
     return nl
 
 
-def measure(nl, label, repeater_delay=1):
+def measure(nl, label, repeater_delay=2):
+    """Compile, lint, settle. Delay 2 because that is what these builds need.
+
+    It defaulted to 1, which is the setting PLAN §5 measures as burning torches
+    out and getting the wrong answer on exactly these circuits — so the numbers
+    in PLAN's tables, which say "all at delay-2 repeaters", could not have come
+    from running this file as it stood.
+    """
     w = World()
     L = compile_netlist(nl, w, repeater_delay=repeater_delay)
     problems = w.lint()
@@ -171,10 +185,6 @@ def main():
         d = "x".join(str(v) for v in r["dims"])
         print(f"{r['label']:34} {r['gates']:>6} {r['depth']:>6} {r['blocks']:>8} "
               f"{r['reps']:>6} {r['settle']:>5} gt  {d:>14}  {r['check']}")
-
-
-if __name__ == "__main__":
-    main()
 
 
 # --- cross-digit carry lookahead -------------------------------------------
@@ -271,3 +281,7 @@ def compare_bcd():
     for r in rows:
         print(f"{r['label']:24} {r['gates']:>6} {r['depth']:>6} {r['blocks']:>8} "
               f"{r['reps']:>6} {r['settle']:>5} gt  {r['check']}")
+
+
+if __name__ == "__main__":
+    compare_bcd() if "--carry" in sys.argv[1:] else main()

@@ -17,13 +17,15 @@ Physical architecture — a stacked PLA, four Y levels per logic stage:
     literals*: any two-level sum-of-products costs two stages, and each stage
     costs one redstone tick.
 
-  * a collector is a wired-OR read at its +Z end, so it must physically reach
+  * a collector is a wired-OR read at one *end*, so it must physically reach
     past its last tap; it then climbs two levels to become the next stage's
-    rail. Keeping rails on their own plane (rather than sharing the collector
-    plane) means a collector can never short against a rail, which removes any
-    ordering constraint between them. Collectors therefore stop just past their
-    last tap instead of running the length of the machine, and rails may feed
-    outwards in both directions from their source.
+    rail. Which end alternates stage by stage, which is what keeps Z from
+    ratcheting with depth — see `_assign_exits`. Keeping rails on their own
+    plane (rather than sharing the collector plane) means a collector can never
+    short against a rail, which removes any ordering constraint between them.
+    Collectors therefore stop just past their last tap instead of running the
+    length of the machine, and rails may feed outwards in both directions from
+    their source.
 
 Signal strength is the binding constraint throughout: dust fades one level per
 block, so both rails and collectors carry repeaters. Distance is always
@@ -52,7 +54,6 @@ RAIL_PITCH = 4       # Z spacing between rails
 #: latency. See §18.
 GATE_PITCH = 3
 STAGE_DY = 4         # Y per logic stage
-MAX_RUN = 10         # collector: max blocks from a tap to the next repeater
 EXIT_GAP = 4         # Z clearance between a gate's last tap and its exit
 
 
@@ -272,10 +273,12 @@ def _assign_exits(L: Layout, gates, step, side):
 
     Returns ``{gate index: slot}``.
     """
-    span = {g.idx: _tap_span(L, g, side) for g in gates}
-    pref = {g.idx: (_up(span[i][1] + EXIT_GAP) if step > 0
-                    else _down(span[i][0] - EXIT_GAP))
-            for g in gates for i in (g.idx,)}
+    # the earliest slot each gate could legally take, in its stage's direction
+    pref = {}
+    for g in gates:
+        lo, hi = _tap_span(L, g, side)
+        pref[g.idx] = (_up(hi + EXIT_GAP) if step > 0
+                       else _down(lo - EXIT_GAP))
     taken, out = set(), {}
     # hand them out from the tap span outwards, so a gate is only pushed past
     # its neighbour when it genuinely collides

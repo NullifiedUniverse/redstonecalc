@@ -8,8 +8,8 @@ from rscalc.engine import World, Engine
 from rscalc.netlist import Netlist
 from rscalc.pla import compile_netlist
 from rscalc.export import export_circuit, write_bundle
-from rscalc.display import (build_digit, lit_segments, DIGIT_SEGMENTS, SEGS)
-from tools.prototype_decimal import seven_seg, build_decimal_adder
+from rscalc.display import build_digit, DIGIT_SEGMENTS, SEGS
+from tools.prototype_decimal import seven_seg
 
 LANE_LEN = 6              # how far the feed lanes reach out to -X
 DIGIT_PITCH = 14          # X spacing between digits; feed lanes need the room

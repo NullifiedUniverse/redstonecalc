@@ -1,6 +1,6 @@
 """Verify that compiled redstone matches the logical netlist it came from."""
 
-import sys, os, itertools, random
+import sys, os, itertools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rscalc.engine import World, Engine

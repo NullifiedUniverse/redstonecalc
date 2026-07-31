@@ -18,8 +18,8 @@ Three things were assumed last time and are now settled:
   game ticks** with 5,179 → 3,996 repeaters. Still correct on all 2,048 4-bit
   vectors and 1,120 8-bit vectors.
 - **Cross-digit BCD lookahead works**, and cuts the decimal adder from 963
-  gates / depth 32 to **542 gates / depth 18** — but does *not* make it faster
-  on the clock (386 → 400 gt). Same lesson as carry-lookahead: depth is not the
+  gates / depth 32 to **542 gates / depth 18** — and barely moves the clock
+  (354 → 348 gt, 2%). Same lesson as carry-lookahead: depth is not the
   constraint.
 - **Burnout is now the binding constraint, not wire.** Every large build burns
   torches out at delay-1 repeaters and has to run at delay 2, which doubles
@@ -34,12 +34,15 @@ on the critical path.
 
 | build | total | logic | rail wire | collector wire |
 |---|---|---|---|---|
-| 4-bit CLA | 108 gt | 24 (22%) | 40 (37%) | 44 (41%) |
-| **8-bit CLA** | **190 gt** | **28 (15%)** | **88 (46%)** | **74 (39%)** |
+| 4-bit CLA | 100 gt | 24 (24%) | 32 (32%) | 44 (44%) |
+| **8-bit CLA** | **166 gt** | **28 (17%)** | **66 (40%)** | **72 (43%)** |
 
-Wire was 88% of the critical path before this revision and is 85% after. The
-sandwich change bought a real 20%, but the shape of the problem is unchanged:
-**compact and fast are the same goal.**
+Wire was 88% of the critical path before the sandwich change and is **83%**
+after it and DESIGN §18's narrower gate pitch. The shape of the problem has not
+moved at all: **compact and fast are the same goal.** Collector wire is the
+larger half, which is what made §18's Z ratchet worth unwinding — and why §19's
+search for a better gate *ordering*, the other thing that sets collector length,
+came back with nothing.
 
 Two layout rules were learned the hard way and are now enforced in the router,
 both the same root cause — *dust only powers a block it points at, and dust
@@ -63,22 +66,33 @@ datapath deletes that stage and makes the display a flat 4→7 lookup.
 
 | module | gates | depth | blocks | settle | verified |
 |---|---|---|---|---|---|
-| Seven-segment decoder, 1 digit | 17 | 2 | 2,647 | 24 gt | all 10 digits |
-| Seven-segment display, 1 digit | — | — | 168 | 4 gt | all 10 digits |
-| 3-digit BCD adder + display, ripple digit carry | 963 | 32 | 94,660 | 386 gt | 14 sums + segments |
-| 3-digit BCD adder + display, **digit lookahead** | **542** | **18** | 102,290 | 400 gt | 14 sums + segments |
-| *Mk I 8-bit binary ALU (no display at all)* | 723 | 14 | 123,354 | 360 gt | 1,120 vectors |
+| Seven-segment decoder, 1 digit | 17 | 2 | 2,469 | 36 gt | all 10 digits |
+| 3-digit BCD adder + display, ripple digit carry | 963 | 32 | 87,828 | 354 gt | 14 sums + segments |
+| 3-digit BCD adder + display, **digit lookahead** | **542** | **18** | 92,732 | 348 gt | 14 sums + segments |
+| *Mk I 8-bit binary ALU (no display at all)* | 723 | 14 | 111,724 | 218 gt | 1,120 vectors |
 
-All at delay-2 repeaters, which every build this size needs (see §5).
+All at delay-2 repeaters, which every build this size needs (see §5). Re-measured
+after DESIGN §18 narrowed the gate pitch, which is where the block counts moved;
+`python3 tools/prototype_decimal.py --carry` prints the bottom two rows.
+
+One correction while re-running them: `measure()` defaulted to delay **1**, not
+the 2 this table has always claimed — and §5 below measures delay 1 on these
+exact circuits as burning torches out and getting the wrong answer. The numbers
+above were right about their conditions; the tool was not honouring them, and
+the comparison itself sat below the `__main__` guard where it could not be run
+at all without editing the file. Both fixed.
 
 A digit carries when `a + b + cin > 9`, so it **generates** when `a + b >= 10`
 and **propagates** when `a + b == 9` — both functions of that digit's own
 operands, which is exactly what allows lookahead. The correction folds into the
 same add: `result = (a+b) + cin + 6·cout`, since `−10 ≡ +6 (mod 16)`.
 
-Lookahead nearly halves gates and depth. It does not help the clock, and is
-slightly *larger* in blocks because its flat product terms span more rails and
-so lengthen collectors. Take it for the gate count, not the speed.
+Lookahead nearly halves gates and depth, and buys **2% on the clock** — 348 gt
+against 354 — while being 6% *larger* in blocks, because its flat product terms
+span more rails and so lengthen collectors. Take it for the gate count. (On the
+earlier, wider gate pitch it was a fraction slower rather than a fraction
+faster; either way the point stands, which is that halving the depth does almost
+nothing to the wall clock. §6 of DESIGN is the same finding on the binary ALU.)
 
 ---
 

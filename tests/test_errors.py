@@ -60,7 +60,6 @@ def test_loom_routes_never_cross():
     tower sharing its Z, which silently merges two segment lines.
     """
     import rscalc.machine as M
-    import rscalc.display as D
 
     orig_digit, orig_row, orig_route = M.build_digit, M.build_lamp_row, M.route
     with WriteSpy() as spy:

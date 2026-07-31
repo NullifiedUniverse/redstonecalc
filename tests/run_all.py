@@ -20,6 +20,7 @@ FAST = [
     ("test_mechanics.py", "redstone rules"),
     ("test_minecraft_rules.py", "Minecraft rules, and engine vs engine"),
     ("test_cells.py", "gate cells on placed blocks"),
+    ("test_logic.py", "netlist helpers, against truth tables"),
     ("test_pla.py", "place and route"),
     ("test_bcd.py", "binary to BCD"),
     ("test_display.py", "seven-segment display and the torch-free latch"),

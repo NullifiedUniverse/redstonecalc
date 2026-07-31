@@ -29,6 +29,7 @@ stage of its own, and folding it in keeps every product term two stages deep.
 from __future__ import annotations
 
 from .netlist import Netlist
+from .logic import decode_onehot
 
 OPS = ["ADD", "SUB", "AND", "OR", "XOR", "NOT", "SHL", "SHR"]
 CLA_BLOCK = 4
@@ -61,10 +62,7 @@ def alu_core(nl, A, B, OP, carry="cla"):
 
     # --- opcode decode ------------------------------------------------------
     # nm[k] = NOT(op == k): one gate, since it is just an OR of literals
-    nm = {}
-    for k in range(8):
-        lits = [(OP[j], bool((k >> j) & 1)) for j in range(3)]
-        nm[k] = nl.gate(lits, name=f"nm_{OPS[k]}")
+    nm = {k: decode_onehot(nl, OP, k, name=f"nm_{OPS[k]}") for k in range(8)}
 
     sub_bar = nm[1]                      # NOT(op == SUB)
 

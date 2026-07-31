@@ -14,7 +14,7 @@ to the input side, the opposite of this simulator's.
 import sys, os, gzip, struct, re, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from rscalc.engine import World, Engine
+from rscalc.engine import World
 from rscalc.netlist import Netlist
 from rscalc.pla import compile_netlist
 from rscalc import mcbuild

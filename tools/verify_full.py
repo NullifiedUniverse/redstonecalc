@@ -30,7 +30,13 @@ EDGES = [0, 1, 2, 511, 512, 513, 1022, 1023]
 
 
 def vectors(width, n, seed):
-    """Boundaries first, then every ordered pair of operations, then random."""
+    """Boundaries first, then every ordered pair of operations, then random.
+
+    `n` is a floor, not a cap: the structured part is what makes this worth
+    running and truncating it to hit a round number would quietly drop the very
+    cases it exists for. Asking for fewer than the structured set gets the
+    structured set, and `main` prints how many it is actually driving.
+    """
     hi = (1 << width) - 1
     out = []
     for op in range(len(OPS)):
@@ -48,13 +54,14 @@ def vectors(width, n, seed):
     while len(out) < n:
         out.append((rng.randrange(len(OPS)), rng.randrange(1 << width),
                     rng.randrange(1 << width)))
-    return out[:max(n, len(out))]
+    return out
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--delay", type=int, default=DEFAULT_DELAY)
-    ap.add_argument("--vectors", type=int, default=200)
+    ap.add_argument("--vectors", type=int, default=200,
+                    help="a floor, not a cap — see `vectors`")
     ap.add_argument("--seed", type=int, default=5)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()

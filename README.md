@@ -326,6 +326,7 @@ python3 tools/build_pages.py                             # inject into docs/
 node tools/check_preview.mjs                             # the page, in a browser
 node tests/browser_check.js                              # the Mk I demo
 python3 tools/profile_path.py                            # critical-path breakdown
+python3 tools/prototype_decimal.py --carry               # BCD digit lookahead
 
 python3 tools/experiment_comparator_tap.py               # §17: why not a comparator
 python3 tools/experiment_hostile_inputs.py --delay 3 --seed 11 --seed 23

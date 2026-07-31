@@ -1188,7 +1188,8 @@ function uploadRange(lo,hi){
 function flushDirty(){
   if(!dirty.size)return 0;
   const js=[...dirty].sort((a,b)=>a-b);
-  dirty.clear();glowStale=true;lightDirty=true;
+  dirty.clear();glowStale=true;
+  if(isLight)for(const j of js)if(isLight[j]){lightDirty=true;break;}
   for(const j of js)paint(j,inst[j]);
   let lo=js[0],prev=js[0],uploads=0;
   for(let q=1;q<js.length;q++){
@@ -1201,14 +1202,11 @@ function flushDirty(){
 }
 
 /* ---- render ---- */
-//: How far a light bleeds past its own block, in blocks. It is a flat disc
-//: depth-tested against solid geometry, so a big one cuts a hard silhouette
-//: where it crosses a floor — soft particles need a depth texture this page
-//: does not have. Small and faint reads as light; large and bright reads as a
-//: bug.
+//: How far a light bleeds past its own block, in blocks. Small and faint reads
+//: as light; large and bright reads as a bug — and since the disc is not depth
+//: tested, large also means torches deep inside the lattice wash over the face
+//: in front of them.
 const GLOW_GROW=1.15;
-//: and how far toward the camera it floats, to clear the block it sits on
-const GLOW_LIFT=0.0;
 //: anyone who asked their system for reduced motion gets the plain lattice
 const glowOn=!matchMedia("(prefers-reduced-transparency: reduce)").matches;
 let lastMVP=null;
@@ -1264,28 +1262,33 @@ function draw(){
 /* ---- emissive glow ----
    A lit torch is a light, and a light with hard edges is a shape. There is no
    second pass on this page and no framebuffer to blur, so the glow is geometry:
-   the same cube grown a couple of blocks, drawn additively, with a spherical
-   falloff computed from the fragment's position inside it. It is depth-tested
-   but does not write depth, so a torch behind a floor stays behind it and one
-   in open lattice bleeds into the air around it.
+   a camera-facing disc, drawn additively, with a radial falloff computed from
+   the fragment's position across it.
 
-   Only torches and lamps get one — about two thousand instances against three
-   hundred thousand — and the alpha comes from the instance's own colour, so a
-   torch that has burned out or a lamp that is off contributes exactly nothing
-   with no bookkeeping of its own. */
+   It has to be a disc rather than a cube grown around the light, and it took
+   three tries to find that out: only a surface rasterises, and every point on
+   the surface of a cube is already at the edge of the sphere inscribed in it,
+   so a cube shaded by distance from its centre draws nothing at all.
+
+   It is drawn *without* a depth test, which is the second thing that took a
+   try. Depth-tested, a flat disc gets sliced by whatever it overlaps and the
+   slice is a hard triangle of light — worse than no glow. Soft particles want a
+   depth texture this page does not have, so it does what real bloom does: apply
+   after depth, bleed over what is in front, and stay faint enough that a torch
+   behind a floor reads as a hint of one.
+
+   Only torches and lamps get one — about two thousand instances against two
+   hundred and forty thousand — and the alpha comes from the instance's own
+   colour, so a torch that has burned out or a lamp that is off contributes
+   exactly nothing with no bookkeeping of its own. */
 const GVS=`attribute vec2 aQuad;attribute vec3 iOff;attribute vec3 iScale;
 attribute vec3 iCol;uniform mat4 uMVP;uniform float uYMax;uniform float uGrow;
-uniform vec3 uRight;uniform vec3 uUp;uniform vec3 uToward;uniform float uLift;
+uniform vec3 uRight;uniform vec3 uUp;
 varying vec2 vL;varying vec3 vC;
 void main(){vC=iCol;vL=aQuad;
   if(iOff.y>uYMax){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
   float s=max(iScale.x,max(iScale.y,iScale.z))*0.5+uGrow;
-  // lifted toward the camera, because a flat disc sitting exactly on a torch
-  // gets sliced by the block the torch stands on and the slice is a hard
-  // triangle of light. Soft particles want a depth texture; this page has one
-  // pass and no textures, so the disc floats a little clear instead.
-  vec3 c=iOff+uToward*uLift;
-  gl_Position=uMVP*vec4(c+uRight*(aQuad.x*s)+uUp*(aQuad.y*s),1.0);}`;
+  gl_Position=uMVP*vec4(iOff+uRight*(aQuad.x*s)+uUp*(aQuad.y*s),1.0);}`;
 const GFS=`precision mediump float;varying vec2 vL;varying vec3 vC;
 void main(){
   float lum=dot(vC,vec3(0.3,0.6,0.1));
@@ -1306,9 +1309,7 @@ const GU={mvp:gl.getUniformLocation(gprog,"uMVP"),
   ymax:gl.getUniformLocation(gprog,"uYMax"),
   grow:gl.getUniformLocation(gprog,"uGrow"),
   right:gl.getUniformLocation(gprog,"uRight"),
-  up:gl.getUniformLocation(gprog,"uUp"),
-  toward:gl.getUniformLocation(gprog,"uToward"),
-  lift:gl.getUniformLocation(gprog,"uLift")};
+  up:gl.getUniformLocation(gprog,"uUp")};
 const qvbo=gl.createBuffer(),qibo=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,qvbo);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);
@@ -1321,27 +1322,31 @@ let glowIdx=null,gOff=null,gScale=null,gCol=null,glowStale=true;
    Splat every lit torch and lamp into a coarse grid of cells, one Y slice per
    tile of a single 2D texture, and let the fragment shader read what the lights
    do to each surface. The cell size is chosen so the whole atlas fits inside
-   `LIGHT_TEX`, so the upload stays small however big the machine gets: at 747 ×
-   195 × 973 that lands on 12-block cells and a 315 × 328 texture.
+   `LIGHT_TEX`, so the upload stays small however big the machine gets: at
+   555 × 195 × 973 that lands on 8-block cells and a 490 × 488 texture.
 
-   It is rebuilt only when a light actually changes state and no more often than
-   `LIGHT_MS`, because a settling wavefront switches torches faster than anyone
-   can see and re-uploading the atlas every game tick is the one way this could
-   cost more than it is worth. */
+   It is rebuilt only when a light actually changes state — `isLight` is what
+   makes that "a light" rather than "anything at all", since a settling
+   wavefront repaints thousands of dust cells per tick and none of them emit —
+   and then no more often than `LIGHT_MS`. Re-uploading the atlas every game
+   tick is the one way this could cost more than it is worth. */
 const LIGHT_TEX=512, LIGHT_MS=90, LIGHT_REACH=9, LIGHT_GAIN=0.30;
 let lightTex=null,lightPix=null,lightAcc=null,lg=null,lightDue=0,
-    lightDirty=true;
+    lightDirty=true,isLight=null;
 
 function buildLightGrid(){
   const [dx,dy,dz]=world.dims;
+  // never ask for more than the driver will give, whatever LIGHT_TEX says
+  const lim=Math.min(LIGHT_TEX,gl.getParameter(gl.MAX_TEXTURE_SIZE)||LIGHT_TEX);
   let cell=4,gx,gy,gz,per,tw,th;
   for(;;){
     gx=Math.ceil(dx/cell);gy=Math.ceil(dy/cell);gz=Math.ceil(dz/cell);
-    per=Math.max(1,Math.floor(LIGHT_TEX/gx));
+    per=Math.max(1,Math.floor(lim/gx));
     tw=per*gx;th=Math.ceil(gy/per)*gz;
-    if(tw<=LIGHT_TEX&&th<=LIGHT_TEX)break;
+    // a cell coarser than the machine is one cell, which always fits, so this
+    // terminates rather than falling through to a texture the driver refuses
+    if((tw<=lim&&th<=lim)||cell>=Math.max(dx,dy,dz))break;
     cell+=2;
-    if(cell>96){per=1;tw=gx;th=gy*gz;break;}
   }
   lg={cell,gx,gy,gz,per,tw,th};
   lightPix=new Uint8Array(tw*th*3);
@@ -1416,6 +1421,8 @@ function buildGlow(){
     if(k===K_TORCH||k===K_LAMP)keep.push(j);
   }
   glowIdx=Int32Array.from(keep);
+  isLight=new Uint8Array(inst.length);
+  for(const j of keep)isLight[j]=1;
   gOff=new Float32Array(keep.length*3);
   gScale=new Float32Array(keep.length*3);
   gCol=new Float32Array(keep.length*3);
@@ -1443,8 +1450,6 @@ function drawGlow(){
   const b3=basis(cam.az,cam.el);
   gl.uniform3f(GU.right,b3.right[0],b3.right[1],b3.right[2]);
   gl.uniform3f(GU.up,b3.up[0],b3.up[1],b3.up[2]);
-  gl.uniform3f(GU.toward,b3.f[0],b3.f[1],b3.f[2]);   // target -> eye
-  gl.uniform1f(GU.lift,GLOW_LIFT);
   // Depth-tested, the disc gets sliced by whatever it overlaps and the slice is
   // a hard triangle of light — the one thing worse than no glow. Real bloom is
   // applied after depth and bleeds over everything in front of it too, so this

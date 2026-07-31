@@ -4,3 +4,4 @@ package-lock.json
 __pycache__/
 out/steady/
 out/build/
+out/*.png

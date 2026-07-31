@@ -41,9 +41,11 @@ FLAGS = ["CARRY", "ZERO", "NEG", "OVF"]
 #: "any key is down" bus runs four blocks past its outermost key, and without a
 #: gap it would land on the last operand rail and drive it.
 N_GAPS = 3
-#: The repeater setting the machine is stable at. Delay 2 burns 117 torches
-#: out over fourteen vectors and delay 3 survives gentle sequences but not
-#: violent ones; delay 4 is clean on every sequence tried.
+#: The repeater setting the machine is stable at, measured in §13: over
+#: sixteen vectors, delay 2 gets 2 of them right and burns 146 torches out,
+#: delay 3 gets all sixteen but still costs one torch, and delay 4 is clean on
+#: every sequence tried — including all ten of §17's hostile ones at every
+#: input spacing, which delay 3 is not.
 DEFAULT_DELAY = 4
 #: worst settle measured over the 300 vectors in `tools/verify_full.py` at
 #: DEFAULT_DELAY — from the operation lever going down to the last lamp holding

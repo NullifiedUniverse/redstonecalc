@@ -23,7 +23,7 @@ Latency: one redstone tick (2 game ticks) per cell.
 
 from __future__ import annotations
 
-from .engine import World, DIRS, OPPOSITE
+from .engine import World, DIRS
 
 # --- rotation about the Y axis ---------------------------------------------
 
@@ -36,9 +36,6 @@ def _rot(p, r):
     if r == 2:
         return (-x, y, -z)
     return (z, y, -x)
-
-
-_DIR_VEC = {d: (v[0], v[2]) for d, v in DIRS.items() if d != "up" and d != "down"}
 
 
 def _rot_dir(d, r):
@@ -143,28 +140,3 @@ def nor_cell(pl: Placer, collector_len=1):
     pl.solid((-3, -1, 0))
     out = pl.wire((-3, 0, 0))
     return cols, out
-
-
-def wire_run(pl: Placer, start, axis, length, floor=True, y=0):
-    """Straight dust run of `length` cells from `start` along +axis ('x'/'z')."""
-    positions = []
-    for i in range(length):
-        if axis == "x":
-            p = (start[0] + i, y, start[2])
-        else:
-            p = (start[0], y, start[2] + i)
-        if floor:
-            pl.solid((p[0], y - 1, p[2]))
-        positions.append(pl.wire(p))
-    return positions
-
-
-def buffer_cell(pl: Placer):
-    """Two NOR cells back to back: a non-inverting buffer that restores to 15."""
-    c1, o1 = nor_cell(pl)
-    pl2 = pl.sub(origin=(-4, 0, 0))
-    # bridge o1 -> collector of second cell
-    pl.solid((-4, -1, 0))
-    pl.wire((-4, 0, 0))
-    c2, o2 = nor_cell(pl.sub(origin=(-5, 0, 0)))
-    return c1, o2

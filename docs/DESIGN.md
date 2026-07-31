@@ -93,9 +93,10 @@ Each logic stage occupies four Y levels, and the machine stacks upward:
 | `y+3` | Riser step |
 | `y+4` | Becomes the next stage's rail plane |
 
-A collector is a wired-OR read at its far (+Z) end, so it must physically reach
-past its last tap; it then climbs two levels on a dust staircase and turns into
-the next stage's rail.
+A collector is a wired-OR read at one end, so it must physically reach past its
+last tap; it then climbs two levels on a dust staircase and turns into the next
+stage's rail. Which end alternates stage by stage — §18 — and that is what stops
+Z ratcheting with depth.
 
 The important structural decision is that **rails live on their own plane**
 rather than sharing the collector plane. An earlier version had them share, and
@@ -1261,3 +1262,101 @@ visible difference at *any* gain. It took reading `gl.getError()` back off the
 context to find, after the same shader had already been proven correct by
 rendering the volume directly to the screen. `gl.pixelStorei(UNPACK_ALIGNMENT,1)`
 is the whole fix.
+
+## 20. A debt pass — what nineteen sections of changes left behind
+
+No new capability here. This is the sweep for things that had quietly stopped
+being true, and the interesting part is that **the two worst findings were both
+documentation that had outlived its code** rather than anything the tests could
+have caught.
+
+### A measured table whose measurement could not be run
+
+PLAN §3 quotes a cross-digit BCD lookahead comparison — 963 gates against 542,
+and the block and settle figures for both — under the line *"all at delay-2
+repeaters"*. Two things were wrong with the code behind it:
+
+- `compare_bcd()`, which produces those two rows, sat **below the
+  `if __name__ == "__main__"` guard**. It could not be run at all without
+  editing the file. Neither could `build_decimal_adder_cla`, the circuit it
+  compares.
+- `measure()` defaulted to repeater delay **1**, not 2. PLAN §5, four sections
+  further down the same document, measures delay 1 on these exact circuits as
+  burning torches out and getting the wrong answer.
+
+Run as it stood, it reports `3 WRONG` and `1 WRONG`. Moved above the guard,
+given a `--carry` flag, and defaulted to the delay the table always claimed, it
+reports what the table claims — and the numbers have moved since, because §18
+narrowed the gate pitch:
+
+| | gates | depth | blocks | settle |
+|---|---|---|---|---|
+| ripple digit carry | 963 | 32 | 94,660 → **87,828** | 386 → **354 gt** |
+| digit lookahead | 542 | 18 | 102,290 → **92,732** | 400 → **348 gt** |
+
+That flips a conclusion, mildly: lookahead used to be a fraction *slower* on the
+clock and is now a fraction faster. The point it was making — that halving the
+depth does almost nothing to the wall clock — is unchanged, and §2 of PLAN was
+carrying stale critical-path percentages too. Both re-measured.
+
+### Invariants that stopped holding when the collectors started alternating
+
+§18 made the collector direction alternate stage by stage. Three places still
+said a collector is read at its **+Z** end: the `pla` module docstring, §4 of
+this document, and the reasoning that hangs off both. They are the load-bearing
+description of the architecture, so they are worth more than a comment.
+
+`machine.DEFAULT_DELAY` likewise carried a burnout figure from a measurement two
+builds old (*"117 torches over fourteen vectors"* against §13's 146 over
+sixteen). Constants that quote numbers have to be re-read whenever the numbers
+move, and this one had not been.
+
+### Code that multiplied by zero
+
+The glow pass gained a `GLOW_LIFT` uniform to push its disc toward the camera,
+because a depth-tested disc gets sliced by the block its torch stands on. Then
+the depth test came off, which fixed the slicing properly — and the lift stayed,
+set to `0.0`, with a comment explaining a problem that no longer existed, a
+uniform uploaded every frame, and a vector add per vertex. Gone. The block
+comment above it still described a *cube* with a spherical falloff and a depth
+test, which is three tries out of date; it now describes what is there and why
+the two earlier attempts failed, which is the more useful thing to have written
+down.
+
+### A comment that was a lie, and cost 4 ms
+
+The light volume's comment said it *"is rebuilt only when a light actually
+changes state"*. It was not: `flushDirty` marked it dirty on **any** instance
+changing, and a settling wavefront repaints thousands of dust cells a tick, none
+of which emit anything. So the atlas re-baked every 90 ms throughout every
+settle for nothing. One `Uint8Array` of which instances are lights fixes it, and
+`check_preview` now asserts both halves — that a torch going out dims the
+volume, and that a dust cell changing does **not** ask it to rebuild.
+
+### The rest
+
+- **`logic.py` had no test of its own.** Everything in it was reachable only
+  through the ALU and the machine, which meant a helper nothing happened to call
+  was a helper nothing checked — and `all_of` and `decode_onehot` were exactly
+  that. `tests/test_logic.py` walks every assignment of each, plus 24 random
+  two-level expressions through `sop`, and asserts the constant folding spends
+  no gate. It also turned up that `alu.py` had been **inlining** `decode_onehot`
+  by hand for its opcode decode; it calls the helper now, which is one fewer
+  copy of the same three lines and puts the helper under the exhaustive ALU
+  tests as well. The machine's digest is unchanged, so this is a refactor and
+  the cache proves it.
+- **Dead code.** `pla.MAX_RUN` (read by nothing), `cells.wire_run` and
+  `cells.buffer_cell` (unused, untested, and `buffer_cell` built a `Placer` it
+  never used), `cells._DIR_VEC`, `display.WIDTH`/`HEIGHT`, `panel.panel_extent`
+  (one line, duplicated where it was actually wanted), and eight unused imports.
+- **`verify_full --vectors` was a floor pretending to be a cap.** `--vectors 1`
+  ran all 288 structured cases; the flag now says so and the tool prints what it
+  is actually driving.
+- **1.9 MB of screenshots nobody looked at.** Twelve PNGs were committed; nine
+  were referenced by nothing and generated by nothing, and the other three are
+  *rewritten by `check_preview` on every run* — so every test run dirtied the
+  tree and every commit since carried a few hundred kilobytes of binary diff.
+  `out/*.png` is ignored now.
+
+Suite: 12 modules, all green, including the new one. The browser and touch
+suites pass, and the machine is block-for-block the same as before the pass.

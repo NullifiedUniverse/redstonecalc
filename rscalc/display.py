@@ -60,8 +60,6 @@ SEGS = "abcdefg"
 
 LAMP_Y = 0        # the lamps themselves
 DUST_Y = 1        # dust cap that spreads power along a bar
-WIDTH = 5
-HEIGHT = 13
 
 
 def seven_seg(nl, d, enable=None):
