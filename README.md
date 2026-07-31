@@ -24,6 +24,10 @@ redstone — classic mechanics apply.
 - **A browser page** (`docs/preview.html`) — an instrument above a notebook —
   that runs the whole machine tick by tick, drawing signal *level* as height as
   well as colour, with any block clickable for its exact strength and state.
+  Every face is a **16×16 texture** at Minecraft's resolution, drawn into an
+  array at load rather than fetched — the page has no asset of any kind — and
+  redstone dust is drawn **pointing the way the simulator says it points**, all
+  sixteen connection shapes, checked against `eng.points` by the browser suite.
   Merging the 249,613 structure blocks into runs takes it from 456,558 draw
   instances to 239,571; see DESIGN §16. The older Mk I demo is at
   `docs/demo.html`. `tools/check_preview.mjs` verifies it in a real browser;

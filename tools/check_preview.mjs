@@ -226,6 +226,46 @@ console.log(`strength: ${relief.levels} distinct dust heights, ` +
             `pointer hits ${relief.hitRate}, e.g. "${relief.pick}"`);
 
 
+// --- dust is drawn pointing the way the simulator says it points ----------
+// A wire's shape is not decoration: a dot powers nothing horizontally, a
+// straight line powers the block behind it, and which of those a cell is
+// decides whether the circuit works. The renderer picks its tile from
+// `eng.points`, the same four-bit mask the power rules are evaluated from, so
+// this checks the drawing against the simulation rather than against itself.
+const shapes = await page.evaluate(() => {
+  const hist = {}, seen = new Set();
+  let wires = 0, wrong = 0, straightOnAxis = 0, dots = 0;
+  for (let j = 0; j < inst.length; j++) {
+    const i = inst[j];
+    if (world.kind[i] !== K_WIRE) continue;
+    wires++;
+    const mask = eng.points[i] & 15;
+    if (tiles[j] !== T_DUST + mask) wrong++;
+    hist[mask] = (hist[mask] || 0) + 1;
+    seen.add(mask);
+    if (mask === 0) dots++;
+    // 3 is north+south, 12 is west+east: a straight run, which is what a rail
+    // or a collector between its taps should be
+    if (mask === 3 || mask === 12) straightOnAxis++;
+  }
+  return { wires, wrong, dots, straightOnAxis, kinds: seen.size,
+           top: Object.entries(hist).sort((a, b) => b[1] - a[1]).slice(0, 4) };
+});
+if (shapes.wrong)
+  throw new Error(`${shapes.wrong} wires drawn with the wrong connection tile`);
+if (shapes.kinds < 4)
+  throw new Error(`only ${shapes.kinds} distinct wire shapes in the whole ` +
+                  `machine — the mask is probably not reaching the renderer`);
+if (shapes.straightOnAxis < shapes.wires * 0.5)
+  throw new Error("most dust should be straight run, saw " +
+                  `${shapes.straightOnAxis}/${shapes.wires}`);
+console.log(`dust: ${shapes.wires.toLocaleString()} wires, ` +
+            `${shapes.kinds} distinct shapes, every one matching eng.points; ` +
+            `${shapes.straightOnAxis.toLocaleString()} straight, ` +
+            `${shapes.dots.toLocaleString()} dots ` +
+            `(commonest: ${shapes.top.map(([m, n]) => `${m}x${n}`).join(" ")})`);
+
+
 // --- coloured light is live, and costs nothing when nothing is lit --------
 // The light volume is baked on the CPU and uploaded as a texture, and it is
 // only rebuilt when a *light* changes — a settling wavefront repaints thousands

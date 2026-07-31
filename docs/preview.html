@@ -530,18 +530,31 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
     <details>
       <summary>What you are looking at: how the picture is made</summary>
       <div class="in">
-        <p class="small">One draw call, no textures, no second pass. The 249,613
-          plain structure blocks collapse into stretched runs — 456,558 blocks
-          become <b>239,571</b> boxes — so the block grid you can see is drawn by
-          the shader from the <em>world</em> position rather than by geometry: a
-          418-block slab gets its seams back exactly where its blocks were, for
-          nothing.</p>
-        <p class="small">On top of that: a face is shaded by which way it points,
-          the way Minecraft does it; each cell's corners darken twice over where
-          two edges meet, which is what smooth voxel lighting is; each cell's
-          edges catch and lose the key light, which is a chamfer; and a hash of
-          the block's own coordinate varies its shade by a few percent, because a
-          stone floor is not one colour.</p>
+        <p class="small">One draw call, no second pass, and not one asset. The
+          249,613 plain structure blocks collapse into stretched runs — 456,558
+          blocks become <b>239,571</b> boxes — so the block grid you can see is
+          drawn by the shader from the <em>world</em> position rather than by
+          geometry: a 418-block slab gets its seams back exactly where its blocks
+          were, for nothing.</p>
+        <p class="small">Every face is a <b>16&times;16 texture</b> at
+          Minecraft's own resolution, sampled nearest so a texel is a texel — and
+          the atlas is <em>drawn into an array at load</em> rather than fetched,
+          which is a page of pixel art in code and about a millisecond. On top of
+          that: a face is shaded by which way it points, the way Minecraft does
+          it; each cell's corners darken twice over where two edges meet, which
+          is what smooth voxel lighting is; each cell's edges catch and lose the
+          key light, which is a chamfer; and a hash of the block's own coordinate
+          varies its shade a little, because a quarter of a million identical
+          stone cubes at one value reads as a bar of paint.</p>
+        <p class="small"><b>Redstone dust points.</b> A wire is not a blob: a dot
+          powers nothing horizontally, a straight line powers the block behind
+          it, and a cross carries four ways — and which one a cell is decides
+          whether the circuit works. The simulator already computes that mask,
+          because the power rules are evaluated from it, so all sixteen shapes
+          get a tile and the renderer draws the one the simulation is using. Of
+          this machine's 189,125 wires, 118,315 run north–south (the collectors)
+          and 64,464 east–west (the rails), which is the architecture showing
+          through the texture.</p>
         <p class="small">Signal <b>level</b> is height as well as colour — a line
           at 15 stands three times as tall as one at 1, so a wavefront is a ridge
           that travels. Every lit torch and lamp gets an additive disc, and its
@@ -1206,18 +1219,146 @@ const cv=document.getElementById("cv");
 // on. Anything reading pixels back must draw and read in the same task.
 const gl=cv.getContext("webgl",{antialias:true,alpha:false});
 const deriv=gl.getExtension("OES_standard_derivatives");
+/* ---- textures, at Minecraft's resolution, drawn rather than loaded ----
+
+   Every block face is a **16 x 16 texture**, sampled with nearest-neighbour so
+   a texel is a texel. There is still no asset anywhere on this page: the atlas
+   is drawn into a Uint8Array at load, which is a few hundred lines of pixel art
+   in code and about a millisecond.
+
+   Redstone dust is the reason this is worth doing rather than a flat colour
+   with noise on it. Dust in Minecraft is not a blob — it *points*, and which way
+   it points is the single most important thing about a piece of wire: a dot
+   powers nothing horizontally, a straight line powers the block behind it, and
+   a cross carries in four directions. The simulator already computes that mask
+   (`eng.points`, four bits, one per horizontal direction) because the power
+   rules depend on it, and `tests/test_minecraft_rules.py` checks it against the
+   Python engine tick for tick. So all sixteen shapes get their own tile and the
+   renderer draws the one the simulator is actually using.
+
+   Tiles are 16x16 in an 8x8 grid: 128x128, RGBA, with alpha 0 where the wire
+   is not, so dust reads as wire on a floor rather than a slab of paint. */
+const TX = 16, ATLAS_TILES = 8, ATLAS_PX = TX * ATLAS_TILES;
+const T_SOLID = 0, T_GLASS = 1, T_LAMP = 2, T_TORCH = 3, T_REP = 4,
+      T_CMP = 5, T_LEVER = 6, T_DUST = 8;      // T_DUST + mask, 16 of them
+
+function makeAtlas(){
+  const px = new Uint8Array(ATLAS_PX * ATLAS_PX * 4);
+  // tiles are written in a normalised space: v is a shade 0..1 and a is alpha,
+  // and the instance colour does the rest, so one tile serves every state a
+  // block has — a lit torch and a burnt-out one differ in colour, not in shape
+  const put = (tile, x, y, v, a = 1) => {
+    const ox = (tile % ATLAS_TILES) * TX, oy = ((tile / ATLAS_TILES) | 0) * TX;
+    const o = ((oy + y) * ATLAS_PX + ox + x) * 4;
+    px[o] = px[o + 1] = px[o + 2] = Math.max(0, Math.min(255, v * 255)) | 0;
+    px[o + 3] = a * 255;
+  };
+  const fill = (tile, fn) => {
+    for (let y = 0; y < TX; y++) for (let x = 0; x < TX; x++) {
+      const r = fn(x, y);
+      if (r === null) put(tile, x, y, 0, 0); else put(tile, x, y, r);
+    }
+  };
+  // a deterministic per-texel hash, so the same tile is the same every load
+  const h = (x, y, s) => {
+    const v = Math.sin((x * 127.1 + y * 311.7 + s * 74.7)) * 43758.5453;
+    return v - Math.floor(v);
+  };
+
+  // stone: three shades in irregular clumps, which is what stops a 418-block
+  // slab reading as one bar of paint
+  fill(T_SOLID, (x, y) => {
+    const n = h(x, y, 1) * 0.6 + h((x / 2) | 0, (y / 2) | 0, 2) * 0.4;
+    return 0.72 + (n < 0.34 ? -0.12 : n > 0.74 ? 0.12 : 0) + h(x, y, 3) * 0.05;
+  });
+  // glass: a frame with a couple of highlights, mostly open
+  fill(T_GLASS, (x, y) => {
+    const edge = x === 0 || y === 0 || x === TX - 1 || y === TX - 1;
+    if (edge) return 0.95;
+    if ((x === 3 && y < 6) || (y === 3 && x > 9)) return 0.85;
+    return 0.55;
+  });
+  // lamp: a lattice of four panes
+  fill(T_LAMP, (x, y) => {
+    const gx = x % 8, gy = y % 8;
+    const bar = gx === 0 || gy === 0 || gx === 7 || gy === 7;
+    return bar ? 0.55 : 0.9 + h(x, y, 5) * 0.1;
+  });
+  // torch: a stick with a head, drawn on a transparent tile so the post reads
+  fill(T_TORCH, (x, y) => {
+    if (x >= 6 && x <= 9 && y >= 6) return 0.45 + h(x, y, 7) * 0.12;  // stick
+    if (x >= 5 && x <= 10 && y >= 2 && y <= 6) return 1.0;            // head
+    return null;
+  });
+  // repeater and comparator: a smooth slab with the torches that mark them
+  const slab = (x, y) => 0.66 + h(x, y, 11) * 0.08;
+  fill(T_REP, (x, y) => {
+    if (x >= 6 && x <= 9 && (y >= 2 && y <= 5)) return 1.0;
+    if (x >= 6 && x <= 9 && (y >= 10 && y <= 13)) return 1.0;
+    return slab(x, y);
+  });
+  fill(T_CMP, (x, y) => {
+    if (x >= 6 && x <= 9 && y >= 2 && y <= 5) return 1.0;
+    if (x >= 2 && x <= 5 && y >= 10 && y <= 13) return 1.0;
+    if (x >= 10 && x <= 13 && y >= 10 && y <= 13) return 1.0;
+    return slab(x, y);
+  });
+  // lever: a base plate with a handle across it
+  fill(T_LEVER, (x, y) => {
+    if (y >= 5 && y <= 10 && x >= 2 && x <= 13) return 0.6 + h(x, y, 13) * 0.1;
+    if (x >= 6 && x <= 9) return 1.0;
+    return null;
+  });
+
+  /* Dust. Bit 0 is north (-Z), 1 south (+Z), 2 west (-X), 3 east (+X), which is
+     the simulator's own `DIRV` order. The tile is drawn looking *down* on the
+     block, so north is -y in texture space and west is -x.
+
+     A dot is four texels in the middle. An arm is a two-texel band running from
+     the middle out to the edge. Mask 0 is the dot alone — dust with nothing to
+     connect to, which powers nothing horizontally and is worth being able to
+     see at a glance. */
+  for (let mask = 0; mask < 16; mask++) {
+    fill(T_DUST + mask, (x, y) => {
+      const mid = x >= 7 && x <= 8, midY = y >= 7 && y <= 8;
+      if (mid && midY) return 1.0;                       // the dot
+      if (mask & 1 && mid && y < 7) return 0.92;         // north
+      if (mask & 2 && mid && y > 8) return 0.92;         // south
+      if (mask & 4 && midY && x < 7) return 0.92;        // west
+      if (mask & 8 && midY && x > 8) return 0.92;        // east
+      // a one-texel skirt, so a wire has an edge instead of a hard cut
+      const near = (mask & 1 && x >= 6 && x <= 9 && y < 7)
+                || (mask & 2 && x >= 6 && x <= 9 && y > 8)
+                || (mask & 4 && y >= 6 && y <= 9 && x < 7)
+                || (mask & 8 && y >= 6 && y <= 9 && x > 8)
+                || (x >= 6 && x <= 9 && y >= 6 && y <= 9);
+      return near ? 0.6 : null;
+    });
+  }
+  return px;
+}
+
 const VS=`attribute vec3 aPos;attribute vec3 aNorm;attribute vec3 iOff;
-attribute vec3 iScale;attribute vec3 iCol;uniform mat4 uMVP;uniform float uYMax;
+attribute vec3 iScale;attribute vec3 iCol;attribute float iTile;
+uniform mat4 uMVP;uniform float uYMax;
 varying vec3 vN;varying vec3 vC;varying float vD;varying vec3 vW;
-void main(){vN=aNorm;vC=iCol;
+varying vec3 vU;varying float vT;
+void main(){vN=aNorm;vC=iCol;vT=iTile;
   if(iOff.y>uYMax){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
   vec3 p=aPos*iScale+iOff;
   vW=p;                       // world position, in blocks, for the block grid
+  // Texture coordinates in *box* space, scaled so a box bigger than a block
+  // repeats the texture once per block and a box smaller than one stretches it
+  // across itself. That is one max() and it covers both: a 418-block merged
+  // floor slab gets 418 copies of the stone tile, and a torch 0.24 wide gets
+  // one whole torch.
+  vU=(aPos+0.5)*max(iScale,vec3(1.0));
   gl_Position=uMVP*vec4(p,1.0);
   vD=gl_Position.w;}`;
 
-/* Voxel shading, in six parts, all of it per-fragment arithmetic — there is no
-   second pass anywhere in this page and no texture of any kind.
+/* Voxel shading, all of it per-fragment in the one pass that was already
+   there. There is no second pass anywhere in this page, and the only texture is
+   the 16x16 atlas above, which the page draws for itself at load.
 
    Face light: Minecraft shades a block face by which way it points — top
    brightest, bottom darkest, the two horizontal axes in between — and nothing
@@ -1250,8 +1391,25 @@ void main(){vN=aNorm;vC=iCol;
 const FS=(deriv?"#extension GL_OES_standard_derivatives : enable\n":"")+`
 precision mediump float;
 varying vec3 vN;varying vec3 vC;varying float vD;varying vec3 vW;
+varying vec3 vU;varying float vT;
 uniform float uFogNear;uniform float uFogFar;uniform vec3 uBg;uniform vec3 uHalf;
 uniform vec3 uEye;uniform vec2 uRes;uniform vec3 uSky;
+uniform sampler2D uAtlas;uniform vec3 uAtlasK;   // texels, tiles, atlas pixels
+/* One 16x16 tile, nearest sampled.
+
+   The face's own two axes pick the texture coordinate — top and bottom faces
+   read (x, z), the east/west faces read (z, y), north/south read (x, y) — so a
+   stretched run tiles correctly along whichever way it was stretched, and a
+   block's texture lands where its blocks are.
+
+   The texel is snapped and then addressed at its own centre inside the tile,
+   which is what keeps a neighbouring tile out of the sample without any padding
+   between them. */
+vec4 tile(vec3 n,vec3 uvw,float t){
+  vec2 uv=abs(n.y)>0.5?uvw.xz:(abs(n.x)>0.5?uvw.zy:uvw.xy);
+  vec2 texel=floor(fract(uv)*uAtlasK.x);
+  vec2 org=vec2(mod(t,uAtlasK.y),floor(t/uAtlasK.y))*uAtlasK.x;
+  return texture2D(uAtlas,(org+texel+0.5)/uAtlasK.z);}
 uniform sampler2D uLight;uniform vec4 uLightA;uniform vec4 uLightB;
 /* Coloured light, out of a volume.
 
@@ -1286,6 +1444,12 @@ float emitLum(vec3 c){
   return smoothstep(0.42,0.92,dot(c,vec3(0.3,0.6,0.1)));}
 void main(){
   vec3 n=normalize(vN);
+  vec4 tex=tile(n,vU,vT);
+  // alpha 0 is "no block here" — the gap between a wire's arms, the air beside
+  // a torch's stick. Dropping the fragment shows what is behind it, which for
+  // dust is the floor it is lying on, which is the point of drawing wire shapes
+  // at all.
+  if(tex.a<0.5)discard;
   vec3 V=normalize(uEye-vW);
   vec3 Lk=normalize(vec3(0.45,0.85,0.28));
   float face=n.y>0.5?1.0:(n.y<-0.5?0.58:(abs(n.x)>0.5?0.70:0.84));
@@ -1293,7 +1457,7 @@ void main(){
   float fill=max(dot(n,normalize(vec3(-0.5,0.25,-0.7))),0.0);
   // hemispheric ambient: cool from the sky, warm from the floor
   vec3 amb=mix(vec3(0.34,0.30,0.28),vec3(0.60,0.66,0.76),n.y*0.5+0.5);
-  vec3 c=vC*face*(0.50+0.52*key+0.16*fill)*(0.72+0.62*amb);
+  vec3 c=vC*tex.r*face*(0.50+0.52*key+0.16*fill)*(0.72+0.62*amb);
 
   vec3 f=fract(vW+uHalf);
   vec3 d=min(f,1.0-f);
@@ -1304,16 +1468,11 @@ void main(){
   float ao=q.x*q.y*q.z;                   // twice as dark where two edges meet
   c*=mix(0.80,1.0,ao*ao*(3.0-2.0*ao));
 
-  // Texture, from a hash rather than an image. Two scales: one value per block
-  // cell, so no two blocks in a slab are the same shade, and a finer grain
-  // inside the cell. It is the per-cell term that does the work — a stone floor
-  // in Minecraft is not one colour and a floor that is reads as a bar of paint.
-  vec3 cell=floor(vW+uHalf);
-  // two octaves, not three: the third was worth 0.035 of amplitude and a third
-  // of the hash cost, and a hash is a sine
-  float g0=hash3(cell);
-  float g1=hash3(floor((vW+uHalf)*4.0));
-  float grain=(g0-0.5)*0.14+(g1-0.5)*0.07;
+  // The tile carries the detail inside a block now, so what is left for the
+  // hash is variation *between* blocks — which Minecraft does not have and this
+  // machine needs, because it is a quarter of a million identical stone cubes
+  // and a slab of them all at one value reads as a bar of paint.
+  float grain=(hash3(floor(vW+uHalf))-0.5)*0.10;
   c*=1.0+grain*(1.0-emitLum(vC));
 `+(deriv?`
   float w=max(length(vec2(dFdx(e),dFdy(e)))*1.6,0.006);
@@ -1365,7 +1524,7 @@ gl.linkProgram(prog);gl.useProgram(prog);
 const ext=gl.getExtension("ANGLE_instanced_arrays");
 const A={pos:gl.getAttribLocation(prog,"aPos"),norm:gl.getAttribLocation(prog,"aNorm"),
   off:gl.getAttribLocation(prog,"iOff"),scale:gl.getAttribLocation(prog,"iScale"),
-  col:gl.getAttribLocation(prog,"iCol")};
+  col:gl.getAttribLocation(prog,"iCol"),tile:gl.getAttribLocation(prog,"iTile")};
 const U={mvp:gl.getUniformLocation(prog,"uMVP"),
   ymax:gl.getUniformLocation(prog,"uYMax"),
   fogNear:gl.getUniformLocation(prog,"uFogNear"),
@@ -1377,7 +1536,21 @@ const U={mvp:gl.getUniformLocation(prog,"uMVP"),
   sky:gl.getUniformLocation(prog,"uSky"),
   light:gl.getUniformLocation(prog,"uLight"),
   lightA:gl.getUniformLocation(prog,"uLightA"),
-  lightB:gl.getUniformLocation(prog,"uLightB")};
+  lightB:gl.getUniformLocation(prog,"uLightB"),
+  atlas:gl.getUniformLocation(prog,"uAtlas"),
+  atlasK:gl.getUniformLocation(prog,"uAtlasK")};
+
+// the atlas itself: drawn once, never touched again, nearest so a texel is a
+// texel rather than a smear
+const atlasTex=gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D,atlasTex);
+gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,ATLAS_PX,ATLAS_PX,0,gl.RGBA,
+              gl.UNSIGNED_BYTE,makeAtlas());
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
 const CV=[],CN=[],CI=[];
 [[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
  [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
@@ -1393,7 +1566,8 @@ const nbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,nbo);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(CN),gl.STATIC_DRAW);
 const ibo=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(CI),gl.STATIC_DRAW);
-const offBuf=gl.createBuffer(),scaleBuf=gl.createBuffer(),colBuf=gl.createBuffer();
+const offBuf=gl.createBuffer(),scaleBuf=gl.createBuffer(),colBuf=gl.createBuffer(),
+      tileBuf=gl.createBuffer();
 gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);
 function mul(a,b){const o=new Float32Array(16);
   for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;
@@ -1409,7 +1583,7 @@ function lookAt(e,c,u){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
     -dot(x,e),-dot(y,e),-dot(z,e),1]);}
 
 let world,eng,circ;
-let inst,instOf,offs,scales,cols;
+let inst,instOf,offs,scales,cols,tiles;
 const FOV=0.85;
 const cam={az:1.62,el:0.80,dist:1.0};
 let target=[0,0,0];
@@ -1461,7 +1635,10 @@ function shape(j,i){
   if(k===K_WIRE){
     const t=w.power[i]/15;
     const h=0.05+0.25*t;
-    scales[j*3]=0.30+0.12*t;scales[j*3+2]=0.30+0.12*t;
+    // Dust covers its whole cell, because the *texture* is what gives it a
+    // shape now. A 0.34-wide box could only ever be a blob; a full cell with an
+    // alpha-cut wire tile is a wire, and its arms line up with its neighbours'.
+    scales[j*3]=1;scales[j*3+2]=1;
     scales[j*3+1]=h;
     offs[j*3+1]=by+DUST_FLOOR+h/2;
     return;
@@ -1484,6 +1661,23 @@ function shape(j,i){
     scales[j*3+1]=h;
     offs[j*3+1]=by-0.5+h/2;
   }
+}
+
+/* Which tile a block draws with. Everything but dust is one tile per kind —
+   state lives in the colour, so a lit torch and a burnt-out one are the same
+   sixteen texels at different brightness. Dust is the exception and the reason
+   the atlas exists: its tile is the *connection mask the simulator computed*,
+   so what you see is which way the wire actually points. */
+function tileOf(w,i){
+  const k=w.kind[i];
+  if(k===K_WIRE)return T_DUST+(eng.points[i]&15);
+  if(k===K_GLASS)return T_GLASS;
+  if(k===K_LAMP)return T_LAMP;
+  if(k===K_TORCH)return T_TORCH;
+  if(k===K_REP)return T_REP;
+  if(k===K_CMP)return T_CMP;
+  if(k===K_LEVER)return T_LEVER;
+  return T_SOLID;
 }
 
 const _c=[0,0,0];
@@ -1566,6 +1760,7 @@ function buildInstances(){
 
   inst=keep;const c=keep.length;
   offs=new Float32Array(c*3);scales=new Float32Array(c*3);cols=new Float32Array(c*3);
+  tiles=new Uint8Array(c);
   const[dx,dy,dz]=w.dims;
   for(let j=0;j<c;j++){
     const i=keep[j],k=w.kind[i],lx=runs[j],lz=runsZ[j];
@@ -1574,13 +1769,20 @@ function buildInstances(){
     offs[j*3+2]=w.bz[i]+(lz-1)/2-dz/2;
     let sc=[1,1,1];
     if(k===K_SOLID)sc=[lx,1,lz];
-    else if(k===K_WIRE)sc=[0.34,0.07,0.34];
+    else if(k===K_WIRE)sc=[1,0.07,1];
     else if(k===K_TORCH)sc=[0.24,0.7,0.24];
     else if(k===K_REP||k===K_CMP)sc=[0.9,0.22,0.9];
     else if(k===K_LEVER)sc=[0.56,0.34,0.56];
     else if(k===K_GLASS){sc=[1,0.14,1];offs[j*3+1]-=0.43;}   // a floor plate
     scales.set(sc,j*3);
+    tiles[j]=tileOf(w,i);
   }
+  // Static: `tileOf` reads the block's kind and the connection mask the
+  // simulator computed at compile time, and neither moves for the life of the
+  // world. So it is uploaded once here and left out of the per-tick path
+  // entirely — state is carried by the colour, which is what does change.
+  gl.bindBuffer(gl.ARRAY_BUFFER,tileBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,tiles,gl.STATIC_DRAW);
   recent.clear();fires.clear();dirty.clear();
   buildGlow();buildLightGrid();
   repaintAll();
@@ -1666,6 +1868,10 @@ function draw(){
   gl.uniform1f(U.fogFar,d*2.1);
   gl.uniform3f(U.bg,bg[0]/255,bg[1]/255,bg[2]/255);
   gl.uniform3f(U.half,dx/2,dy/2,dz/2);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D,atlasTex);
+  gl.uniform1i(U.atlas,1);
+  gl.uniform3f(U.atlasK,TX,ATLAS_TILES,ATLAS_PX);
   gl.uniform3f(U.eye,eye[0],eye[1],eye[2]);
   gl.uniform2f(U.res,cv.width,cv.height);
   // The sky the far distance fades toward when you look up into it. It has to
@@ -1687,6 +1893,9 @@ function draw(){
     gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(vbo,A.pos,0);bind(nbo,A.norm,0);
   bind(offBuf,A.off,1);bind(scaleBuf,A.scale,1);bind(colBuf,A.col,1);
+  gl.bindBuffer(gl.ARRAY_BUFFER,tileBuf);gl.enableVertexAttribArray(A.tile);
+  gl.vertexAttribPointer(A.tile,1,gl.UNSIGNED_BYTE,false,0,0);
+  ext.vertexAttribDivisorANGLE(A.tile,1);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
   ext.drawElementsInstancedANGLE(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0,inst.length);
   drawGlow();

@@ -1360,3 +1360,89 @@ volume, and that a dust cell changing does **not** ask it to rebuild.
 
 Suite: 12 modules, all green, including the new one. The browser and touch
 suites pass, and the machine is block-for-block the same as before the pass.
+
+## 21. Sixteen by sixteen, and dust that points — **measured**
+
+Blocks were a flat colour with a hash of noise on them. They are now a **16×16
+texture per face**, at Minecraft's own resolution, sampled with nearest
+filtering so a texel is a texel and not a smear. There is still no asset
+anywhere in this project: the atlas is *drawn into a `Uint8Array` at load*, a
+page of pixel art expressed as code, 128×128 RGBA, about a millisecond.
+
+That is worth doing on its own — a quarter of a million identical stone cubes
+want texture, not a tint. But the reason it is worth doing *here* is dust.
+
+### A wire is not a blob
+
+Redstone dust in Minecraft **points**, and which way it points is not
+decoration. §2's rule table has it: *0 connections = dot, which powers nothing
+horizontally; 1 connection = a straight line, so it powers the block behind it
+too.* That distinction is load-bearing — §9's transmission line exists because a
+sandwich's front block only works when the dust before it *points at it*, and
+two of the compiler's placement rules are there because a tapped cell already
+points sideways and so cannot point forward. Getting that wrong left blocks, and
+everything past them, silently dead.
+
+The simulator has always computed the mask, because the power rules are
+evaluated from it, and `tests/test_minecraft_rules.py` checks it against the
+Python engine tick for tick. So there was a four-bit connection mask sitting in
+the renderer's own engine, describing the single most important property of the
+thing being drawn, and the renderer was drawing a 0.34-block blob.
+
+Now all sixteen shapes get a tile — dot, four half-lines, two straight runs, four
+corners, four T junctions and the cross — and dust fills its cell so its arms
+line up with its neighbours'. `check_preview` asserts every wire's tile against
+`eng.points`, which checks the drawing against the *simulation* rather than
+against itself:
+
+```
+dust: 189,125 wires, 9 distinct shapes, every one matching eng.points;
+      182,779 straight, 0 dots (commonest: 3×118,315  12×64,464  14×1,541  13×1,454)
+```
+
+Mask 3 is north–south and mask 12 is east–west. **118,315 wires run along Z and
+64,464 along X** — which is the architecture of §4 showing through the texture:
+collectors run along Z, rails run along X, and the 3,000 T junctions are where
+the taps branch off them. Nothing was told to produce that; it is what the
+machine is, drawn correctly for the first time.
+
+### How it fits the geometry that was already there
+
+Two problems, one line each.
+
+**Merged runs.** Half the geometry is stretched boxes (§16) — a floor slab 418
+blocks long is one instance. A texture stretched across it would be one enormous
+smeared stone block. So the texture coordinate is taken in *box* space and
+scaled by `max(iScale, 1.0)`: a box bigger than a block repeats the texture once
+per block, a box smaller than one stretches it across itself. A 418-block slab
+gets 418 copies of the stone tile; a torch 0.24 wide gets one whole torch.
+
+**Which two axes.** A face reads the two axes it lies in — top and bottom take
+(x, z), east and west take (z, y), north and south take (x, y) — so a run tiles
+along whichever way it was stretched.
+
+The texel is snapped and then addressed at *its own centre* inside its tile,
+which keeps the neighbouring tile out of the sample with no padding between
+them at all.
+
+### What it costs
+
+| | before | after |
+|---|---|---|
+| instance rebuild (touch profile) | 81 ms | **71–81 ms** |
+| per-tick upload | 3 buffers | **3 buffers** |
+| atlas | — | 128×128, built once |
+
+The tile index is a **static** per-instance byte: a block's kind never changes
+and neither does its connection mask, so it is filled and uploaded once at build
+and left out of the per-tick path entirely — state is carried by the colour,
+which is the thing that actually moves. Written as a float and pushed through
+the dirty ranges first, it cost 30 ms of every rebuild for nothing.
+
+The honest cost is in the fragment shader: a texture fetch, and an `alpha < 0.5
+→ discard` so the gaps between a wire's arms show the floor underneath rather
+than a slab of paint. Discard is what makes the shapes read, and it is also what
+costs — it takes early-Z off the whole pass. In this container, which rasterises
+in software, boot went from about 5.1 s to about 5.8 s; on a real GPU that is
+fragment work of the kind a GPU exists to absorb, and the deterministic figure
+above — the rebuild, which is CPU — did not move.
