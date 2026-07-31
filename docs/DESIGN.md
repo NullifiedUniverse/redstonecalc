@@ -145,17 +145,18 @@ The **ripple** baseline uses `C[i+1] = G[i] + P[i]·C[i]`, two stages per bit.
 
 ## 6. Measured results
 
-All figures from the simulator, on placed blocks.
+All figures from the simulator, on placed blocks, printed by
+`tests/test_alu.py`, which builds each of the four and drives them:
 
 | Width | Carry | Gates | Depth | Blocks | Repeaters | Worst-case settle |
 |---|---|---|---|---|---|---|
-| 4 | ripple | 409 | 16 | 36,692 | 1,249 | 108 gt = 5.40 s |
-| 4 | **CLA** | **337** | **12** | 39,542 | 1,306 | **108 gt = 5.40 s** |
-| 8 | ripple | 1,093 | 24 | 115,668 | 3,979 | 190 gt = 9.50 s |
-| 8 | **CLA** | **723** | **14** | 123,354 | 3,996 | **186 gt = 9.30 s** |
+| 4 | ripple | 409 | 16 | 33,966 | 1,154 | 156 gt = 7.80 s |
+| 4 | **CLA** | **337** | **12** | 37,434 | 1,249 | **144 gt = 7.20 s** |
+| 8 | ripple | 1,093 | 24 | 104,160 | 3,549 | 284 gt = 14.20 s |
+| 8 | **CLA** | **723** | **14** | 111,724 | 3,676 | **218 gt = 10.90 s** |
 
-(After the transmission-line change in §9. Before it: 5,179 repeaters and
-234 gt for the 8-bit CLA.)
+(After the transmission-line change in §9 and the gate pitch in §18. Before §9:
+5,179 repeaters and 234 gt for the 8-bit CLA.)
 
 Correctness:
 
@@ -166,9 +167,9 @@ Correctness:
 
 ### The finding that matters
 
-CLA is **1.7× shallower and 1.5× smaller in gate count** at 8 bits, but only
-**1.02× faster on the wall clock**. The logical depth of 14 stages should cost
-14 redstone ticks; the machine actually takes 117. **Interconnect, not gate
+CLA is **1.71× shallower and 1.51× smaller in gate count** at 8 bits, but only
+**1.30× faster on the wall clock**. The logical depth of 14 stages should cost
+14 redstone ticks; the machine actually takes 109. **Interconnect, not gate
 depth, dominates redstone latency.** Every repeater needed to keep dust alive
 over distance costs a full redstone tick, and a wide stage needs a lot of them.
 
@@ -327,7 +328,7 @@ operate, and the torch-free tap in the plan is what should halve it.
 
 ## 11. Mk III — ten bits, and four bugs that all looked like nothing
 
-The 10-bit machine (`rscalc/machine.py`) is 598,230 blocks: an 8-operation ALU,
+The 10-bit machine (`rscalc/machine.py`) is 464,366 blocks: an 8-operation ALU,
 a combinational binary-to-BCD converter, four seven-segment decoders, a 32-net
 loom and four lamp digits with a flag row, driven by 28 levers on one wall — 20
 operand bits and the 8 one-hot operation keys (§15). It runs at repeater
@@ -405,6 +406,13 @@ were already ANDs.
 
 ## 12. Where Mk III's size goes — the Z ratchet
 
+> **Built, in §18.** The fix this section proposed is in: alternating the
+> collector direction stage by stage took the machine from **1,825 blocks deep
+> to 973** and 90 game ticks off the answer. The numbers below are the *before*,
+> kept because they are what made the case. §18 also has the two things this
+> section did not anticipate — why it has to alternate per stage rather than per
+> gate, and why it is off by default for anything shallower.
+
 A gate's collector runs along Z from its first tap to an exit, and that exit
 must sit **past the gate's own last tap**, or the collector would not reach it.
 The exit then becomes a rail for the next stage, whose gates tap it, whose exits
@@ -423,11 +431,11 @@ The widest stage has 119 gates and needs **476 blocks of Z**. The machine is
 block of drift lengthens the collectors crossing it, which is where the
 repeaters go.
 
-The fix is specific and not yet built: **alternate the collector direction stage
-by stage**, placing exits below the taps on odd stages and above on even ones,
-so Z oscillates inside a band set by the widest stage instead of ratcheting with
-depth. That is the largest remaining size win, and on this architecture size is
-latency.
+The fix is specific: **alternate the collector direction stage by stage**,
+placing exits below the taps on odd stages and above on even ones, so Z
+oscillates inside a band set by the widest stage instead of ratcheting with
+depth. It was the largest remaining size win, and on this architecture size is
+latency. §18 built it.
 
 ## 13. What Mk III costs to keep stable — **measured**
 
@@ -443,7 +451,7 @@ control wall (§15) — which matters, because that wall added 196 torches:
 |---|---|
 | 2 (4 gt) | 2/16 correct, **146 torches burned out** |
 | 3 (6 gt) | 16/16 correct, but **one torch burned out** on the ordinary sequence |
-| **4 (8 gt)** | **16/16 correct, none burned**, 2,640 gt to the answer |
+| **4 (8 gt)** | **16/16 correct, none burned**, 2,374 gt to the answer |
 
 The middle row moved. On the build before the control wall, delay 3 was clean
 over the same vectors and only failed when handed a hostile sequence; 196 more
@@ -698,7 +706,7 @@ simulation it was displaying.
 
 ### Drawing half of nothing
 
-The world is 598,230 blocks, and **324,511 of them are plain structure**:
+The world is 464,366 blocks, and **253,517 of them are plain structure**:
 identical grey cubes that never change colour, never change shape, and exist
 only to hold dust up. One instance each is a third of a million draw
 instances spent on scenery.
@@ -711,13 +719,13 @@ lost, because the cubes were identical:
 
 | | instances |
 |---|---|
-| one per block | 598,230 |
-| after merging runs along X | 494,561 |
-| **after merging runs along Z as well** | **310,407** |
-| structure hidden entirely (`circuit only`) | 273,719 |
+| one per block | 464,366 |
+| after merging runs along X | 383,873 |
+| **after merging runs along Z as well** | **243,475** |
+| structure hidden entirely (`circuit only`) | 210,849 |
 
 **Just under half the geometry, for about forty lines.** The longest slab is
-1,817 blocks — a collector floor running nearly the full depth of the machine,
+957 blocks — a collector floor running nearly the full depth of the machine,
 which is §12's Z ratchet showing up in the render budget too. A test walks a
 sample of every block and asserts it still lies inside the box that claims it,
 because a merge that runs one cell too far is exactly the kind of fault that
@@ -805,11 +813,11 @@ and the check tests controls against their *container* rather than the page.
 
 Three passes over the renderer, each with a number attached.
 
-**The merge had quietly erased the block seams.** Collapsing 324,511 structure
+**The merge had quietly erased the block seams.** Collapsing 253,517 structure
 blocks into stretched runs halved the geometry (§16) and took the grid with it,
 so a floor read as one smooth bar. The seams are back without a single extra
 triangle: the fragment shader takes the *world* position, and darkens where it
-crosses a block boundary. A 596-block slab gets its lines exactly where its
+crosses a block boundary. A 478-block slab gets its lines exactly where its
 blocks were. Line width comes from the screen-space derivative where the
 extension is available, so seams antialias rather than shimmer and fade out
 with distance instead of turning into moiré.
@@ -828,7 +836,7 @@ instance rebuild and read by nothing but a test. Together those took the
 rebuild from **350 ms to 92 ms** — on top of the 1,771 ms it started at.
 
 **Distance had a floor of 0.02**, and distance is a fraction of the machine's
-longest side — 1,825 blocks — so *you could never get closer than about
+longest side — 973 blocks — so *you could never get closer than about
 thirty-six blocks*, and the close-up views were being clamped out to it without
 saying so. The floor is seven blocks now, and the control-wall view frames what
 it was always trying to frame.
@@ -836,7 +844,7 @@ it was always trying to frame.
 **Framing was fitted to the wrong thing, twice.** Walking every block cost
 199 ms and 300,000 allocations per view change. Eight corners of the world box
 cost nothing — but the box is not the machine, which is a thin diagonal slab
-inside an 865×195×1825 volume, so the fit left it floating in half a frame of
+inside a 747×195×973 volume, so the fit left it floating in half a frame of
 nothing (and, separately, aimed the camera at the empty box centre). One block
 in twenty-three, sampled once and kept: **1 ms, and the machine actually fills
 the view.**
@@ -989,6 +997,146 @@ blocked by the lattice pitch rather than by anything about comparators, and the
 lattice pitch is set by strength and by crossing-freedom, not by taste. The
 remaining wins on this machine are architectural and need no new material at
 all: §12's alternating collector direction, which would unwind the Z ratchet
-that three quarters of the machine's 1,825-block depth is made of, and every
+that three quarters of the machine's 1,825-block depth was made of, and every
 block of that depth is collector, and every collector is repeaters, and
 repeaters are the latency.
+
+## 18. Making it smaller, which on this architecture is making it faster — **measured**
+
+§6 established the finding this whole project keeps running into: **interconnect,
+not gate depth, dominates redstone latency**. Every block of wire between two
+gates is a block a signal has to cross, and every fifteen of them is a repeater,
+and every repeater is a redstone tick. So size is not a separate axis from
+speed. It is the same axis.
+
+Two things came off the machine. Neither is a new block.
+
+| | blocks | X × Y × Z | repeaters | worst settle |
+|---|---|---|---|---|
+| before | 598,230 | 865 × 195 × **1,825** | 14,464 | 2,644 gt |
+| gate pitch 4 → 3 | 551,878 | 747 × 195 × 1,825 | 13,293 | 2,378 gt |
+| **+ alternating collectors** | **464,366** | 747 × 195 × **973** | **12,424** | **2,374 gt** |
+| | **−22%** | **−47% deep** | **−14%** | **−10%** |
+
+16/16 vectors correct with **zero torches burned** at delay 4, lint clean, the
+whole suite green, and the page's boot on a phone went from 5.9 s to 4.5 s
+because there is a fifth less of it to draw.
+
+### The fourth column was slack
+
+A gate owns two columns of X: the one its collector runs down and the one its
+taps stand in. `GATE_PITCH` was 4, so a third column sat empty and a fourth
+belonged to the next gate. The only thing the gap has to guarantee is that a
+tap's strongly powered block never touches the *next* gate's collector — and at
+a pitch of 3 it does not, because the next collector is still two columns away.
+Two is genuinely impossible: at 2 the tap block would touch both collectors and
+inject into the wrong gate.
+
+It is not quite free. A rail runs along X and cannot carry a repeater on a tap
+column, and the block-repeater-block sandwich (§9) needs *three* free cells in a
+row — which at pitch 4 exist between taps and at pitch 3 do not. Rails fall back
+to bare repeaters, which carry 16 blocks per redstone tick instead of 18. They
+are also a quarter shorter, and a quarter off the length beats an eighth off the
+reach: measured on a 6-bit ALU, 2,341 repeaters became 2,142.
+
+### The Z ratchet, unwound
+
+§12 described the problem and the fix, and did not build it. A collector is read
+at one end and that end has to sit past the gate's last tap; read every one at
+its +Z end and every exit lands above every tap. The next stage's rails *are*
+those exits, so its taps sit higher still. Z climbs by the width of a stage,
+every stage, and never comes back — 36 stages of that was 1,825 blocks deep for
+a widest stage needing 476.
+
+Reading alternate stages at their -Z end makes the band oscillate instead of
+accumulate. It is nine lines in `_assign_exits`, `_place_collector` and
+`_place_riser`, and one of them is the whole difficulty:
+
+**It has to be the whole stage, not gate by gate.** A gate's riser climbs to the
+next rail plane through the cell one *behind* its exit, and that cell has to
+stay clear for the dust to step up through it — which is exactly where the next
+stage's taps sit if they come off the same side. So the tap side must follow the
+producing stage's exit direction. Alternating gate by gate would put a -Z rail
+next to a +Z rail four blocks away, and their taps would want the same cell.
+Alternating per stage keeps every rail in a stage on one side and `RAIL_PITCH`
+unchanged.
+
+The first attempt did alternate gate by gate, and the fault it produced is worth
+recording because it looked like nothing: a riser's middle dust and the stub of
+the tap it fed sat one column and one level apart, which is a **dust staircase**,
+so the rail shorted straight into the collector it was supposed to feed through
+a torch. `lint()` saw nothing wrong — every block was legally placed and legally
+supported. Only the arithmetic was wrong, on 4 of 8 vectors of a full adder.
+
+### It only pays if the machine is deep, and that is measured too
+
+Alternating is off by default, and this is why:
+
+| build | depth | Z, one way → alternating | settle, one way → alternating |
+|---|---|---|---|
+| Mk I ALU, 4-bit | 12 | 301 → 213 | 94 → **150 gt** |
+| Mk I ALU, 8-bit | 14 | 569 → 385 | — |
+| **Mk III, 10-bit** | **36** | 1,825 → **973** | 2,378 → **2,374 gt** |
+
+The ratchet's cost grows with depth; the alternation's overhead does not. At 12
+stages it buys 29% of a Z the build was not short of and costs 60% of the
+latency. At 36 it takes nearly half the depth off and pays for itself. So
+`compile_netlist(alternate=…)` is a parameter with a measured default, and
+`build_machine` is the one caller that turns it on.
+
+### What it cost, stated plainly
+
+Both changes trade hazard margin. Shorter rails and re-packed exits move the
+relative arrival times inside a stage, and at low repeater delays there was not
+much margin to move:
+
+| | at delay 4 (Mk III) | at delay 2 (Mk II console) | at delay 1 (Mk I ALU) |
+|---|---|---|---|
+| gate pitch 3 | clean | clean | clean |
+| + alternating | clean | **5 torches burn** | clean |
+
+which is the other half of why alternating is off by default, and why the
+console — which builds at delay 2 and whose test caught this — is untouched.
+
+One test did change. `test_bin_to_bcd_placed` moved all ten of its levers in the
+same game tick; at pitch 3 that costs the converter two torches where at 4 it
+cost none. It now spaces them two game ticks apart, which is what every driver
+in this repository does and still far faster than a hand, and the simultaneous
+case lives on as its own test at delay 3, where this layout takes it cleanly.
+That is a real loss of margin and it is written down rather than absorbed.
+
+### The viewer, again — **measured**
+
+The renderer gained five things, all of them per-fragment arithmetic in the one
+pass that was already there. No second pass, no framebuffer, no texture:
+
+- **Corner shading.** The seams (§16) were drawn from the fragment's distance to
+  its cell boundary, taken as a *minimum* over the face's two axes. A minimum
+  darkens the whole seam evenly. The *product* darkens the corners twice, which
+  is what smooth voxel lighting is, and it turns a merged 478-block slab back
+  into a floor made of separate blocks.
+- **A sheen.** One Blinn-Phong lobe, weak and narrow. Faces now turn as the
+  camera moves, which is most of what says a surface has an orientation.
+- **A sky.** Fog used to fade to the page's own background, which in dark mode
+  is nearly black — so the far end of the machine disappeared rather than
+  receded. It fades toward a real sky colour now, by how far up the view ray is
+  pointing.
+- **A grade.** A filmic shoulder so a lit lamp rolls off instead of clipping to
+  a flat patch, a vignette, and one bit of ordered dither, because a fog ramp
+  across 973 blocks and 8-bit channels bands visibly without it.
+- **Light that looks like light.** Every torch and lamp gets a camera-facing
+  disc, drawn additively with a radial falloff — about two thousand instances
+  against two hundred and forty thousand, and its alpha comes from the
+  instance's own colour, so a torch that has burned out contributes exactly
+  nothing with no bookkeeping of its own.
+
+That last one took three tries and the failures are the interesting part. A
+*cube* grown around the light and shaded by distance from its centre draws
+nothing at all: only the surface is rasterised, and every point on the surface
+of a cube is already at the edge of the sphere inscribed in it. A camera-facing
+disc works — and then, depth-tested, gets sliced by whatever it overlaps, and
+the slice is a hard triangle of light, which is worse than no glow. Soft
+particles want a depth texture this page does not have, so the glow is drawn
+without a depth test and faint, the way real bloom is applied after depth and
+bleeds over what is in front of it. A torch behind a floor reads as a hint of
+one rather than as a torch drawn through a floor.

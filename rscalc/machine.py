@@ -47,9 +47,10 @@ N_GAPS = 3
 DEFAULT_DELAY = 4
 #: worst settle measured over the 79 vectors in `tests/test_machine.py` at
 #: DEFAULT_DELAY — from the operation lever going down to the last lamp holding
-#: still, about two and a quarter minutes in game. Quoted in the build output's
-#: README so a builder knows what they are waiting for.
-SETTLE_GT = 2644
+#: still, just under two minutes in game. Quoted in the build output's README so
+#: a builder knows what they are waiting for. It was 2,644 before §18 took the
+#: Z ratchet out and a quarter of the gate pitch with it.
+SETTLE_GT = 2374
 #: game ticks between one operand lever moving and the next. Zero means every
 #: input changes in the same instant, which no player can do and which the
 #: machine does not survive — see `Machine.set_operands`.
@@ -107,8 +108,12 @@ def build_machine(width=WIDTH, carry="cla", repeater_delay=DEFAULT_DELAY,
     nl = build_netlist(width, carry)
     ndigits = nl.ndigits
     w = World()
+    # `alternate` is the §12 fix, and thirty-six stages is where it pays: it
+    # takes the machine from 1,825 blocks deep to 973 and takes 90 game ticks
+    # off the answer with it. Shallower builds are better off without it — §18.
     L = compile_netlist(nl, w, repeater_delay=repeater_delay,
-                        drive_inputs=False, fixed_input_order=True)
+                        drive_inputs=False, fixed_input_order=True,
+                        alternate=True)
     (x0, y0, z0), (x1, y1, z1) = w.bounds()
 
     # ---- player controls ---------------------------------------------------

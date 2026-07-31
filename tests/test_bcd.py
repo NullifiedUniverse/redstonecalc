@@ -85,10 +85,20 @@ def test_bin_to_bcd_placed():
         rng = random.Random(11)
         cases += [rng.randrange(1 << nbits) for _ in range(24)]
 
+    # Two game ticks between lever flips, which is what every driver in this
+    # repository does and still far faster than a hand — see DESIGN §13. It
+    # used to move all ten in the same instant and survive, and at GATE_PITCH 4
+    # it still would; at 3 the rails are a quarter shorter and the converter has
+    # a torch less of margin against ten hazards firing at once (§18). The
+    # simultaneous case is not gone, it is the delay-3 test below, where this
+    # layout takes it cleanly.
     t0, worst, bad = time.time(), 0, []
     for v in cases:
         for i in range(nbits):
-            e.set_lever(L.levers[f"V{i}"], bool((v >> i) & 1))
+            pos = L.levers[f"V{i}"]
+            if e.w.blocks[pos].on != bool((v >> i) & 1):
+                e.set_lever(pos, bool((v >> i) & 1))
+                e.run(2)
         worst = max(worst, e.run_until_stable(40000))
         got = [sum((1 if e.high(L.outputs[f"D{k}_{j}"]) else 0) << j
                    for j in range(4)) for k in range(nd)]
@@ -100,6 +110,42 @@ def test_bin_to_bcd_placed():
     print(f"  placed converter: {len(cases)} values correct on real blocks, "
           f"{len(w.blocks)} blocks, {x1-x0+1}x{y1-y0+1}x{z1-z0+1}, "
           f"worst settle {worst} gt, {time.time()-t0:.0f}s: OK")
+
+
+def test_bin_to_bcd_every_lever_at_once():
+    """The harshest input there is: all ten bits changing in one game tick.
+
+    No player can do this, and no driver in this repository does it — it is
+    here because it aligns every hazard in the machine at one instant, which is
+    exactly the load that burns torches out. At delay-2 repeaters this converter
+    survives it only at the old gate pitch; at 3, where the rails are a quarter
+    shorter, it needs delay 3. One repeater setting for a quarter of the wire is
+    the trade, and it is worth stating rather than quietly not testing.
+    """
+    nbits = 10
+    nl, bits, digits = _converter(nbits)
+    w = World()
+    L = compile_netlist(nl, w, repeater_delay=3, drive_inputs=True)
+    assert not w.lint(), w.lint()[:4]
+    e = Engine(w)
+    e.initialize_steady()
+    nd = len(digits)
+    rng = random.Random(11)
+    cases = [0, 1023, 999, 512, 511, 1000, 99] + [
+        rng.randrange(1 << nbits) for _ in range(12)]
+    worst, bad = 0, []
+    for v in cases:
+        for i in range(nbits):
+            e.set_lever(L.levers[f"V{i}"], bool((v >> i) & 1))
+        worst = max(worst, e.run_until_stable(40000))
+        got = [sum((1 if e.high(L.outputs[f"D{k}_{j}"]) else 0) << j
+                   for j in range(4)) for k in range(nd)]
+        if got != bcd_reference(v, nd):
+            bad.append((v, got, bcd_reference(v, nd)))
+    assert not e.burned_out, f"{len(e.burned_out)} torches burned out"
+    assert not bad, f"{len(bad)}/{len(cases)} wrong, first {bad[:2]}"
+    print(f"  every lever in one game tick: {len(cases)} values correct at "
+          f"delay 3, worst settle {worst} gt: OK")
 
 
 if __name__ == "__main__":

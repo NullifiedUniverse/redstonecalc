@@ -295,7 +295,7 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
     <div><b id="hBlocks">—</b><span>blocks</span></div>
     <div><b id="hGates">—</b><span>gates</span></div>
     <div><b id="hDepth">—</b><span>stages deep</span></div>
-    <div><b>2,640</b><span>ticks to the answer</span></div>
+    <div><b>2,374</b><span>ticks to the answer</span></div>
     <div><b>0</b><span>torches burned</span></div>
   </div>
 </div></header>
@@ -494,7 +494,7 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <tr><td>3 <small>(6 gt)</small></td>
         <td class="n">16/16 correct, but <b>one torch burned out</b></td></tr>
       <tr class="hi"><td>4 <small>(8 gt)</small></td>
-        <td class="n"><b>16/16 correct, none burned</b>, 2,640 gt to the answer</td></tr>
+        <td class="n"><b>16/16 correct, none burned</b>, 2,374 gt to the answer</td></tr>
     </table></div>
     <div class="col">
       <p>The middle row moved when the control wall was added. Before it, delay 3
@@ -530,8 +530,8 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
     <details>
       <summary>Would more kinds of block help? <b>No</b> — three experiments</summary>
       <div class="in">
-        <p class="small">This machine uses seven kinds of block: 324,511 solid,
-          250,840 dust, 20,644 repeaters, <b>2,024 torches</b>, 121 lamps, 62
+        <p class="small">This machine uses seven kinds of block: 253,517 solid,
+          192,696 dust, 15,918 repeaters, <b>2,024 torches</b>, 121 lamps, 62
           glass, 28 levers. The torch is the only one that can die, and
           <b>1,308 of the 2,024 are inverting taps</b> — at delay 2, 45 of the
           56 that burn are taps and the other 11 are all one structure, the
@@ -661,7 +661,7 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
         <em>those</em> taps. Over 36 stages the Z coordinate ratchets upward and
         never comes back down.</p>
       <p>The widest stage has 119 gates, which needs <b>476 blocks of Z</b>. The
-        machine is <b>1,825 blocks deep</b>. Roughly three quarters of that depth
+        machine was <b>1,825 blocks deep</b>. Roughly three quarters of that depth
         is drift, not logic — and every block of drift lengthens the collectors
         crossing it, which is where the repeaters go.</p>
     </div>
@@ -698,7 +698,7 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <div class="card"><h4>A datapack</h4>
         <p><code>/setblock</code> and <code>/fill</code>, batched so a server can
           run them without stalling, placed relative to wherever you stand. Runs
-          of identical blocks collapse into fills: 598,230 blocks become 85,965
+          of identical blocks collapse into fills: 464,366 blocks become 72,428
           commands.</p></div>
       <div class="card"><h4>One convention to get right</h4>
         <p>Minecraft's repeater <code>facing</code> runs output→input, the
@@ -754,29 +754,48 @@ void main(){vN=aNorm;vC=iCol;
   gl_Position=uMVP*vec4(p,1.0);
   vD=gl_Position.w;}`;
 
-/* Voxel shading, in three parts.
+/* Voxel shading, in six parts, all of it per-fragment arithmetic — there is no
+   second pass anywhere in this page and no texture of any kind.
 
    Face light: Minecraft shades a block face by which way it points — top
    brightest, bottom darkest, the two horizontal axes in between — and nothing
    else says "this is made of blocks" so immediately.
 
-   Block seams: merging 324,511 structure blocks into stretched runs halved the
+   Block seams: merging 253,517 structure blocks into stretched runs halved the
    geometry and quietly took the seams with it, so a floor read as one smooth
-   bar. The grid is in *world* coordinates, so a 596-block slab gets its lines
+   bar. The grid is in *world* coordinates, so a 478-block slab gets its lines
    back in exactly the places the blocks were, for no geometry at all. Line
    width comes from the screen-space derivative where that is available, so the
    seams antialias instead of shimmering, and fade out with distance.
 
-   Emissive: a lit lamp is a light, not a surface. Bright colours keep their
-   own value rather than being shaded down into the scene. */
+   Corner shade: the same in-cell distance the seams are drawn from, taken as a
+   *product* across the face's two axes rather than a minimum. A minimum darkens
+   the whole seam evenly; a product darkens the corners twice, which is what
+   smooth voxel lighting looks like and what makes a flat slab read as a floor
+   of separate blocks rather than a ruled surface.
+
+   Sheen: one Blinn-Phong lobe. Redstone is dust on stone, so it is a narrow,
+   weak highlight — enough to make a face turn as the camera moves, which is
+   most of what tells you a surface has an orientation at all.
+
+   Emissive: a lit lamp is a light, not a surface. Bright colours keep their own
+   value rather than being shaded down into the scene, and they survive the
+   shoulder below with their hue intact.
+
+   Grade: a soft filmic shoulder so a lit lamp rolls off instead of clipping to
+   a flat patch, a vignette, and one bit of ordered dither — a 973-block fog
+   ramp across 8-bit channels bands visibly without it. */
 const FS=(deriv?"#extension GL_OES_standard_derivatives : enable\n":"")+`
 precision mediump float;
 varying vec3 vN;varying vec3 vC;varying float vD;varying vec3 vW;
 uniform float uFogNear;uniform float uFogFar;uniform vec3 uBg;uniform vec3 uHalf;
+uniform vec3 uEye;uniform vec2 uRes;uniform vec3 uSky;
 void main(){
   vec3 n=normalize(vN);
+  vec3 V=normalize(uEye-vW);
+  vec3 Lk=normalize(vec3(0.45,0.85,0.28));
   float face=n.y>0.5?1.0:(n.y<-0.5?0.58:(abs(n.x)>0.5?0.70:0.84));
-  float key=max(dot(n,normalize(vec3(0.45,0.85,0.28))),0.0);
+  float key=max(dot(n,Lk),0.0);
   float fill=max(dot(n,normalize(vec3(-0.5,0.25,-0.7))),0.0);
   // hemispheric ambient: cool from the sky, warm from the floor
   vec3 amb=mix(vec3(0.34,0.30,0.28),vec3(0.60,0.66,0.76),n.y*0.5+0.5);
@@ -786,6 +805,10 @@ void main(){
   vec3 d=min(f,1.0-f);
   vec3 m=1.0-abs(n);                      // ignore the axis the face lies on
   float e=min(mix(1.0,d.x,m.x),min(mix(1.0,d.y,m.y),mix(1.0,d.z,m.z)));
+
+  vec3 q=clamp(mix(vec3(1.0),d*2.2,m),0.0,1.0);
+  float ao=q.x*q.y*q.z;                   // twice as dark where two edges meet
+  c*=mix(0.80,1.0,ao*ao*(3.0-2.0*ao));
 `+(deriv?`
   float w=max(length(vec2(dFdx(e),dFdy(e)))*1.6,0.006);
 `:`
@@ -793,11 +816,26 @@ void main(){
 `)+`
   c*=mix(0.74,1.0,smoothstep(0.0,w,e));
 
-  float lum=dot(vC,vec3(0.3,0.6,0.1));
-  c=mix(c,vC,smoothstep(0.42,0.92,lum)*0.72);
+  float spec=pow(max(dot(n,normalize(V+Lk)),0.0),28.0);
+  c+=vec3(0.9,0.93,1.0)*spec*0.13*ao;
 
+  float lum=dot(vC,vec3(0.3,0.6,0.1));
+  float emit=smoothstep(0.42,0.92,lum);
+  c=mix(c,vC,emit*0.72);
+  c+=vC*emit*emit*0.22;                   // a light reads brighter than white
+
+  // sky above, ground below: the far end of a 973-block machine should not
+  // fade to the same flat tone whichever way you are looking
+  float up=clamp(-V.y*1.6+0.5,0.0,1.0);
+  vec3 far=mix(uBg,uSky,up*0.85);
   float fg=clamp((vD-uFogNear)/max(1.0,uFogFar-uFogNear),0.0,1.0);
-  gl_FragColor=vec4(mix(c,uBg,fg*0.72),1.0);}`;
+  c=mix(c,far,fg*0.72);
+
+  c=c*(1.0+c*0.62)/(1.0+c*0.72);          // shoulder; keeps 0 at 0 and 1 at 1
+  vec2 uv=gl_FragCoord.xy/uRes-0.5;
+  c*=mix(0.89,1.0,smoothstep(1.05,0.28,dot(uv,uv)*2.6));
+  c+=(fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.545)-0.5)/255.0;
+  gl_FragColor=vec4(c,1.0);}`;
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
   if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
 const prog=gl.createProgram();
@@ -813,7 +851,10 @@ const U={mvp:gl.getUniformLocation(prog,"uMVP"),
   fogNear:gl.getUniformLocation(prog,"uFogNear"),
   fogFar:gl.getUniformLocation(prog,"uFogFar"),
   bg:gl.getUniformLocation(prog,"uBg"),
-  half:gl.getUniformLocation(prog,"uHalf")};
+  half:gl.getUniformLocation(prog,"uHalf"),
+  eye:gl.getUniformLocation(prog,"uEye"),
+  res:gl.getUniformLocation(prog,"uRes"),
+  sky:gl.getUniformLocation(prog,"uSky")};
 const CV=[],CN=[],CI=[];
 [[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
  [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
@@ -950,7 +991,7 @@ function paint(j,i){
 }
 
 /* ---- geometry ----
-   Half of this world — 324,511 of 598,230 blocks — is plain structure: identical
+   Half of this world — 253,517 of 464,366 blocks — is plain structure: identical
    grey cubes that never change colour, never change shape and exist only to hold
    dust up. Drawing one instance each is a third of a million draws for scenery.
    Blocks are stored in (y,z,x) order, so a floor slab is a *contiguous run* of
@@ -1018,12 +1059,14 @@ function buildInstances(){
     scales.set(sc,j*3);
   }
   recent.clear();fires.clear();dirty.clear();
+  buildGlow();
   repaintAll();
   const el=$("hInst");
   if(el)el.textContent=c.toLocaleString();
 }
 
 function repaintAll(){
+  glowStale=true;
   for(let j=0;j<inst.length;j++)paint(j,inst[j]);
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
   gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
@@ -1055,7 +1098,7 @@ function uploadRange(lo,hi){
 function flushDirty(){
   if(!dirty.size)return 0;
   const js=[...dirty].sort((a,b)=>a-b);
-  dirty.clear();
+  dirty.clear();glowStale=true;
   for(const j of js)paint(j,inst[j]);
   let lo=js[0],prev=js[0],uploads=0;
   for(let q=1;q<js.length;q++){
@@ -1068,6 +1111,17 @@ function flushDirty(){
 }
 
 /* ---- render ---- */
+//: How far a light bleeds past its own block, in blocks. It is a flat disc
+//: depth-tested against solid geometry, so a big one cuts a hard silhouette
+//: where it crosses a floor — soft particles need a depth texture this page
+//: does not have. Small and faint reads as light; large and bright reads as a
+//: bug.
+const GLOW_GROW=1.15;
+//: and how far toward the camera it floats, to clear the block it sits on
+const GLOW_LIFT=0.0;
+//: anyone who asked their system for reduced motion gets the plain lattice
+const glowOn=!matchMedia("(prefers-reduced-transparency: reduce)").matches;
+let lastMVP=null;
 function draw(){
   // A big scene is fill-bound before it is anything else, and a phone reports
   // dpr 3 — nine times the fragments of dpr 1 for a display it holds at arm's
@@ -1084,19 +1138,140 @@ function draw(){
   const eye=[target[0]+Math.cos(cam.el)*Math.sin(cam.az)*d,
              target[1]+Math.sin(cam.el)*d,
              target[2]+Math.cos(cam.el)*Math.cos(cam.az)*d];
-  gl.uniformMatrix4fv(U.mvp,false,
-    mul(persp(FOV,w/h,R*0.006,R*12),lookAt(eye,target,[0,1,0])));
+  lastMVP=mul(persp(FOV,w/h,R*0.006,R*12),lookAt(eye,target,[0,1,0]));
+  gl.uniformMatrix4fv(U.mvp,false,lastMVP);
   gl.uniform1f(U.ymax,cut);
   gl.uniform1f(U.fogNear,d*0.55);
   gl.uniform1f(U.fogFar,d*2.1);
   gl.uniform3f(U.bg,bg[0]/255,bg[1]/255,bg[2]/255);
   gl.uniform3f(U.half,dx/2,dy/2,dz/2);
+  gl.uniform3f(U.eye,eye[0],eye[1],eye[2]);
+  gl.uniform2f(U.res,cv.width,cv.height);
+  // The sky the far distance fades toward when you look up into it. It has to
+  // be a real step off the page's own background, not a tint of it: in dark
+  // mode the background is nearly black, and fog that fades to nearly black is
+  // just the machine disappearing rather than receding.
+  gl.uniform3f(U.sky,Math.min(1,bg[0]/255+0.085),
+                     Math.min(1,bg[1]/255+0.105),
+                     Math.min(1,bg[2]/255+0.165));
   const bind=(b,l,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
     gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(vbo,A.pos,0);bind(nbo,A.norm,0);
   bind(offBuf,A.off,1);bind(scaleBuf,A.scale,1);bind(colBuf,A.col,1);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
   ext.drawElementsInstancedANGLE(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0,inst.length);
+  drawGlow();
+}
+
+/* ---- emissive glow ----
+   A lit torch is a light, and a light with hard edges is a shape. There is no
+   second pass on this page and no framebuffer to blur, so the glow is geometry:
+   the same cube grown a couple of blocks, drawn additively, with a spherical
+   falloff computed from the fragment's position inside it. It is depth-tested
+   but does not write depth, so a torch behind a floor stays behind it and one
+   in open lattice bleeds into the air around it.
+
+   Only torches and lamps get one — about two thousand instances against three
+   hundred thousand — and the alpha comes from the instance's own colour, so a
+   torch that has burned out or a lamp that is off contributes exactly nothing
+   with no bookkeeping of its own. */
+const GVS=`attribute vec2 aQuad;attribute vec3 iOff;attribute vec3 iScale;
+attribute vec3 iCol;uniform mat4 uMVP;uniform float uYMax;uniform float uGrow;
+uniform vec3 uRight;uniform vec3 uUp;uniform vec3 uToward;uniform float uLift;
+varying vec2 vL;varying vec3 vC;
+void main(){vC=iCol;vL=aQuad;
+  if(iOff.y>uYMax){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
+  float s=max(iScale.x,max(iScale.y,iScale.z))*0.5+uGrow;
+  // lifted toward the camera, because a flat disc sitting exactly on a torch
+  // gets sliced by the block the torch stands on and the slice is a hard
+  // triangle of light. Soft particles want a depth texture; this page has one
+  // pass and no textures, so the disc floats a little clear instead.
+  vec3 c=iOff+uToward*uLift;
+  gl_Position=uMVP*vec4(c+uRight*(aQuad.x*s)+uUp*(aQuad.y*s),1.0);}`;
+const GFS=`precision mediump float;varying vec2 vL;varying vec3 vC;
+void main(){
+  float lum=dot(vC,vec3(0.3,0.6,0.1));
+  float on=smoothstep(0.30,0.74,lum);
+  float r=clamp(1.0-length(vL),0.0,1.0);
+  float a=r*r*on;
+  if(a<=0.004)discard;
+  gl_FragColor=vec4(vC*a*0.26,1.0);}`;
+const gprog=gl.createProgram();
+gl.attachShader(gprog,sh(gl.VERTEX_SHADER,GVS));
+gl.attachShader(gprog,sh(gl.FRAGMENT_SHADER,GFS));
+gl.linkProgram(gprog);
+const GA={quad:gl.getAttribLocation(gprog,"aQuad"),
+  off:gl.getAttribLocation(gprog,"iOff"),
+  scale:gl.getAttribLocation(gprog,"iScale"),
+  col:gl.getAttribLocation(gprog,"iCol")};
+const GU={mvp:gl.getUniformLocation(gprog,"uMVP"),
+  ymax:gl.getUniformLocation(gprog,"uYMax"),
+  grow:gl.getUniformLocation(gprog,"uGrow"),
+  right:gl.getUniformLocation(gprog,"uRight"),
+  up:gl.getUniformLocation(gprog,"uUp"),
+  toward:gl.getUniformLocation(gprog,"uToward"),
+  lift:gl.getUniformLocation(gprog,"uLift")};
+const qvbo=gl.createBuffer(),qibo=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,qvbo);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,qibo);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array([0,1,2,0,2,3]),gl.STATIC_DRAW);
+const gOffBuf=gl.createBuffer(),gScaleBuf=gl.createBuffer(),gColBuf=gl.createBuffer();
+let glowIdx=null,gOff=null,gScale=null,gCol=null,glowStale=true;
+
+function buildGlow(){
+  const w=world,keep=[];
+  for(let j=0;j<inst.length;j++){
+    const k=w.kind[inst[j]];
+    if(k===K_TORCH||k===K_LAMP)keep.push(j);
+  }
+  glowIdx=Int32Array.from(keep);
+  gOff=new Float32Array(keep.length*3);
+  gScale=new Float32Array(keep.length*3);
+  gCol=new Float32Array(keep.length*3);
+  glowStale=true;
+}
+function refreshGlow(){
+  if(!glowStale||!glowIdx)return;
+  glowStale=false;
+  for(let q=0;q<glowIdx.length;q++){
+    const j=glowIdx[q]*3,p=q*3;
+    gOff[p]=offs[j];gOff[p+1]=offs[j+1];gOff[p+2]=offs[j+2];
+    gScale[p]=scales[j];gScale[p+1]=scales[j+1];gScale[p+2]=scales[j+2];
+    gCol[p]=cols[j];gCol[p+1]=cols[j+1];gCol[p+2]=cols[j+2];
+  }
+  for(const[b,a]of[[gOffBuf,gOff],[gScaleBuf,gScale],[gColBuf,gCol]]){
+    gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,a,gl.DYNAMIC_DRAW);}
+}
+function drawGlow(){
+  if(!glowIdx||!glowIdx.length||!glowOn)return;
+  refreshGlow();
+  gl.useProgram(gprog);
+  gl.uniformMatrix4fv(GU.mvp,false,lastMVP);
+  gl.uniform1f(GU.ymax,cut);
+  gl.uniform1f(GU.grow,GLOW_GROW);
+  const b3=basis(cam.az,cam.el);
+  gl.uniform3f(GU.right,b3.right[0],b3.right[1],b3.right[2]);
+  gl.uniform3f(GU.up,b3.up[0],b3.up[1],b3.up[2]);
+  gl.uniform3f(GU.toward,b3.f[0],b3.f[1],b3.f[2]);   // target -> eye
+  gl.uniform1f(GU.lift,GLOW_LIFT);
+  // Depth-tested, the disc gets sliced by whatever it overlaps and the slice is
+  // a hard triangle of light — the one thing worse than no glow. Real bloom is
+  // applied after depth and bleeds over everything in front of it too, so this
+  // does the same: no depth test, and faint enough that a torch behind a floor
+  // reads as a hint of one rather than a torch drawn through a floor.
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+  gl.depthMask(false);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
+  const bind=(b,l,n,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
+    gl.vertexAttribPointer(l,n,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
+  bind(qvbo,GA.quad,2,0);
+  bind(gOffBuf,GA.off,3,1);bind(gScaleBuf,GA.scale,3,1);bind(gColBuf,GA.col,3,1);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,qibo);
+  ext.drawElementsInstancedANGLE(gl.TRIANGLES,6,gl.UNSIGNED_SHORT,0,glowIdx.length);
+  gl.depthMask(true);gl.disable(gl.BLEND);
+  gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);
+  gl.useProgram(prog);
+  for(const l of[GA.quad,GA.off,GA.scale,GA.col])gl.disableVertexAttribArray(l);
 }
 let needsDraw=true,cut=1e9;
 const invalidate=()=>{needsDraw=true;};
@@ -1206,12 +1381,12 @@ function refreshPick(){if(picked>=0)$("inspect").textContent=describe(picked);}
 /* ---- camera ----
    Nothing here snaps any more. Changing view flies to it over half a second,
    a flick keeps spinning and slows down, and two fingers pan as well as pinch —
-   because a machine 1,825 blocks long is something you move around in, not a
+   because a machine 973 blocks long is something you move around in, not a
    diagram you cut to. Anyone who has asked their system not to animate gets the
    old instant behaviour. */
 const REDUCE=matchMedia("(prefers-reduced-motion: reduce)").matches;
 const FLY_MS=560;
-/* Distance is a fraction of the machine's longest side, which is 1,825 blocks —
+/* Distance is a fraction of the machine's longest side, which is 973 blocks —
    so a floor of 0.02 meant you could never get closer than about thirty-six
    blocks, and the close-up views were being clamped out to it without saying
    so. Seven blocks is close enough to read a repeater's delay. */
@@ -1304,7 +1479,7 @@ function frameOn(points,margin,centre,az,el,ms){
 
    Framing on every block cost 200 ms and 300,000 allocations on each view
    change. Framing on the eight corners of the world box costs nothing, but the
-   box is not the machine: this is a thin diagonal slab inside a 865×195×1825
+   box is not the machine: this is a thin diagonal slab inside a 747×195×973
    volume, so fitting the box leaves the machine floating in half a frame of
    nothing. One block in twenty-three is enough to find the silhouette, and it
    is built once. */

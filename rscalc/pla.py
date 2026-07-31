@@ -40,7 +40,17 @@ from .engine import World
 from .netlist import Netlist
 
 RAIL_PITCH = 4       # Z spacing between rails
-GATE_PITCH = 4       # X spacing between collectors
+#: X spacing between collectors. Three is the floor and the floor is reachable:
+#: a gate owns its collector column and the tap column beside it, and the tap's
+#: strongly powered block must not touch the *next* gate's collector. At 3 it
+#: does not — the next collector is two columns away — so the fourth column was
+#: only ever slack. Taking it out costs the rails their block-repeater-block
+#: sandwiches, since three free cells in a row no longer exist between taps, and
+#: a bare repeater carries 16 blocks per redstone tick against the sandwich's
+#: 18. The rails get a quarter shorter in exchange, which is the better trade in
+#: both directions: measured on a 6-bit ALU, 9% fewer blocks and 13% *less*
+#: latency. See §18.
+GATE_PITCH = 3
 STAGE_DY = 4         # Y per logic stage
 MAX_RUN = 10         # collector: max blocks from a tap to the next repeater
 EXIT_GAP = 4         # Z clearance between a gate's last tap and its exit
@@ -52,6 +62,7 @@ class Layout:
         self.pos: dict[int, tuple] = {}      # node idx -> rail start (x, y, z)
         self.levers: dict[str, tuple] = {}
         self.outputs: dict[str, tuple] = {}
+        self.exit_step: dict[int, int] = {}  # gate idx -> which end it is read at
         self.power: dict[int, int] = {}      # node idx -> strength at its source
         self.stats = defaultdict(int)
 
@@ -82,7 +93,18 @@ class Layout:
 
 def compile_netlist(nl: Netlist, world: World | None = None,
                     repeater_delay=1, drive_inputs=True,
-                    fixed_input_order=False) -> Layout:
+                    fixed_input_order=False, alternate=False) -> Layout:
+    """Compile `nl` into blocks in `world`.
+
+    `alternate` reads each stage's collectors at the opposite end from the one
+    below, which stops Z ratcheting with depth (`_assign_exits`). It is off by
+    default because it is not free and does not always pay: it trades hazard
+    margin for depth, and the depth is only worth having once there is enough
+    of it. Measured on four builds — §18 has the table — it takes 47% of the Z
+    off the 36-stage Mk III and makes it faster, and costs the 12-stage Mk I
+    ALU 60% of its latency for 29% of a Z it was not short of. Turn it on when
+    the machine is deep. `build_machine` does.
+    """
     world = world or World()
     L = Layout(world)
     prune(nl)
@@ -101,26 +123,31 @@ def compile_netlist(nl: Netlist, world: World | None = None,
         L.pos[n.idx] = (0, y, RAIL_PITCH * i)
         L.power[n.idx] = 14          # lever sits one block back from the rail
 
+    # Which end each stage's collectors are read at, alternating so Z stops
+    # ratcheting (`_assign_exits`). A stage's taps sit on the side the stage
+    # below it left by; stage 1 reads levers, which have no riser to avoid, so
+    # it starts on the +Z side and the alternation follows from there.
+    exit_step = {s: (1 if (s % 2 or not alternate) else -1)
+                 for s in range(1, depth + 1)}
+    tap_side = {s: (1 if s == 1 else exit_step[s - 1]) for s in
+                range(1, depth + 1)}
+
     for s in range(1, depth + 1):
         gates = [n for n in order[s] if n.kind == "gate"]
         if not gates:
             continue
         rails = _rails_for_stage(nl, s)
+        step, side = exit_step[s], tap_side[s]
 
         # ---- X: one column per gate, in the stage's chosen order
         for i, g in enumerate(gates):
             L.pos[g.idx] = (GATE_PITCH * i, y + 2, None)
 
         # ---- exit Z: just past each gate's last tap, on the rail grid
-        taken = set()
-        for g in sorted(gates, key=lambda g: _max_tap_z(L, g)):
-            want = _max_tap_z(L, g) + EXIT_GAP
-            slot = -(-want // RAIL_PITCH) * RAIL_PITCH        # round up
-            while slot in taken:
-                slot += RAIL_PITCH
-            taken.add(slot)
-            x = L.pos[g.idx][0]
-            L.pos[g.idx] = (x, y + STAGE_DY, slot)
+        for idx, slot in _assign_exits(L, gates, step, side).items():
+            x = L.pos[idx][0]
+            L.pos[idx] = (x, y + STAGE_DY, slot)
+            L.exit_step[idx] = step
 
         # ---- rails
         consumers: dict[int, list] = defaultdict(list)
@@ -144,13 +171,14 @@ def compile_netlist(nl: Netlist, world: World | None = None,
         # ---- collectors, taps and the climb to the next rail plane
         for g in gates:
             gx, _, rail_z = L.pos[g.idx]
-            tap_zs = [L.pos[src][2] + 2 for src, _ in g.taps]
-            z_exit = rail_z - 2
+            tap_zs = [L.pos[src][2] + 2 * side for src, _ in g.taps]
+            z_exit = rail_z - 2 * step
+            z_from = min(tap_zs) if step > 0 else max(tap_zs)
             L.power[g.idx] = _place_collector(
-                L, gx, y + 2, min(tap_zs), z_exit, tap_zs, repeater_delay)
+                L, gx, y + 2, z_from, z_exit, tap_zs, repeater_delay, step)
             for src, inv in g.taps:
-                _place_tap(L, gx, y, L.pos[src][2], inv, repeater_delay)
-            _place_riser(L, gx, y + 2, z_exit)
+                _place_tap(L, gx, y, L.pos[src][2], inv, repeater_delay, side)
+            _place_riser(L, gx, y + 2, z_exit, step)
 
         y += STAGE_DY
 
@@ -204,8 +232,60 @@ def _rails_for_stage(nl: Netlist, s: int):
     return out
 
 
-def _max_tap_z(L: Layout, g):
-    return max(L.pos[src][2] for src, _ in g.taps) + 2
+def _tap_span(L: Layout, g, side=1):
+    zs = [L.pos[src][2] + 2 * side for src, _ in g.taps]
+    return min(zs), max(zs)
+
+
+def _up(z):
+    return -(-z // RAIL_PITCH) * RAIL_PITCH          # round up to the grid
+
+
+def _down(z):
+    return (z // RAIL_PITCH) * RAIL_PITCH            # round down to the grid
+
+
+def _assign_exits(L: Layout, gates, step, side):
+    """Give every gate in a stage an exit slot on the rail grid.
+
+    A collector is read at one end, and that end has to sit past the gate's own
+    last tap — but *which* end is free, and always choosing the same one is what
+    §12's Z ratchet was made of. Read every collector at its +Z end and every
+    exit lands above every tap; the next stage's rails are those exits, so its
+    taps are higher still, and Z climbs by the width of a stage, every stage,
+    and never comes back. Over 36 stages that was three quarters of the
+    machine's depth — and depth is collector, collector is repeaters, and
+    repeaters are the latency.
+
+    So `step` alternates: +1 on one stage, -1 on the next. The band of Z the
+    machine occupies then oscillates inside roughly twice the widest stage
+    instead of accumulating every stage's width in turn.
+
+    It has to be the whole stage, not gate by gate. A gate's riser climbs to the
+    rail plane through the cell one *behind* its exit, and that cell has to stay
+    clear for the dust to step up through it — which is exactly where the next
+    stage's taps would sit if they came off the same side. Taps therefore go on
+    the side the producing stage left by, and a stage whose rails were produced
+    both ways would need taps on both sides of neighbouring rails, which
+    collide at `RAIL_PITCH` 4. One direction per stage keeps every rail's taps
+    on one side and the pitch unchanged.
+
+    Returns ``{gate index: slot}``.
+    """
+    span = {g.idx: _tap_span(L, g, side) for g in gates}
+    pref = {g.idx: (_up(span[i][1] + EXIT_GAP) if step > 0
+                    else _down(span[i][0] - EXIT_GAP))
+            for g in gates for i in (g.idx,)}
+    taken, out = set(), {}
+    # hand them out from the tap span outwards, so a gate is only pushed past
+    # its neighbour when it genuinely collides
+    for g in sorted(gates, key=lambda g: step * pref[g.idx]):
+        slot = pref[g.idx]
+        while slot in taken:
+            slot += step * RAIL_PITCH
+        taken.add(slot)
+        out[g.idx] = slot
+    return out
 
 
 # --- placement --------------------------------------------------------------
@@ -351,29 +431,37 @@ def _worst_exit_power(plan, cells, taps):
 
     Taps that share a downstream repeater all arrive as that repeater's clean
     15, so only the last repeater and any taps after it can be the weakest.
+
+    Distances are counted in *positions along the run*, not in Z, because a
+    collector read at its -Z end runs the other way.
     """
-    end = cells[-1]
+    end = len(cells) - 1
     last_rep = None
-    for z in cells:
+    for i, z in enumerate(cells):
         if plan[z] in ("rep", "blockB"):
-            last_rep = z
+            last_rep = i
     worst = []
     if last_rep is not None:
         worst.append(15 - (end - (last_rep + 1)))
-    for t in taps:
-        if t in plan and (last_rep is None or t > last_rep):
-            worst.append(14 - (end - t))
+    for i, z in enumerate(cells):
+        if z in taps and (last_rep is None or i > last_rep):
+            worst.append(14 - (end - i))
     return min(worst) if worst else 0
 
 
-def _place_collector(L: Layout, x, y, z0, z1, tap_zs, delay):
-    """Dust along +Z at `x`; the wired-OR is read at the +Z end.
+def _place_collector(L: Layout, x, y, z0, z1, tap_zs, delay, step=1):
+    """Dust along Z at `x`; the wired-OR is read at the `step` end.
+
+    `step` is +1 for a collector read at its +Z end and -1 for one read at its
+    -Z end — see `_assign_exits` for why both exist. `z0` is the far end from
+    the exit, so it is the gate's lowest tap going up and its highest going
+    down.
 
     Returns the strength the next rail starts from, so it can budget its own
     repeaters honestly instead of assuming a full 15.
     """
     L.delay = delay
-    cells = list(range(z0, z1 + 1))
+    cells = list(range(z0, z1 + step, step))
     taps = set(tap_zs)
     plan = plan_collector(cells, taps)
 
@@ -390,12 +478,18 @@ def _place_collector(L: Layout, x, y, z0, z1, tap_zs, delay):
         if len(cells) > 1 and cells[-2] not in taps:
             plan[cells[-2]] = "blockA"
         worst = 16
-    _emit_run(L, plan, cells, y, lambda z: (x, y, z), "south")
+    _emit_run(L, plan, cells, y, lambda z: (x, y, z),
+              "south" if step > 0 else "north")
     return 14 if plan[cells[-1]] == "rep" else max(worst - 2, 1)
 
 
-def _place_tap(L: Layout, gx, y, rail_z, inverting, delay):
+def _place_tap(L: Layout, gx, y, rail_z, inverting, delay, side=1):
     """Join a rail to a collector, in either polarity.
+
+    `side` is which way along Z the tap reaches out from its rail — +1 or -1.
+    It is not a free choice per tap: it has to be the side the stage below left
+    by, because the other side is where that stage's risers climb. See
+    `_assign_exits`.
 
     The inverting tap reads the rail through a stub of dust, which hands its
     torch every hazard the rail has, and those torches are where nearly all of
@@ -406,27 +500,32 @@ def _place_tap(L: Layout, gx, y, rail_z, inverting, delay):
     The stub stays.
     """
     tx = gx + 1
+    z1, z2 = rail_z + side, rail_z + 2 * side
     L.stats["taps"] += 1
-    L._floor((tx, y - 1, rail_z + 1))
-    L._floor((tx, y - 1, rail_z + 2))
+    L._floor((tx, y - 1, z1))
+    L._floor((tx, y - 1, z2))
     if inverting:
-        L._dust((tx, y, rail_z + 1))                  # stub, points into base
-        L._solid((tx, y, rail_z + 2))                 # base
-        L.w.torch((tx, y + 1, rail_z + 2), attach="down")
+        L._dust((tx, y, z1))                          # stub, points into base
+        L._solid((tx, y, z2))                         # base
+        L.w.torch((tx, y + 1, z2), attach="down")
         L.stats["torches"] += 1
-        L._solid((tx, y + 2, rail_z + 2))             # strongly powered
+        L._solid((tx, y + 2, z2))                     # strongly powered
     else:
-        L._repeater((tx, y, rail_z + 1), "south", delay)
-        L._solid((tx, y, rail_z + 2))
-        L._dust((tx, y + 1, rail_z + 2))              # climbs into collector
+        L._repeater((tx, y, z1), "south" if side > 0 else "north", delay)
+        L._solid((tx, y, z2))
+        L._dust((tx, y + 1, z2))                      # climbs into collector
 
 
-def _place_riser(L: Layout, x, y, z_exit):
-    """Two dust steps carrying a collector's value up to the next rail plane."""
-    L._solid((x, y, z_exit + 1))
-    L._dust((x, y + 1, z_exit + 1))
-    L._solid((x, y + 1, z_exit + 2))
-    L._dust((x, y + 2, z_exit + 2))
+def _place_riser(L: Layout, x, y, z_exit, step=1):
+    """Two dust steps carrying a collector's value up to the next rail plane.
+
+    It climbs the way its collector runs, so a collector read at its -Z end puts
+    the rail it becomes two blocks *below* the exit rather than above.
+    """
+    L._solid((x, y, z_exit + step))
+    L._dust((x, y + 1, z_exit + step))
+    L._solid((x, y + 1, z_exit + 2 * step))
+    L._dust((x, y + 2, z_exit + 2 * step))
     L.stats["risers"] += 1
 
 
