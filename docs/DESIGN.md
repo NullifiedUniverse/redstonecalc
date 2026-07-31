@@ -328,7 +328,7 @@ operate, and the torch-free tap in the plan is what should halve it.
 
 ## 11. Mk III — ten bits, and four bugs that all looked like nothing
 
-The 10-bit machine (`rscalc/machine.py`) is 464,366 blocks: an 8-operation ALU,
+The 10-bit machine (`rscalc/machine.py`) is 456,558 blocks: an 8-operation ALU,
 a combinational binary-to-BCD converter, four seven-segment decoders, a 32-net
 loom and four lamp digits with a flag row, driven by 28 levers on one wall — 20
 operand bits and the 8 one-hot operation keys (§15). It runs at repeater
@@ -451,7 +451,7 @@ control wall (§15) — which matters, because that wall added 196 torches:
 |---|---|
 | 2 (4 gt) | 2/16 correct, **146 torches burned out** |
 | 3 (6 gt) | 16/16 correct, but **one torch burned out** on the ordinary sequence |
-| **4 (8 gt)** | **16/16 correct, none burned**, 2,374 gt to the answer |
+| **4 (8 gt)** | **16/16 correct, none burned**, 2,352 gt to the answer |
 
 The middle row moved. On the build before the control wall, delay 3 was clean
 over the same vectors and only failed when handed a hostile sequence; 196 more
@@ -706,7 +706,7 @@ simulation it was displaying.
 
 ### Drawing half of nothing
 
-The world is 464,366 blocks, and **253,517 of them are plain structure**:
+The world is 456,558 blocks, and **249,613 of them are plain structure**:
 identical grey cubes that never change colour, never change shape, and exist
 only to hold dust up. One instance each is a third of a million draw
 instances spent on scenery.
@@ -719,10 +719,10 @@ lost, because the cubes were identical:
 
 | | instances |
 |---|---|
-| one per block | 464,366 |
-| after merging runs along X | 383,873 |
-| **after merging runs along Z as well** | **243,475** |
-| structure hidden entirely (`circuit only`) | 210,849 |
+| one per block | 456,558 |
+| after merging runs along X | 377,299 |
+| **after merging runs along Z as well** | **239,571** |
+| structure hidden entirely (`circuit only`) | 206,945 |
 
 **Just under half the geometry, for about forty lines.** The longest slab is
 957 blocks — a collector floor running nearly the full depth of the machine,
@@ -813,11 +813,11 @@ and the check tests controls against their *container* rather than the page.
 
 Three passes over the renderer, each with a number attached.
 
-**The merge had quietly erased the block seams.** Collapsing 253,517 structure
+**The merge had quietly erased the block seams.** Collapsing 249,613 structure
 blocks into stretched runs halved the geometry (§16) and took the grid with it,
 so a floor read as one smooth bar. The seams are back without a single extra
 triangle: the fragment shader takes the *world* position, and darkens where it
-crosses a block boundary. A 478-block slab gets its lines exactly where its
+crosses a block boundary. A 418-block slab gets its lines exactly where its
 blocks were. Line width comes from the screen-space derivative where the
 extension is available, so seams antialias rather than shimmer and fade out
 with distance instead of turning into moiré.
@@ -844,7 +844,7 @@ it was always trying to frame.
 **Framing was fitted to the wrong thing, twice.** Walking every block cost
 199 ms and 300,000 allocations per view change. Eight corners of the world box
 cost nothing — but the box is not the machine, which is a thin diagonal slab
-inside a 747×195×973 volume, so the fit left it floating in half a frame of
+inside a 555×195×973 volume, so the fit left it floating in half a frame of
 nothing (and, separately, aimed the camera at the empty box centre). One block
 in twenty-three, sampled once and kept: **1 ms, and the machine actually fills
 the view.**
@@ -868,7 +868,7 @@ The machine is built from seven kinds of block, and nothing else:
 
 | | count |
 |---|---|
-| solid | 324,511 |
+| solid | 249,613 |
 | redstone dust | 250,840 |
 | repeater | 20,644 |
 | **redstone torch** | **2,024** |
@@ -1113,7 +1113,7 @@ pass that was already there. No second pass, no framebuffer, no texture:
 - **Corner shading.** The seams (§16) were drawn from the fragment's distance to
   its cell boundary, taken as a *minimum* over the face's two axes. A minimum
   darkens the whole seam evenly. The *product* darkens the corners twice, which
-  is what smooth voxel lighting is, and it turns a merged 478-block slab back
+  is what smooth voxel lighting is, and it turns a merged 418-block slab back
   into a floor made of separate blocks.
 - **A sheen.** One Blinn-Phong lobe, weak and narrow. Faces now turn as the
   camera moves, which is most of what says a surface has an orientation.
@@ -1140,3 +1140,124 @@ particles want a depth texture this page does not have, so the glow is drawn
 without a depth test and faint, the way real bloom is applied after depth and
 bleeds over what is in front of it. A torch behind a floor reads as a hint of
 one rather than as a torch drawn through a floor.
+
+## 19. Three more knobs, two textures and a volume of light — **measured**
+
+§18 took a fifth off the machine. This asks what is left, and most of the answer
+is *nothing* — which is worth writing down, because three of the four things
+tried had a plausible mechanism and no payoff.
+
+| | before | after | verdict |
+|---|---|---|---|
+| exit gap 4 → 2 | — | cannot route | the grid already made it minimal |
+| tap strength floor 2 → 1 | 48/48 | **17/48 correct** | the stub genuinely needs 2 |
+| ordering: barycentre → local search | 112,952 blocks, 274 gt | 112,442, 278 gt | −0.5% size, +1.5% latency |
+| **panel span 40 → 8, loom pitch 4 → 2** | 464,366 blocks, X 747 | **456,558, X 555** | **−26% of X** |
+
+### The three that did not pay
+
+**`EXIT_GAP` is already minimal.** A collector is read four blocks past its own
+last tap, and the exit has to land on the rail grid. Taps sit at `rail_z ± 2`
+and rails are four apart, so rounding the exit to the grid puts it at four
+past whatever the gap asks for — 3 compiles to exactly the same blocks as 4, and
+2 puts the exit *on* the last tap, where the collector cannot be terminated with
+a repeater and the next rail starts too weak to route. Measured: "rail at z=176
+cannot be routed".
+
+**`min_at_tap` is not slack either.** A rail is guaranteed at least 2 where it
+is tapped, and the obvious question is why, since a non-inverting tap is a
+repeater and a repeater reads 1 happily. The answer is the *inverting* tap: it
+reaches the rail through a stub of dust, which loses a level, and a stub at 0
+powers nothing. Dropping the floor to 1 compiles, lints clean, and gets **17 of
+48 vectors right**.
+
+**The ordering heuristic is at its optimum.** `profile_path` attributes 43% of
+the critical path to repeaters keeping *collectors* alive and 30–40% to
+repeaters keeping *rails* alive, and both lengths are set by the order gates and
+rails are placed in — six sweeps of barycentre relaxation, which is a proxy. So:
+a direct local search on the real objective, adjacent swaps accepting anything
+that shortens total wire, run to a fixed point. It finds 0.5% and costs 1.5% of
+latency, and twenty sweeps of the relaxation is bit-identical to six. The proxy
+was already sitting in the minimum the search can reach.
+
+### The one that did
+
+**A digit is six blocks wide, and the display panels were spaced forty apart.**
+The loom's turn columns are one block wide and were spaced four. Neither number
+was ever measured; both only have to clear the run that passes them. Walking
+them down and driving the machine at each:
+
+| panel span | loom pitch | blocks | X | driven |
+|---|---|---|---|---|
+| 40 | 4 | 464,366 | 747 | — |
+| 12 | 3 | 459,070 | 603 | 6/6, 0 burned, 2,328 gt |
+| **8** | **2** | **456,558** | **555** | **6/6, 0 burned, 2,322 gt** |
+
+Lint passes at every setting in that table, which is exactly why they were
+driven as well: §18's worst fault was a dust staircase that lint could not see.
+
+### Verifying the whole calculator
+
+`tools/verify_full.py` drives **300 vectors** through nothing but the player's
+controls — operands on the wall levers, operation on its key, answer read off
+the four lamp digits and the flag row. It runs every operation over its own
+boundary values, then **every operation directly after every other operation**,
+because the opcode lives in a latch and a stale one is precisely the fault a
+single-shot sweep cannot find, then a random tail.
+
+```
+300/300 correct including flags, 0 torches burned out
+worst settle 2352 gt (118 s in game)
+```
+
+Plus the eleven test modules, the desktop browser suite and the touch suite, all
+green on this build.
+
+### Texture, from a hash
+
+Blocks were one flat colour with a seam drawn between them, and a floor of
+identical grey cubes reads as a bar of paint with a grid on it. Two things fix
+that and neither is an image — this page still has no asset of any kind:
+
+- **A value per block cell.** `hash3(floor(worldPos))`, ±7%, so no two blocks in
+  a 418-block slab are the same shade. This is the one that does the work; a
+  stone floor in Minecraft is not one colour.
+- **A bevel.** The seam line gives a *drawn* grid; a chamfer gives a moulded
+  one. Each cell's own edges are brightened where they turn toward the key light
+  and darkened where they turn away, from the same in-cell coordinate the seams
+  already use. Two lines.
+
+A third, finer octave of grain was dropped again after measuring: it was worth
+0.035 of amplitude and a third of the noise cost, and a hash is a sine.
+
+### Coloured light, out of a volume
+
+The glow discs (§18) say where a light *is*. They do not say what it *does*: a
+torch is orange and the floor under a torch was still grey.
+
+There is no deferred pass here and no 3D texture in WebGL 1, so every lit torch
+and lamp is splatted on the CPU into a coarse grid of cells, the grid's Y slices
+are laid out side by side in one 2D texture, and the fragment shader samples the
+two slices around it and mixes. Bilinear inside a slice comes free from the
+sampler; the slice pair is one lerp.
+
+It has to be per-fragment and not per-instance, and that is the whole reason for
+the texture: **half the geometry is merged runs** (§16). A floor slab 418 blocks
+long is *one* instance at *one* position, and the pool of light on it is eight
+blocks across.
+
+The cell size is chosen so the atlas always fits inside 512×512, which makes the
+upload bounded however big the machine gets — at 555 × 195 × 973 that lands on
+8-block cells and a 490×488 texture. Measured on the touch profile: **4.1 ms to
+bake**, throttled to at most one bake per 90 ms, because a settling wavefront
+switches torches faster than anyone can see them.
+
+One bug in that is worth recording because it failed *silently*. Three bytes per
+texel and a row 490 wide is 1,470 bytes, which is not a multiple of WebGL's
+default four-byte unpack alignment. The upload fails with `INVALID_OPERATION`,
+the texture stays incomplete, and an incomplete texture samples as black —
+so the feature simply did nothing, with no error anywhere on the page and no
+visible difference at *any* gain. It took reading `gl.getError()` back off the
+context to find, after the same shader had already been proven correct by
+rendering the volume directly to the screen. `gl.pixelStorei(UNPACK_ALIGNMENT,1)`
+is the whole fix.

@@ -23,7 +23,11 @@ from __future__ import annotations
 from .engine import World
 
 STEP = 4          # a non-inverting torch pair climbs four levels
-TURN_PITCH = 4    # X spacing between turn columns
+#: X spacing between turn columns. A turn column is a torch tower one block
+#: wide, and the only thing the gap has to clear is the run that stops one short
+#: of the next column, so 2 is enough and 4 was habit. On the Mk III's 32-net
+#: loom that is 64 blocks of X — measured, driven and correct at 2 (§19).
+TURN_PITCH = 2
 MAX_RUN = 11      # repeat before dust can fade out
 
 

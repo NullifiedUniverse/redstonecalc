@@ -45,12 +45,18 @@ N_GAPS = 3
 #: out over fourteen vectors and delay 3 survives gentle sequences but not
 #: violent ones; delay 4 is clean on every sequence tried.
 DEFAULT_DELAY = 4
-#: worst settle measured over the 79 vectors in `tests/test_machine.py` at
+#: worst settle measured over the 300 vectors in `tools/verify_full.py` at
 #: DEFAULT_DELAY — from the operation lever going down to the last lamp holding
 #: still, just under two minutes in game. Quoted in the build output's README so
 #: a builder knows what they are waiting for. It was 2,644 before §18 took the
 #: Z ratchet out and a quarter of the gate pitch with it.
-SETTLE_GT = 2374
+SETTLE_GT = 2352
+#: X between one display panel and the next. A digit is six blocks wide and a
+#: flag row two, so this was 40 for a footprint of 6 — the panels sat in 170
+#: blocks of air. What it actually has to clear is each panel's feed lane and
+#: the run coming in past its neighbours, which is why it is measured (§19)
+#: rather than guessed at.
+PANEL_SPAN = 8
 #: game ticks between one operand lever moving and the next. Zero means every
 #: input changes in the same instant, which no player can do and which the
 #: machine does not survive — see `Machine.set_operands`.
@@ -194,7 +200,7 @@ def build_machine(width=WIDTH, carry="cla", repeater_delay=DEFAULT_DELAY,
     assert len({n[0][1] for n in nets}) == 1, "outputs must exit on one level"
 
     disp_x = x1 + 24 + TURN_PITCH * len(nets)
-    span = 40
+    span = PANEL_SPAN
     digits, lamps = {}, {}
     for i, name in enumerate(panels):
         ox = disp_x + span * i

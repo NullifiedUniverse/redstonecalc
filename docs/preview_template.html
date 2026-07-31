@@ -295,7 +295,7 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
     <div><b id="hBlocks">—</b><span>blocks</span></div>
     <div><b id="hGates">—</b><span>gates</span></div>
     <div><b id="hDepth">—</b><span>stages deep</span></div>
-    <div><b>2,374</b><span>ticks to the answer</span></div>
+    <div><b>2,352</b><span>ticks to the answer</span></div>
     <div><b>0</b><span>torches burned</span></div>
   </div>
 </div></header>
@@ -494,7 +494,7 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <tr><td>3 <small>(6 gt)</small></td>
         <td class="n">16/16 correct, but <b>one torch burned out</b></td></tr>
       <tr class="hi"><td>4 <small>(8 gt)</small></td>
-        <td class="n"><b>16/16 correct, none burned</b>, 2,374 gt to the answer</td></tr>
+        <td class="n"><b>16/16 correct, none burned</b>, 2,352 gt to the answer</td></tr>
     </table></div>
     <div class="col">
       <p>The middle row moved when the control wall was added. Before it, delay 3
@@ -528,10 +528,33 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       </div>
     </details>
     <details>
+      <summary>What you are looking at: how the picture is made</summary>
+      <div class="in">
+        <p class="small">One draw call, no textures, no second pass. The 249,613
+          plain structure blocks collapse into stretched runs — 456,558 blocks
+          become <b>239,571</b> boxes — so the block grid you can see is drawn by
+          the shader from the <em>world</em> position rather than by geometry: a
+          418-block slab gets its seams back exactly where its blocks were, for
+          nothing.</p>
+        <p class="small">On top of that: a face is shaded by which way it points,
+          the way Minecraft does it; each cell's corners darken twice over where
+          two edges meet, which is what smooth voxel lighting is; each cell's
+          edges catch and lose the key light, which is a chamfer; and a hash of
+          the block's own coordinate varies its shade by a few percent, because a
+          stone floor is not one colour.</p>
+        <p class="small">Signal <b>level</b> is height as well as colour — a line
+          at 15 stands three times as tall as one at 1, so a wavefront is a ridge
+          that travels. Every lit torch and lamp gets an additive disc, and its
+          colour is splatted into a coarse volume that every surface samples, so
+          <b>a torch does not just look orange, it makes the floor under it
+          orange</b>. The volume is baked in 4 ms and at most once every 90 ms.</p>
+      </div>
+    </details>
+    <details>
       <summary>Would more kinds of block help? <b>No</b> — three experiments</summary>
       <div class="in">
-        <p class="small">This machine uses seven kinds of block: 253,517 solid,
-          192,696 dust, 15,918 repeaters, <b>2,024 torches</b>, 121 lamps, 62
+        <p class="small">This machine uses seven kinds of block: 249,613 solid,
+          189,125 dust, 15,585 repeaters, <b>2,024 torches</b>, 121 lamps, 62
           glass, 28 levers. The torch is the only one that can die, and
           <b>1,308 of the 2,024 are inverting taps</b> — at delay 2, 45 of the
           56 that burn are taps and the other 11 are all one structure, the
@@ -694,11 +717,11 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <div class="card"><h4>Structure files</h4>
         <p>A grid of <code>.nbt</code> files a structure block loads, plus a
           manifest giving each one's offset. Structure blocks stop at 48 blocks a
-          side, so a machine this size arrives as a jigsaw of 604 pieces.</p></div>
+          side, so a machine this size arrives as a jigsaw of 373 pieces.</p></div>
       <div class="card"><h4>A datapack</h4>
         <p><code>/setblock</code> and <code>/fill</code>, batched so a server can
           run them without stalling, placed relative to wherever you stand. Runs
-          of identical blocks collapse into fills: 464,366 blocks become 72,428
+          of identical blocks collapse into fills: 456,558 blocks become 71,768
           commands.</p></div>
       <div class="card"><h4>One convention to get right</h4>
         <p>Minecraft's repeater <code>facing</code> runs output→input, the
@@ -708,13 +731,19 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
     </div>
     <div class="col">
       <ol class="next">
-        <li><b>Alternating collector direction</b> — the ratchet above. Biggest
-          single win on size, and size is latency here.</li>
+        <li><s>Alternating collector direction</s> — <b>built.</b> The ratchet
+          above cost three quarters of the depth; reading every other stage's
+          collectors at the far end took the machine from 1,825 blocks deep to
+          973 and 10% off the answer with it.</li>
         <li><s>The torch-free inverting tap</s> — <b>measured, and it does not
           fit.</b> A comparator inverts as fast as a torch and cannot burn out,
           but its "off" needs a side input of exactly 15, and the block that
           would restore that 15 has nowhere to sit in a tap bounded by a rail on
           one side and a collector on the other.</li>
+        <li><b>A second light bounce.</b> Lights currently wash the surfaces
+          around them out of a coarse volume; what they do not do is bounce off
+          those surfaces onto the next ones. One more splat pass over the lit
+          cells would, at roughly the cost of the first.</li>
         <li><b>Decimal entry.</b> Eight ten-key pads, one per digit position, and
           BCD-to-binary on the way in — the converter here runs the other way. The
           control wall would take them unchanged; the logic would not.</li>
@@ -761,9 +790,9 @@ void main(){vN=aNorm;vC=iCol;
    brightest, bottom darkest, the two horizontal axes in between — and nothing
    else says "this is made of blocks" so immediately.
 
-   Block seams: merging 253,517 structure blocks into stretched runs halved the
+   Block seams: merging 249,613 structure blocks into stretched runs halved the
    geometry and quietly took the seams with it, so a floor read as one smooth
-   bar. The grid is in *world* coordinates, so a 478-block slab gets its lines
+   bar. The grid is in *world* coordinates, so a 418-block slab gets its lines
    back in exactly the places the blocks were, for no geometry at all. Line
    width comes from the screen-space derivative where that is available, so the
    seams antialias instead of shimmering, and fade out with distance.
@@ -790,6 +819,38 @@ precision mediump float;
 varying vec3 vN;varying vec3 vC;varying float vD;varying vec3 vW;
 uniform float uFogNear;uniform float uFogFar;uniform vec3 uBg;uniform vec3 uHalf;
 uniform vec3 uEye;uniform vec2 uRes;uniform vec3 uSky;
+uniform sampler2D uLight;uniform vec4 uLightA;uniform vec4 uLightB;
+/* Coloured light, out of a volume.
+
+   The glow discs say where a light *is*. This says what a light *does* to the
+   things around it: a torch is orange and the floor under a torch should be
+   orange too. There is no deferred pass and no 3D texture in WebGL 1, so every
+   light is splatted on the CPU into a coarse grid of cells and the grid's Y
+   slices are laid out side by side in one 2D texture. A fragment samples the
+   two slices around it and mixes — bilinear inside a slice comes free from the
+   sampler, and the slice pair is one lerp.
+
+   It has to be per-fragment rather than per-instance, because half the geometry
+   is *merged runs* (§16): a floor slab 478 blocks long has one instance and one
+   position, and the pool of light on it is three blocks across.
+
+   uLightA = (cell size, slices per row, grid X, grid Z)
+   uLightB = (texture width, texture height, grid Y, intensity) */
+vec3 lightSlice(float sy,vec2 cxz){
+  float per=uLightA.y;
+  float tx=mod(sy,per),ty=floor(sy/per);
+  vec2 lim=vec2(uLightA.z,uLightA.w);
+  vec2 p=clamp(cxz,vec2(0.5),lim-0.5)+vec2(tx*uLightA.z,ty*uLightA.w);
+  return texture2D(uLight,p/vec2(uLightB.x,uLightB.y)).rgb;}
+vec3 lightAt(vec3 blk){
+  vec3 g=blk/uLightA.x-0.5;
+  float y0=clamp(floor(g.y),0.0,uLightB.z-1.0);
+  float y1=clamp(y0+1.0,0.0,uLightB.z-1.0);
+  return mix(lightSlice(y0,g.xz),lightSlice(y1,g.xz),clamp(g.y-y0,0.0,1.0));}
+float hash3(vec3 p){
+  return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+float emitLum(vec3 c){
+  return smoothstep(0.42,0.92,dot(c,vec3(0.3,0.6,0.1)));}
 void main(){
   vec3 n=normalize(vN);
   vec3 V=normalize(uEye-vW);
@@ -809,6 +870,18 @@ void main(){
   vec3 q=clamp(mix(vec3(1.0),d*2.2,m),0.0,1.0);
   float ao=q.x*q.y*q.z;                   // twice as dark where two edges meet
   c*=mix(0.80,1.0,ao*ao*(3.0-2.0*ao));
+
+  // Texture, from a hash rather than an image. Two scales: one value per block
+  // cell, so no two blocks in a slab are the same shade, and a finer grain
+  // inside the cell. It is the per-cell term that does the work — a stone floor
+  // in Minecraft is not one colour and a floor that is reads as a bar of paint.
+  vec3 cell=floor(vW+uHalf);
+  // two octaves, not three: the third was worth 0.035 of amplitude and a third
+  // of the hash cost, and a hash is a sine
+  float g0=hash3(cell);
+  float g1=hash3(floor((vW+uHalf)*4.0));
+  float grain=(g0-0.5)*0.14+(g1-0.5)*0.07;
+  c*=1.0+grain*(1.0-emitLum(vC));
 `+(deriv?`
   float w=max(length(vec2(dFdx(e),dFdy(e)))*1.6,0.006);
 `:`
@@ -816,8 +889,22 @@ void main(){
 `)+`
   c*=mix(0.74,1.0,smoothstep(0.0,w,e));
 
+  // Bevel. A block in Minecraft is a cube with a shaded rim, not a flat tile,
+  // and the seam line alone gives a drawn grid rather than a moulded one. Each
+  // cell's own edges are brightened where they turn toward the key light and
+  // darkened where they turn away, which is a chamfer for two lines of maths.
+  vec3 fc=f-0.5;
+  vec3 rim=smoothstep(0.34,0.5,abs(fc))*sign(fc)*m;
+  c*=1.0+clamp(dot(rim,Lk),-1.0,1.0)*0.20;
+
   float spec=pow(max(dot(n,normalize(V+Lk)),0.0),28.0);
   c+=vec3(0.9,0.93,1.0)*spec*0.13*ao;
+
+  // what the lights in the room do to this surface, sampled half a block out
+  // along the normal so a face is lit by the air in front of it, not by itself
+  vec3 lit=lightAt(vW+uHalf+n*0.6);
+  c+=vC*lit*uLightB.w*ao;
+  c+=lit*uLightB.w*0.10*ao;               // and a little of the light's own hue
 
   float lum=dot(vC,vec3(0.3,0.6,0.1));
   float emit=smoothstep(0.42,0.92,lum);
@@ -854,7 +941,10 @@ const U={mvp:gl.getUniformLocation(prog,"uMVP"),
   half:gl.getUniformLocation(prog,"uHalf"),
   eye:gl.getUniformLocation(prog,"uEye"),
   res:gl.getUniformLocation(prog,"uRes"),
-  sky:gl.getUniformLocation(prog,"uSky")};
+  sky:gl.getUniformLocation(prog,"uSky"),
+  light:gl.getUniformLocation(prog,"uLight"),
+  lightA:gl.getUniformLocation(prog,"uLightA"),
+  lightB:gl.getUniformLocation(prog,"uLightB")};
 const CV=[],CN=[],CI=[];
 [[[0,0,1],[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]]],
  [[0,0,-1],[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]]],
@@ -991,7 +1081,7 @@ function paint(j,i){
 }
 
 /* ---- geometry ----
-   Half of this world — 253,517 of 464,366 blocks — is plain structure: identical
+   Half of this world — 249,613 of 456,558 blocks — is plain structure: identical
    grey cubes that never change colour, never change shape and exist only to hold
    dust up. Drawing one instance each is a third of a million draws for scenery.
    Blocks are stored in (y,z,x) order, so a floor slab is a *contiguous run* of
@@ -1059,14 +1149,14 @@ function buildInstances(){
     scales.set(sc,j*3);
   }
   recent.clear();fires.clear();dirty.clear();
-  buildGlow();
+  buildGlow();buildLightGrid();
   repaintAll();
   const el=$("hInst");
   if(el)el.textContent=c.toLocaleString();
 }
 
 function repaintAll(){
-  glowStale=true;
+  glowStale=true;lightDirty=true;
   for(let j=0;j<inst.length;j++)paint(j,inst[j]);
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
   gl.bufferData(gl.ARRAY_BUFFER,cols,gl.DYNAMIC_DRAW);
@@ -1098,7 +1188,7 @@ function uploadRange(lo,hi){
 function flushDirty(){
   if(!dirty.size)return 0;
   const js=[...dirty].sort((a,b)=>a-b);
-  dirty.clear();glowStale=true;
+  dirty.clear();glowStale=true;lightDirty=true;
   for(const j of js)paint(j,inst[j]);
   let lo=js[0],prev=js[0],uploads=0;
   for(let q=1;q<js.length;q++){
@@ -1154,6 +1244,14 @@ function draw(){
   gl.uniform3f(U.sky,Math.min(1,bg[0]/255+0.085),
                      Math.min(1,bg[1]/255+0.105),
                      Math.min(1,bg[2]/255+0.165));
+  maybeBakeLight();
+  if(lg){
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D,lightTex);
+    gl.uniform1i(U.light,0);
+    gl.uniform4f(U.lightA,lg.cell,lg.per,lg.gx,lg.gz);
+    gl.uniform4f(U.lightB,lg.tw,lg.th,lg.gy,LIGHT_GAIN);
+  }
   const bind=(b,l,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
     gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(vbo,A.pos,0);bind(nbo,A.norm,0);
@@ -1218,6 +1316,98 @@ gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,qibo);
 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array([0,1,2,0,2,3]),gl.STATIC_DRAW);
 const gOffBuf=gl.createBuffer(),gScaleBuf=gl.createBuffer(),gColBuf=gl.createBuffer();
 let glowIdx=null,gOff=null,gScale=null,gCol=null,glowStale=true;
+
+/* ---- the light volume ----
+   Splat every lit torch and lamp into a coarse grid of cells, one Y slice per
+   tile of a single 2D texture, and let the fragment shader read what the lights
+   do to each surface. The cell size is chosen so the whole atlas fits inside
+   `LIGHT_TEX`, so the upload stays small however big the machine gets: at 747 ×
+   195 × 973 that lands on 12-block cells and a 315 × 328 texture.
+
+   It is rebuilt only when a light actually changes state and no more often than
+   `LIGHT_MS`, because a settling wavefront switches torches faster than anyone
+   can see and re-uploading the atlas every game tick is the one way this could
+   cost more than it is worth. */
+const LIGHT_TEX=512, LIGHT_MS=90, LIGHT_REACH=9, LIGHT_GAIN=0.30;
+let lightTex=null,lightPix=null,lightAcc=null,lg=null,lightDue=0,
+    lightDirty=true;
+
+function buildLightGrid(){
+  const [dx,dy,dz]=world.dims;
+  let cell=4,gx,gy,gz,per,tw,th;
+  for(;;){
+    gx=Math.ceil(dx/cell);gy=Math.ceil(dy/cell);gz=Math.ceil(dz/cell);
+    per=Math.max(1,Math.floor(LIGHT_TEX/gx));
+    tw=per*gx;th=Math.ceil(gy/per)*gz;
+    if(tw<=LIGHT_TEX&&th<=LIGHT_TEX)break;
+    cell+=2;
+    if(cell>96){per=1;tw=gx;th=gy*gz;break;}
+  }
+  lg={cell,gx,gy,gz,per,tw,th};
+  lightPix=new Uint8Array(tw*th*3);
+  lightAcc=new Float32Array(gx*gy*gz*3);   // reused; a bake must not allocate
+  if(!lightTex)lightTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,lightTex);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  lightDirty=true;lightDue=0;
+}
+
+const _lc=[0,0,0];
+function bakeLight(){
+  if(!lg||!glowIdx)return;
+  const {cell,gx,gy,gz,per,tw}=lg,acc=lightAcc;
+  acc.fill(0);
+  const r=Math.max(1,Math.ceil(LIGHT_REACH/cell)),w=world;
+  for(let q=0;q<glowIdx.length;q++){
+    const i=inst[glowIdx[q]];
+    baseColour(w,i,_lc);
+    const lum=0.3*_lc[0]+0.6*_lc[1]+0.1*_lc[2];
+    if(lum<0.34)continue;                       // out, or off: no light at all
+    const s=(lum-0.34)*1.5;
+    const cx=w.bx[i]/cell,cy=w.by[i]/cell,cz=w.bz[i]/cell;
+    const x0=Math.max(0,Math.floor(cx)-r),x1=Math.min(gx-1,Math.floor(cx)+r);
+    const y0=Math.max(0,Math.floor(cy)-r),y1=Math.min(gy-1,Math.floor(cy)+r);
+    const z0=Math.max(0,Math.floor(cz)-r),z1=Math.min(gz-1,Math.floor(cz)+r);
+    for(let y=y0;y<=y1;y++)for(let z=z0;z<=z1;z++)for(let x=x0;x<=x1;x++){
+      const ddx=x+0.5-cx,ddy=y+0.5-cy,ddz=z+0.5-cz;
+      const d2=(ddx*ddx+ddy*ddy+ddz*ddz)/(r*r);
+      if(d2>=1)continue;
+      const f=(1-d2)*(1-d2)*s;
+      const o=((y*gz+z)*gx+x)*3;
+      acc[o]+=_lc[0]*f;acc[o+1]+=_lc[1]*f;acc[o+2]+=_lc[2]*f;
+    }
+  }
+  // into the atlas: slice y goes to tile (y % per, floor(y / per))
+  lightPix.fill(0);
+  for(let y=0;y<gy;y++){
+    const ox=(y%per)*gx,oy=Math.floor(y/per)*gz;
+    for(let z=0;z<gz;z++)for(let x=0;x<gx;x++){
+      const a=((y*gz+z)*gx+x)*3,p=((oy+z)*tw+ox+x)*3;
+      lightPix[p]=Math.min(255,acc[a]*255)|0;
+      lightPix[p+1]=Math.min(255,acc[a+1]*255)|0;
+      lightPix[p+2]=Math.min(255,acc[a+2]*255)|0;
+    }
+  }
+  gl.bindTexture(gl.TEXTURE_2D,lightTex);
+  // three bytes per texel and an odd row width is not a multiple of the
+  // default four-byte unpack alignment, which fails the upload with
+  // INVALID_OPERATION and leaves the texture incomplete — sampling black, and
+  // silently, since nothing throws
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,tw,lg.th,0,gl.RGB,gl.UNSIGNED_BYTE,
+                lightPix);
+}
+
+function maybeBakeLight(){
+  if(!lightDirty||!lg)return;
+  const now=performance.now();
+  if(now<lightDue)return;
+  lightDirty=false;lightDue=now+LIGHT_MS;
+  bakeLight();
+}
 
 function buildGlow(){
   const w=world,keep=[];
@@ -1479,7 +1669,7 @@ function frameOn(points,margin,centre,az,el,ms){
 
    Framing on every block cost 200 ms and 300,000 allocations on each view
    change. Framing on the eight corners of the world box costs nothing, but the
-   box is not the machine: this is a thin diagonal slab inside a 747×195×973
+   box is not the machine: this is a thin diagonal slab inside a 555×195×973
    volume, so fitting the box leaves the machine floating in half a frame of
    nothing. One block in twenty-three is enough to find the silhouette, and it
    is built once. */
