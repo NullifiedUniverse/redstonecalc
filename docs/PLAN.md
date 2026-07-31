@@ -97,6 +97,16 @@ tile, profile it, and only clone it if the rail share has actually collapsed.
 
 ## 5. Decision: get rid of the torches — **measured mechanism**, *projected gain*
 
+> **Settled, and the answer is no.** This section's mechanism is right and its
+> projection is wrong. `tools/experiment_comparator_tap.py` and DESIGN §17
+> measured it on placed blocks: the comparator inverter works and cannot burn
+> out, but its "off" needs a side input of exactly 15, and the block that would
+> restore that 15 has nowhere to sit in a tap bounded by a rail on one side and
+> a collector on the other. Widening the lattice to make room costs more
+> collector — and collector is repeaters, and repeaters are the latency — than
+> the change saves. Read the rest as the reasoning that had to be tested, not
+> as work outstanding.
+
 Every large build burns torches out at delay-1 repeaters:
 
 | build | delay 1 | delay 2 |
@@ -135,7 +145,7 @@ Semantics confirmed against the wiki this revision unless noted.
 
 | block | property used | replaces | status |
 |---|---|---|---|
-| **Comparator, subtract** | `out = max(rear − side, 0)`, 2 gt, no burnout | Torch inverters — see §5 | **measured** |
+| **Comparator, subtract** | `out = max(rear − side, 0)`, 2 gt, no burnout | Torch inverters — see §5 | **measured, and rejected**: no room in the tap, DESIGN §17 |
 | **Copper bulb** | Toggles on a **rising edge**, keeps its state, comparator-readable at 15 when lit, emits light. **Not conductive** | A multi-block latch **and** a display lamp, in one block | confirmed; needs a pulse, not steady power |
 | **Repeater locking** | A repeater held from the side freezes its output | Torch latches; zero torches, so no burnout | **measured**, 44 blocks |
 | **Observer** | 15-strength pulse, 2 gt long, 2 gt delay, one block | Multi-block pulse shapers — and the pulse source copper bulbs need | confirmed |
@@ -189,8 +199,9 @@ are the two assumptions to test, in that order.
 
 Steps 5 and 6 are **done** — see §10. The rest stands.
 
-1. **Torch-free inverting tap** — comparator plus repeater. Biggest single win:
-   removes burnout structurally and lets everything run at delay 1.
+1. ~~**Torch-free inverting tap** — comparator plus repeater~~ **settled: it
+   does not fit.** See §5's note and DESIGN §17. The largest remaining win needs
+   no new block type at all — DESIGN §12's alternating collector direction.
 2. **One bit-sliced digit tile.** Profile it. If rail wire has not collapsed,
    §4 is wrong and stops there.
 3. Add copper bulbs and observers to the simulator.
@@ -255,7 +266,8 @@ This is the first build that is genuinely *operated* rather than configured: no
 lever is set by hand anywhere in the datapath. It also confirms the plan's
 central claim from the other direction — the machine is 191 gates and depth 17,
 yet still takes 384 game ticks, because the loom and the rails are most of it.
-The torch-free tap (§5) remains the highest-value item left.
+The torch-free tap (§5) looked like the highest-value item left; it was measured
+and it does not fit — DESIGN §17.
 
 What is still open from §7: the lectern menu (the machine only adds), note-block
 feedback, and widening from one digit to three.

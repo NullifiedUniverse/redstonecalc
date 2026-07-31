@@ -506,23 +506,65 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
     <details>
       <summary>The other lever: how fast the inputs arrive</summary>
       <div class="in">
-        <p class="small">On the earlier build, delay 3 only failed once handed a
-          hostile sequence — operand pairs chosen to change ten or more levers at
-          once. Varying only how far apart the flips were placed in time, over
-          ten such vectors:</p>
+        <p class="small">Delay 3 only fails when handed a hostile sequence —
+          operand pairs chosen to change ten or more levers at once. Ten such
+          vectors, three different seeds, varying how far apart the flips are
+          placed in time:</p>
         <div class="tw"><table>
-          <tr><th>game ticks between lever flips</th><th>correct</th><th>torches burned</th></tr>
-          <tr><td>0 — every lever in the same instant</td><td class="n">5/10</td><td class="n">5</td></tr>
-          <tr><td>1</td><td class="n">7/10</td><td class="n">4</td></tr>
-          <tr><td>2</td><td class="n">9/10</td><td class="n">2</td></tr>
-          <tr><td>4</td><td class="n">9/10</td><td class="n">2</td></tr>
+          <tr><th>gt between lever flips</th><th>seed 11</th><th>seed 23</th><th>seed 41</th></tr>
+          <tr><td>0 — every lever at once</td><td class="n">1 burned</td><td class="n">clean</td><td class="n">clean</td></tr>
+          <tr><td>2</td><td class="n">2 burned</td><td class="n">clean</td><td class="n">clean</td></tr>
+          <tr><td>4</td><td class="n">clean</td><td class="n">clean</td><td class="n">clean</td></tr>
         </table></div>
-        <p class="small">Spacing is real and it is not sufficient — but it is the
-          more interesting number, because <b>a player cannot flip twenty levers
-          inside a twentieth of a second</b>. Changing every input in the same
-          game tick aligns every hazard in the machine at one instant, a load the
-          build never sees in a world with a person in it. The machine moves only
-          the levers that differ, two game ticks apart, and so does this page.</p>
+        <p class="small">The first version of this table used one seed and read
+          as a trend in the spacing. It is not: <b>which numbers you type matters
+          more than how fast you type them</b>, and at delay 4 every cell above
+          is clean at every spacing. Spacing still counts — <b>a player cannot
+          flip twenty levers inside a twentieth of a second</b>, and changing
+          every input in the same game tick aligns every hazard in the machine at
+          one instant, a load the build never sees in a world with a person in
+          it. The machine moves only the levers that differ, two game ticks
+          apart, and so does this page.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Would more kinds of block help? <b>No</b> — three experiments</summary>
+      <div class="in">
+        <p class="small">This machine uses seven kinds of block: 324,511 solid,
+          250,840 dust, 20,644 repeaters, <b>2,024 torches</b>, 121 lamps, 62
+          glass, 28 levers. The torch is the only one that can die, and
+          <b>1,308 of the 2,024 are inverting taps</b> — at delay 2, 45 of the
+          56 that burn are taps and the other 11 are all one structure, the
+          display loom's first tower. So the tap is the thing to change.</p>
+        <p class="small">A comparator in subtract mode with a redstone block on
+          its back inverts too, in the same 2 game ticks, and <b>has no burnout
+          rule at all</b>. Sixty state changes three game ticks apart — seven
+          times what kills a torch — burned out none of them. It should have
+          been the answer. Three measurements say it is not:</p>
+        <div class="tw"><table>
+          <tr><th>side input</th><th>0</th><th>1</th><th>7</th><th>13</th><th>14</th><th>15</th></tr>
+          <tr><td>comparator output</td><td class="n">15</td><td class="n">14</td><td class="n">8</td><td class="n">2</td><td class="n">1</td><td class="n"><b>0</b></td></tr>
+        </table></div>
+        <p class="small">Its "off" costs a side of <b>exactly</b> 15 — it
+          subtracts a level, not a boolean — and a rail carries as little as 2 at
+          a tap by design. So the tap needs a repeater of its own to restore the
+          rail, and that repeater has to strongly power a block for the dust in
+          the comparator's side cell to read. Strong power reaches adjacent dust
+          at a full 15, so that block drives any rail beside it to 15 with the
+          lever off — which rules out the only cell a repeater reading the rail
+          can reach. Four components have to fit where a torch needs one, in
+          three cells of Z bounded by a rail on one side and a collector on the
+          other. Widening the lattice to make room grows the longest axis by
+          half, and every block of that is more collector, and collector is
+          repeaters, and repeaters are the latency.</p>
+        <p class="small">The cheap version — a repeater in the stub's cell,
+          costing no space at all because the non-inverting tap already has one
+          there — lost its own A/B: <b>3% slower</b> at delay 4 for no burnout it
+          did not already have, a wash at delay 3, much worse at delay 2, and it
+          burns five torches out of the Mk II console. <b>Observers</b> have no
+          edge to detect in a machine with no loop in it and cannot hold a level;
+          <b>pistons</b> would make quasi-connectivity load-bearing, which this
+          simulator states plainly that it does not model. Nothing was added.</p>
       </div>
     </details>
   </section>
@@ -668,9 +710,11 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <ol class="next">
         <li><b>Alternating collector direction</b> — the ratchet above. Biggest
           single win on size, and size is latency here.</li>
-        <li><b>The torch-free inverting tap</b> — a comparator in subtract mode
-          inverts as fast as a torch and has no burnout rule, which would let the
-          whole machine run at delay 1.</li>
+        <li><s>The torch-free inverting tap</s> — <b>measured, and it does not
+          fit.</b> A comparator inverts as fast as a torch and cannot burn out,
+          but its "off" needs a side input of exactly 15, and the block that
+          would restore that 15 has nowhere to sit in a tap bounded by a rail on
+          one side and a collector on the other.</li>
         <li><b>Decimal entry.</b> Eight ten-key pads, one per digit position, and
           BCD-to-binary on the way in — the converter here runs the other way. The
           control wall would take them unchanged; the logic would not.</li>

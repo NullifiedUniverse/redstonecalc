@@ -471,9 +471,17 @@ ticks apart, and says why.
 
 The honest summary: this machine needs both a slower repeater setting than Mk II
 — delay 4, which is what it now defaults to — and inputs that arrive at human
-speed. The structural fix remains the torch-free
-comparator tap — it has no burnout rule at all, so the whole question would stop
-existing rather than being paid for in latency.
+speed. The structural fix looked like the torch-free comparator tap, which has
+no burnout rule at all, so the whole question would stop existing rather than
+being paid for in latency. §17 went and measured that. It does not fit, and
+neither does the cheaper version of the same idea.
+
+One correction to the second table, found while measuring §17: the vectors
+matter more than the spacing does. Re-run with three seeds instead of one and
+the same spacing is clean on two of them and burns a torch on the third, at
+every spacing from 0 to 20 game ticks. The spacing row that looked like a trend
+was one seed's luck. `tools/experiment_hostile_inputs.py` is that measurement,
+kept runnable.
 
 ## 14. Verifying the simulator separately, and the bug that found
 
@@ -845,3 +853,142 @@ One note for whoever tests this next: the container renders in software, and a
 heavy frame starves `setTimeout` *inside the page* for seconds at a time. A
 double-tap dispatched from Node with an 80 ms wait arrived 3 seconds later. Any
 gesture with timing in it has to be dispatched inside one page task.
+
+## 17. Would more kinds of block help? — **measured**
+
+The machine is built from seven kinds of block, and nothing else:
+
+| | count |
+|---|---|
+| solid | 324,511 |
+| redstone dust | 250,840 |
+| repeater | 20,644 |
+| **redstone torch** | **2,024** |
+| lamp | 121 |
+| glass | 62 |
+| lever | 28 |
+
+The simulator models comparators too (§2) and the machine has never placed one.
+Minecraft has more redstone components than any of this, and the question is
+whether any of them would make the build smaller, faster or more stable. Some
+were dismissed by reading; the comparator took three experiments; the cheap
+version of the comparator's idea took a full A/B. **Nothing was added.** That is
+the finding, and this is the evidence for it.
+
+### Ruled out by what the machine is
+
+**Observers** fire a 2-game-tick pulse when the block they watch changes. This
+machine is *combinational* — 36 stages of gates with no loop anywhere, holding
+no state between operations except the input latches. There is no edge worth
+detecting, and an observer cannot hold a level, which is the only thing every
+wire here does.
+
+**Pistons** move blocks. Their value is memory and mechanical change, and the
+machine wants neither: the input latches already hold state with no torch in
+the cell (§10), and a build whose geometry changes at runtime would invalidate
+every precomputation — the settled state (`rscalc/steady.py`), the strength
+budgets, the crossing-free routing. Pistons also make quasi-connectivity and
+0-tick pulses load-bearing, and §2 states plainly that neither is modelled;
+`World.lint()` refuses constructs that would depend on them. Adding a component
+whose interesting behaviour the simulator does not simulate would make every
+result in this document worth less.
+
+**Copper bulbs** toggle on a rising edge. A toggle is the wrong primitive for a
+one-hot keypad, which needs set-on-press and clear-when-another-is-pressed.
+**Target blocks, hoppers, sculk sensors** answer questions the machine does not
+ask. **Comparators driven by container fullness** likewise.
+
+### The comparator: right idea, no room
+
+A comparator in subtract mode outputs `max(0, back − side)`. Put a redstone
+block on the back and it is an inverter — and unlike a torch it has **no
+burnout rule at all**, so §13's entire cost would stop existing rather than
+being paid for in latency. That is worth a day, and it got one.
+
+Where the burnout actually is, first, because the comparator only helps if it
+is in the taps. Of 2,024 torches, **1,308 are inverting taps** and 716 are
+everything else. At delay 2 over eight vectors:
+
+| | burned |
+|---|---|
+| inverting taps | 45 |
+| everywhere else | 11 |
+
+and all eleven of those are the same structure — the first torch tower of the
+display loom, climbing off the output rails at y = 145 and 147, the one place
+in the build that reads a wire the ALU is still settling. So burnout is
+overwhelmingly a property of the tap, and replacing the tap is the right target.
+
+`tools/experiment_comparator_tap.py` measures three things on placed blocks:
+
+1. **It inverts, and it does not die.** Input off → out 15, input on → out 0,
+   2 game ticks each way. Sixty state changes three game ticks apart — seven
+   times what kills a torch — and **zero burned out**.
+2. **Its "off" costs a full 15.** `out = 15 − side`, measured for every side
+   level 0…15. A side of 14 still leaves the output at 1. A rail carries
+   whatever its last repeater left it, and `plan_run` guarantees only 2 at a
+   tap, so a comparator tap needs **a repeater of its own** to restore the rail
+   before the comparator may read it. That repeater has to strongly power a
+   block for the dust in the comparator's side cell to read.
+3. **That block has nowhere to go.** Strong power reaches adjacent dust at a
+   full 15 (§2), so putting it beside a rail drives that rail to 15 with its
+   lever off — measured, and it is what rules out the only cell a repeater
+   reading the rail can reach.
+
+At `RAIL_PITCH = GATE_PITCH = 4` a tap gets three cells of Z and three of X, and
+the envelope is bounded by the rail on one side and the collector on the other:
+no dust may touch the collector except at the injection point, and no strongly
+powered block may touch the rail at all. Four components have to fit inside
+that where a torch needs one. Widening the lattice to 6 grows the machine's
+longest axis by half — it is already **1,825 deep** (§12) — which lengthens
+every collector crossing it, which adds back the repeaters the change was meant
+to remove. Not built.
+
+### The cheap version of the same idea, and why it also lost
+
+The tap's torch burns because a stub of *dust* hands it every hazard the rail
+has. A repeater in that same cell would strongly power the same base block and
+re-read its input only when it fires — and it costs **no space at all**, because
+the non-inverting tap already puts a repeater exactly there. Eight vectors at
+delay 3 said 0 burned, where the stub burns 1 on the sixteen `verify_machine`
+vectors, and a full 16/16 with 0 burned followed — which looked like the machine
+could ship at delay 3 instead of 4 and be 18% faster. Those were two different
+vector sets, which is the first thing wrong with that reasoning.
+
+It did not survive an A/B. Ten hostile vectors — each moving ten or more levers
+— at three seeds and three spacings, both taps, both delays:
+
+| | delay 3 | delay 4 |
+|---|---|---|
+| stub of dust (shipped) | 3 torches burned over 9 runs, worst settle **2,092 gt** | **0 burned over 9 runs**, worst settle **2,622 gt** |
+| repeater in the stub's cell | 2 burned over 9 runs, worst settle 2,150 gt | 0 burned over 9 runs, worst settle 2,690 gt |
+
+At delay 4 — what the machine ships at — both are perfectly clean and the
+repeater is **3% slower for nothing**. At delay 3 it is a wash: two burns
+against three, on the same seed, so delay 3 is no more shippable with it than
+without. At delay 2 it is much worse (141 torches against 56) and it burns five
+torches out of the Mk II console, which builds at delay 2 and whose test caught
+it. Reverted.
+
+Buffering the display loom's first tower the same way, on the theory that those
+eleven were a second population: 141 → 140. Nothing.
+
+Why the eight-vector result flattered it is worth stating, because the mechanism
+is real and still lost. The stub tap costs 2 game ticks and the repeater tap
+costs 2d; before the change a gate's inverting inputs arrived **6 game ticks
+ahead** of its non-inverting ones at delay 4, and after it every input to a
+collector arrives within 2. That is a genuine hazard reduction and it shows up
+as slightly fewer burns at delay 3. It is simply worth less than the 3% it
+costs, at the setting the machine actually runs at, where there was no burnout
+left to remove.
+
+### What this leaves
+
+No block type earns its place. The one that could have — the comparator — is
+blocked by the lattice pitch rather than by anything about comparators, and the
+lattice pitch is set by strength and by crossing-freedom, not by taste. The
+remaining wins on this machine are architectural and need no new material at
+all: §12's alternating collector direction, which would unwind the Z ratchet
+that three quarters of the machine's 1,825-block depth is made of, and every
+block of that depth is collector, and every collector is repeaters, and
+repeaters are the latency.

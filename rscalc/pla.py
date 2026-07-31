@@ -395,6 +395,16 @@ def _place_collector(L: Layout, x, y, z0, z1, tap_zs, delay):
 
 
 def _place_tap(L: Layout, gx, y, rail_z, inverting, delay):
+    """Join a rail to a collector, in either polarity.
+
+    The inverting tap reads the rail through a stub of dust, which hands its
+    torch every hazard the rail has, and those torches are where nearly all of
+    §13's burnout happens. Putting a repeater in the stub's cell instead — free,
+    since the non-inverting tap already has one there — was measured across
+    three repeater settings and three hostile sequences: worse at delay 2, a
+    wash at delay 3, and 3% slower at delay 4 for nothing. §17 has the table.
+    The stub stays.
+    """
     tx = gx + 1
     L.stats["taps"] += 1
     L._floor((tx, y - 1, rail_z + 1))

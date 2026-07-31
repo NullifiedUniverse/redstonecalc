@@ -293,13 +293,22 @@ the simulator computed for it. The page reproduces all 100 sums.
 **88% of the latency is repeaters keeping dust alive over distance, not gates.**
 On this architecture compact and fast are the same goal.
 
-The next binding constraint is **torch burnout**: every large build has to run
-at delay-2 repeaters, which doubles latency. A comparator in subtract mode
-inverts just as fast and has no burnout rule, so a torch-free build should be
-~1.7x faster and impossible to burn out.
+The next binding constraint is **torch burnout**: every large build has to slow
+its repeaters down, which costs latency. A comparator in subtract mode inverts
+just as fast and has no burnout rule, so a torch-free tap looked like the
+structural fix.
 
-[docs/PLAN.md](docs/PLAN.md) is the plan for the rest — widening the console to
-three digits, a lectern menu for the operation, and the torch-free tap.
+It was measured, and it is not — [§17](docs/DESIGN.md) has the three
+experiments that killed it. The comparator does invert and does survive seven
+times what kills a torch, but its "off" costs a side input of exactly 15, and
+the block that would restore that 15 has nowhere to sit inside a tap bounded by
+a rail on one side and a collector on the other. The cheap version of the same
+idea — a repeater in the stub's cell, free because the non-inverting tap
+already has one — lost its own A/B: 3% slower at the setting the machine ships
+at, for no burnout it did not already have. **No new block type earns its
+place.** The remaining wins are architectural: §12's Z ratchet.
+
+[docs/PLAN.md](docs/PLAN.md) is the plan for the rest.
 
 ## Running it
 
@@ -314,6 +323,9 @@ python3 tools/build_pages.py                             # inject into docs/
 node tools/check_preview.mjs                             # the page, in a browser
 node tests/browser_check.js                              # the Mk I demo
 python3 tools/profile_path.py                            # critical-path breakdown
+
+python3 tools/experiment_comparator_tap.py               # §17: why not a comparator
+python3 tools/experiment_hostile_inputs.py --delay 3 --seed 11 --seed 23
 ```
 
 The first machine run stands up half a million blocks and relaxes them to a
