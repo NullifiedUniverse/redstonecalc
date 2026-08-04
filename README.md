@@ -25,9 +25,13 @@ redstone — classic mechanics apply.
   that runs the whole machine tick by tick, drawing signal *level* as height as
   well as colour, with any block clickable for its exact strength and state.
   Every face is a **16×16 texture** at Minecraft's resolution, drawn into an
-  array at load rather than fetched — the page has no asset of any kind — and
-  redstone dust is drawn **pointing the way the simulator says it points**, all
-  sixteen connection shapes, checked against `eng.points` by the browser suite.
+  array at load rather than fetched — the page has no asset of any kind — with
+  wood, stone and redstone in their own colours: a torch is a brown stick with a
+  red head, a repeater is smooth stone with two torches on it, a lamp is four
+  amber panes in a dark frame. Redstone dust is drawn **pointing the way the
+  simulator says it points**, all sixteen connection shapes, checked against
+  `eng.points` by the browser suite. Type a number into A or B and the levers
+  that spell it move; the browser suite reads them back off the levers.
   Merging the 249,613 structure blocks into runs takes it from 456,558 draw
   instances to 239,571; see DESIGN §16. The older Mk I demo is at
   `docs/demo.html`. `tools/check_preview.mjs` verifies it in a real browser;

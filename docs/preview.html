@@ -147,8 +147,39 @@ canvas:active{cursor:grabbing}
 .bit:hover{border-color:var(--ash)}
 .bit[aria-pressed="true"]{background:var(--redstone);border-color:var(--redstone);
   color:#fff;font-weight:700}
-.opnd .val{font-family:var(--mono);font-size:.95rem;min-width:3.4ch;
-  text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+/* The bits are the truth — they are levers on a wall — but nobody thinks in
+   binary, and asking someone to spell 723 out of ten switches is asking them
+   not to bother. The dial is the same levers, driven from a decimal number. */
+.dial{display:flex;align-items:center;gap:.15rem}
+.dial button{width:30px;height:30px;flex:0 0 auto;border:1px solid var(--seam);
+  border-radius:5px;background:var(--slate2);color:var(--ash);cursor:pointer;
+  font-family:var(--mono);font-size:.9rem;line-height:1;padding:0}
+.dial button:hover{border-color:var(--redstone);color:var(--redstone)}
+.opnd .val{font-family:var(--mono);font-size:.95rem;width:4.2ch;
+  text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);
+  background:transparent;border:1px solid transparent;border-radius:4px;
+  padding:.2rem .15rem;min-height:30px}
+.opnd .val:hover{border-color:var(--seam)}
+.opnd .val:focus{border-color:var(--redstone);outline:none;
+  background:var(--slate2)}
+
+/* the three things to do, in the order they are done in */
+.step{font-family:var(--mono);font-size:.58rem;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--dim);display:flex;align-items:center;
+  gap:.42rem;margin:.15rem 0 0}
+.step b{display:inline-flex;align-items:center;justify-content:center;
+  width:15px;height:15px;border-radius:50%;background:var(--slate2);
+  border:1px solid var(--seam);color:var(--ash);font-size:.54rem;
+  font-weight:700;flex:0 0 auto}
+
+/* how far through a settle the machine is */
+.prog{display:flex;align-items:center;gap:.5rem;font-family:var(--mono);
+  font-size:.56rem;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--dim)}
+.prog i{flex:1;height:3px;border-radius:2px;background:var(--seam);
+  position:relative;overflow:hidden}
+.prog i::after{content:"";position:absolute;inset:0 auto 0 0;
+  width:var(--p,0%);background:var(--redstone);transition:width .18s linear}
 .ops{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem}
 .key{font-family:var(--mono);font-size:.7rem;font-weight:600;padding:.45rem 0;
   border:1px solid var(--seam);border-radius:5px;background:var(--slate2);
@@ -166,6 +197,11 @@ canvas:active{cursor:grabbing}
   padding:.42rem .6rem;border:1px solid var(--seam);border-radius:5px;
   background:var(--slate2);color:var(--ink);cursor:pointer}
 .transport button:hover{border-color:var(--redstone);color:var(--redstone)}
+/* one obvious thing to press, because "skip to settled" next to "+1 tick" next
+   to a speed menu is four equal choices and no answer to "what do I do now" */
+.transport .prim{background:var(--redstone);border-color:var(--redstone);
+  color:#fff;font-weight:600}
+.transport .prim:hover{color:#fff;filter:brightness(1.1)}
 .transport button[aria-pressed="true"]{border-color:var(--redstone);
   color:var(--redstone)}
 .cutrow{display:flex;align-items:center;gap:.55rem}
@@ -253,15 +289,33 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
 
 @media (max-width:820px){
   body{font-size:16px}
-  header.top{padding:2rem 0 1.1rem}
-  .lede{font-size:1.02rem}
+  /* The instrument is the page. On a phone the hero was pushing it a whole
+     screen down, so a reader met three paragraphs and five statistics before
+     anything moved: everything above the canvas gets tighter, and the numbers
+     become a strip you can read in one glance rather than a stack. */
+  header.top{padding:1.5rem 0 .9rem}
+  h1{font-size:clamp(1.6rem,7.4vw,2.1rem)}
+  .lede{font-size:.98rem;max-width:none}
+  .eyebrow{font-size:.58rem;letter-spacing:.16em}
+  .facts{gap:.15rem 1.3rem;margin:1rem 0 0}
+  .facts b{font-size:.95rem}
+  .facts span{font-size:.54rem;letter-spacing:.1em}
   .ghost.sep{margin-left:0}
   /* a thumb, not a mouse */
   .ghost{padding:.6rem .7rem;font-size:.62rem}
+  /* One row rather than two eating the top of the view — and all four visible
+     in it, because a control a thumb has to scroll to find is a control nobody
+     finds. The chips lose letter-spacing and horizontal padding, not height:
+     28px of hit area is the floor and it is kept. */
+  .overlay.tl{max-width:calc(100% - 1.2rem);flex-wrap:nowrap;overflow-x:auto;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .overlay.tl::-webkit-scrollbar{display:none}
+  .overlay.tl .ghost{flex:0 0 auto;padding:.56rem .4rem;font-size:.55rem;
+    letter-spacing:.02em}
   .hint .wide{display:none} .hint .narrow{display:inline}
   .bar{grid-template-columns:1fr}
   .bay{border-right:none;border-bottom:1px solid var(--seam);padding:.9rem .8rem}
-  #view{height:46vh;height:46dvh;min-height:260px}
+  #view{height:52vh;height:52dvh;min-height:300px}
   .ops{grid-template-columns:repeat(4,1fr)}
   .key{padding:.6rem 0;font-size:.74rem}
   .opnds{gap:.65rem}
@@ -270,17 +324,24 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .opnd{display:grid;grid-template-columns:1fr auto;
     grid-template-areas:"nm val" "bits bits";gap:.2rem .5rem}
   .opnd .nm{grid-area:nm;width:auto}
-  .opnd .val{grid-area:val}
+  .dial{grid-area:val}
+  .dial button{width:34px;height:34px}
+  .opnd .val{font-size:1.05rem;min-height:34px;border-color:var(--seam)}
   .bits{grid-area:bits;gap:.22rem}
   .bit{max-width:34px;font-size:.6rem}
   .num{font-size:1.6rem}
-  .transport button,.transport select{padding:.6rem .7rem}
+  .step{font-size:.55rem}
+  .transport{gap:.4rem}
+  .transport button,.transport select{padding:.62rem .7rem}
+  /* the primary action gets its own line and the full width of the bay */
+  .transport .prim{flex:1 1 100%;padding:.7rem}
   .strip{gap:.15rem 1rem;padding:.55rem .8rem}
 }
 /* below the narrowest phone, let the bit row breathe by dropping the numerals
    inside the cells rather than shrinking the cells */
 @media (max-width:360px){
   .bit{font-size:0}
+  .facts{gap:.15rem 1rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -326,14 +387,26 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
             <span class="state" id="valstate">idle</span>
           </div>
         </div>
+        <!-- A settle is 2,352 game ticks. Watching a number not change for two
+             minutes is indistinguishable from a page that has crashed, so the
+             machine says how far through it is: the bar is the queue draining,
+             which is the honest measure of "still thinking". -->
+        <div class="prog" id="prog" hidden>
+          <i id="progbar"></i>
+          <span id="progtxt">settling</span>
+        </div>
         <div class="flagrow" id="flagrow"></div>
       </div>
 
       <div class="bay">
+        <p class="step"><b>1</b> Set two numbers</p>
         <div class="opnds" id="operands"></div>
+        <p class="step"><b>2</b> Press an operation — that starts the machine</p>
         <div class="ops" id="ops"></div>
         <div class="opstate" id="opstate">none latched — ADD by default</div>
+        <p class="step"><b>3</b> Watch it travel, or skip to the answer</p>
         <div class="transport">
+          <button type="button" id="bSettle" class="prim">run to the answer</button>
           <button type="button" id="bPlay" aria-pressed="false">▶ play</button>
           <button type="button" id="bStep">+1 tick</button>
           <select id="speed" aria-label="simulation speed">
@@ -342,7 +415,6 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
             <option value="200" selected>10×</option>
             <option value="1000">50×</option>
           </select>
-          <button type="button" id="bSettle">skip to settled</button>
         </div>
         <div class="cutrow">
           <span class="lbl">cutaway</span>
@@ -1272,21 +1344,40 @@ const TX = 16, ATLAS_TILES = 8, ATLAS_PX = TX * ATLAS_TILES;
 const T_SOLID = 0, T_GLASS = 1, T_LAMP = 2, T_TORCH = 3, T_REP = 4,
       T_CMP = 5, T_LEVER = 6, T_DUST = 8;      // T_DUST + mask, 16 of them
 
+/* Alpha is a *code*, not a coverage:
+
+     0        no texel here — discard, and show whatever is behind
+     A_STATE  shade only. The texel's brightness is in RGB, its colour comes
+              from the block's state, so one tile serves a lit torch and a
+              burnt-out one, and dust at 15 and dust at 1.
+     1.0      this texel owns its colour outright — the wood of a torch's
+              stick is brown whether the torch is lit or not.
+
+   Everything between blends, which is the useful part: a repeater's stonework
+   is 55% its own grey, so it looks like smooth stone and *still* turns blue
+   when the repeater locks. That is the whole reason the atlas is RGBA rather
+   than a luminance mask — Minecraft's blocks are not one colour with a shape
+   cut out of them, and the ones on this page have to carry state as well. */
+const A_STATE = 0.25;
+
 function makeAtlas(){
   const px = new Uint8Array(ATLAS_PX * ATLAS_PX * 4);
-  // tiles are written in a normalised space: v is a shade 0..1 and a is alpha,
-  // and the instance colour does the rest, so one tile serves every state a
-  // block has — a lit torch and a burnt-out one differ in colour, not in shape
-  const put = (tile, x, y, v, a = 1) => {
+  const q = v => Math.max(0, Math.min(255, Math.round(v * 255)));
+  const put = (tile, x, y, r, g, b, a) => {
     const ox = (tile % ATLAS_TILES) * TX, oy = ((tile / ATLAS_TILES) | 0) * TX;
     const o = ((oy + y) * ATLAS_PX + ox + x) * 4;
-    px[o] = px[o + 1] = px[o + 2] = Math.max(0, Math.min(255, v * 255)) | 0;
-    px[o + 3] = a * 255;
+    px[o] = q(r); px[o + 1] = q(g); px[o + 2] = q(b); px[o + 3] = q(a);
   };
+  /* A tile function returns, per texel:
+       null            nothing here
+       a number        a shade, coloured by the block's state
+       [r, g, b, own]  a colour of its own, `own` of the way there  */
   const fill = (tile, fn) => {
     for (let y = 0; y < TX; y++) for (let x = 0; x < TX; x++) {
-      const r = fn(x, y);
-      if (r === null) put(tile, x, y, 0, 0); else put(tile, x, y, r);
+      const v = fn(x, y);
+      if (v === null || v === undefined) { put(tile, x, y, 0, 0, 0, 0); continue; }
+      const t = typeof v === "number" ? [v, v, v, 0] : v;
+      put(tile, x, y, t[0], t[1], t[2], A_STATE + (1 - A_STATE) * (t[3] || 0));
     }
   };
   // a deterministic per-texel hash, so the same tile is the same every load
@@ -1294,75 +1385,158 @@ function makeAtlas(){
     const v = Math.sin((x * 127.1 + y * 311.7 + s * 74.7)) * 43758.5453;
     return v - Math.floor(v);
   };
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
-  // stone: three shades in irregular clumps, which is what stops a 418-block
-  // slab reading as one bar of paint
+  /* ---- stone ----
+     Minecraft's stone is not noise, it is *clumps* — grains two and three
+     texels across with a scatter of darker pits — and the difference is what
+     stops a 418-block slab reading as a bar of paint. Three octaves and two
+     scatters, all shade so the page's own palette still drives the colour. */
   fill(T_SOLID, (x, y) => {
-    const n = h(x, y, 1) * 0.6 + h((x / 2) | 0, (y / 2) | 0, 2) * 0.4;
-    return 0.72 + (n < 0.34 ? -0.12 : n > 0.74 ? 0.12 : 0) + h(x, y, 3) * 0.05;
+    const c4 = h((x / 4) | 0, (y / 4) | 0, 4);
+    const c2 = h((x / 2) | 0, (y / 2) | 0, 2);
+    let v = 0.74 + (c4 - 0.5) * 0.11 + (c2 - 0.5) * 0.14 + (h(x, y, 3) - 0.5) * 0.06;
+    if (h(x, y, 5) > 0.90) v -= 0.15;            // pits
+    if (h(x, y, 6) > 0.955) v += 0.12;           // glints
+    return clamp(v, 0.44, 1.0);
   });
-  // glass: a frame with a couple of highlights, mostly open
+
+  /* ---- glass ----
+     The pane border, the inner bevel, and the two diagonal glints that make
+     Minecraft's glass read as glass rather than as a grey square. */
   fill(T_GLASS, (x, y) => {
-    const edge = x === 0 || y === 0 || x === TX - 1 || y === TX - 1;
-    if (edge) return 0.95;
-    if ((x === 3 && y < 6) || (y === 3 && x > 9)) return 0.85;
-    return 0.55;
+    if (x === 0 || y === 0 || x === TX - 1 || y === TX - 1) return 0.97;
+    if (x === 1 || y === 1 || x === TX - 2 || y === TX - 2) return 0.76;
+    if ((y === 3 && x >= 3 && x <= 7) || (x === 8 && y >= 4 && y <= 7)) return 0.93;
+    if ((y === 11 && x >= 9 && x <= 12) || (x === 9 && y >= 9 && y <= 11)) return 0.85;
+    return 0.50 + h(x, y, 17) * 0.05;
   });
-  // lamp: a lattice of four panes
+
+  /* ---- redstone lamp ----
+     Four panes in a dark frame, each pane brightest at its centre. The frame
+     keeps most of its own colour so an unlit lamp still looks like a lamp;
+     the panes are pure shade, so lighting one turns them, not it. */
   fill(T_LAMP, (x, y) => {
-    const gx = x % 8, gy = y % 8;
-    const bar = gx === 0 || gy === 0 || gx === 7 || gy === 7;
-    return bar ? 0.55 : 0.9 + h(x, y, 5) * 0.1;
+    const frame = x < 1 || y < 1 || x > TX - 2 || y > TX - 2;
+    const cross = (x >= 7 && x <= 8) || (y >= 7 && y <= 8);
+    if (frame) return [0.30, 0.24, 0.17, 0.80];
+    if (cross) return [0.40, 0.32, 0.22, 0.62];
+    const px_ = x < 8 ? x - 4 : x - 11, py = y < 8 ? y - 4 : y - 11;
+    const r = Math.max(Math.abs(px_), Math.abs(py));
+    const v = clamp(0.98 - r * 0.10 + h(x, y, 21) * 0.05, 0.5, 1.0);
+    // a fifth of its own warmth, so an unlit lamp is a dark amber pane rather
+    // than a grey one, which is what it looks like in game
+    return [v, v * 0.86, v * 0.62, 0.20];
   });
-  // torch: a stick with a head, drawn on a transparent tile so the post reads
+
+  /* ---- redstone torch ----
+     A wooden stick with the grain in it, a shoulder where the head sits, and a
+     head that is a hot two-texel core inside a softer glow. Only the head is
+     state-coloured: an unlit torch has a dark head on the same brown stick,
+     which is exactly what it looks like in game. */
   fill(T_TORCH, (x, y) => {
-    if (x >= 6 && x <= 9 && y >= 6) return 0.45 + h(x, y, 7) * 0.12;  // stick
-    if (x >= 5 && x <= 10 && y >= 2 && y <= 6) return 1.0;            // head
+    if (x >= 7 && x <= 8 && y >= 9) {
+      const g = h(x, y, 7);
+      return [0.44 + g * 0.11, 0.30 + g * 0.08, 0.16 + g * 0.05, 0.90];
+    }
+    if ((x === 6 || x === 9) && y >= 10 && y <= 12)
+      return [0.34, 0.23, 0.12, 0.85];           // the shoulder
+    // The head keeps a third of its own red, so a burnt-out torch reads as a
+    // dead *redstone* torch rather than as a grey lump on a stick.
+    const d = Math.abs(x - 7.5) + Math.abs(y - 6.0) * 0.9;
+    if (d <= 1.6) return [1.00, 0.42, 0.26, 0.30];        // the hot core
+    if (d <= 2.6) return [0.72, 0.24, 0.16, 0.34];
+    if (d <= 3.5) return [0.44, 0.14, 0.10, 0.36];
     return null;
   });
-  // repeater and comparator: a smooth slab with the torches that mark them
-  const slab = (x, y) => 0.66 + h(x, y, 11) * 0.08;
+
+  /* ---- repeater and comparator ----
+     Smooth stone with the torches that mark them: two in line for a repeater,
+     three in a triangle for a comparator, which is how you tell them apart in
+     game at a glance. The slab keeps 55% of its own grey — enough to read as
+     stone, little enough that a locked repeater still turns blue. */
+  const smooth = (x, y, s) => {
+    const n = h(x, y, s), e = x === 0 || y === 0 || x === TX - 1 || y === TX - 1;
+    const v = (e ? 0.50 : 0.61) + n * 0.07;
+    return [v, v, v * 0.97, 0.55];
+  };
+  // The torch on a repeater is red when the repeater is *off* too — that is how
+  // you tell a repeater from a comparator across a room — so the head keeps
+  // some colour of its own rather than taking all of it from the state. It
+  // still brightens when the repeater fires; it just never goes grey.
+  const head = (x, y, hx, hy) => {
+    const d = Math.max(Math.abs(x - hx), Math.abs(y - hy));
+    if (d <= 1.0) return [1.00, 0.28, 0.20, 0.45];
+    if (d <= 2.0) return [0.52, 0.18, 0.14, 0.40];
+    return null;
+  };
   fill(T_REP, (x, y) => {
-    if (x >= 6 && x <= 9 && (y >= 2 && y <= 5)) return 1.0;
-    if (x >= 6 && x <= 9 && (y >= 10 && y <= 13)) return 1.0;
-    return slab(x, y);
+    const a = head(x, y, 7.5, 3.5), b = head(x, y, 7.5, 11.5);
+    if (a !== null) return a;
+    if (b !== null) return b;
+    if (y === 7 || y === 8) return [0.42, 0.42, 0.41, 0.72];   // the groove
+    // the two rails the delay slider runs between
+    if ((x === 3 || x === 12) && y >= 9 && y <= 14)
+      return [0.74, 0.73, 0.70, 0.75];
+    return smooth(x, y, 11);
   });
   fill(T_CMP, (x, y) => {
-    if (x >= 6 && x <= 9 && y >= 2 && y <= 5) return 1.0;
-    if (x >= 2 && x <= 5 && y >= 10 && y <= 13) return 1.0;
-    if (x >= 10 && x <= 13 && y >= 10 && y <= 13) return 1.0;
-    return slab(x, y);
+    for (const [hx, hy] of [[7.5, 3.0], [3.5, 12.0], [11.5, 12.0]]) {
+      const v = head(x, y, hx, hy);
+      if (v !== null) return v;
+    }
+    if (x >= 6 && x <= 9 && y >= 6 && y <= 9)
+      return [0.86, 0.85, 0.80, 0.75];           // the quartz between them
+    return smooth(x, y, 23);
   });
-  // lever: a base plate with a handle across it
+
+  /* ---- lever ----
+     A cobblestone plate with a wooden handle across it, and a knob at the top
+     that carries the state, so a lever that is thrown reads at a distance. */
   fill(T_LEVER, (x, y) => {
-    if (y >= 5 && y <= 10 && x >= 2 && x <= 13) return 0.6 + h(x, y, 13) * 0.1;
-    if (x >= 6 && x <= 9) return 1.0;
+    if (x >= 6 && x <= 9 && y >= 2 && y <= 13) {
+      if (y <= 4) return 1.0;                    // the knob
+      const g = h(x, y, 13);
+      return [0.47 + g * 0.11, 0.33 + g * 0.08, 0.19 + g * 0.05, 0.90];
+    }
+    if (y >= 4 && y <= 11 && x >= 1 && x <= 14) {
+      const n = h((x / 2) | 0, (y / 2) | 0, 15);
+      const v = 0.44 + n * 0.18;
+      return [v, v, v * 0.98, 0.62];             // cobble
+    }
     return null;
   });
 
-  /* Dust. Bit 0 is north (-Z), 1 south (+Z), 2 west (-X), 3 east (+X), which is
-     the simulator's own `DIRV` order. The tile is drawn looking *down* on the
+  /* ---- dust ----
+     Bit 0 is north (-Z), 1 south (+Z), 2 west (-X), 3 east (+X), which is the
+     simulator's own `DIRV` order. The tile is drawn looking *down* on the
      block, so north is -y in texture space and west is -x.
 
-     A dot is four texels in the middle. An arm is a two-texel band running from
-     the middle out to the edge. Mask 0 is the dot alone — dust with nothing to
-     connect to, which powers nothing horizontally and is worth being able to
-     see at a glance. */
+     Minecraft's wire is a two-texel bright lane with a one-texel darker fringe
+     and a scatter of brighter grains along it, and that is what this is: a core
+     at full shade, a fringe at half, and a hash-driven speckle so a long rail
+     does not read as a ruled line. Mask 0 is the dot alone — dust with nothing
+     to connect to, which powers nothing horizontally, so its dot is rounded and
+     reaches no edge. That distinction is load-bearing, not decorative. */
   for (let mask = 0; mask < 16; mask++) {
     fill(T_DUST + mask, (x, y) => {
-      const mid = x >= 7 && x <= 8, midY = y >= 7 && y <= 8;
-      if (mid && midY) return 1.0;                       // the dot
-      if (mask & 1 && mid && y < 7) return 0.92;         // north
-      if (mask & 2 && mid && y > 8) return 0.92;         // south
-      if (mask & 4 && midY && x < 7) return 0.92;        // west
-      if (mask & 8 && midY && x > 8) return 0.92;        // east
-      // a one-texel skirt, so a wire has an edge instead of a hard cut
-      const near = (mask & 1 && x >= 6 && x <= 9 && y < 7)
-                || (mask & 2 && x >= 6 && x <= 9 && y > 8)
-                || (mask & 4 && y >= 6 && y <= 9 && x < 7)
-                || (mask & 8 && y >= 6 && y <= 9 && x > 8)
-                || (x >= 6 && x <= 9 && y >= 6 && y <= 9);
-      return near ? 0.6 : null;
+      const inX = x >= 7 && x <= 8, inY = y >= 7 && y <= 8;
+      const nrX = x >= 6 && x <= 9, nrY = y >= 6 && y <= 9;
+      const spark = h(x, y, 29) > 0.80 ? 0.10 : 0;
+      if (inX && inY) return 1.0;                          // the junction
+      if (!mask) {
+        const d = Math.abs(x - 7.5) + Math.abs(y - 7.5);
+        if (d <= 2.0) return 0.90 + spark;
+        if (d <= 3.0) return 0.52;
+        return null;
+      }
+      const arm = (mask & 1 && inX && y < 7) || (mask & 2 && inX && y > 8)
+               || (mask & 4 && inY && x < 7) || (mask & 8 && inY && x > 8);
+      if (arm) return 0.88 + spark;
+      const fringe = (mask & 1 && nrX && y < 7) || (mask & 2 && nrX && y > 8)
+                  || (mask & 4 && nrY && x < 7) || (mask & 8 && nrY && x > 8)
+                  || (nrX && nrY);
+      return fringe ? 0.50 : null;
     });
   }
   return px;
@@ -1479,7 +1653,7 @@ void main(){
   // a torch's stick. Dropping the fragment shows what is behind it, which for
   // dust is the floor it is lying on, which is the point of drawing wire shapes
   // at all.
-  if(tex.a<0.5)discard;
+  if(tex.a<0.12)discard;
   vec3 V=normalize(uEye-vW);
   vec3 Lk=normalize(vec3(0.45,0.85,0.28));
   float face=n.y>0.5?1.0:(n.y<-0.5?0.58:(abs(n.x)>0.5?0.70:0.84));
@@ -1487,7 +1661,16 @@ void main(){
   float fill=max(dot(n,normalize(vec3(-0.5,0.25,-0.7))),0.0);
   // hemispheric ambient: cool from the sky, warm from the floor
   vec3 amb=mix(vec3(0.34,0.30,0.28),vec3(0.60,0.66,0.76),n.y*0.5+0.5);
-  vec3 c=vC*tex.r*face*(0.50+0.52*key+0.16*fill)*(0.72+0.62*amb);
+  // The atlas is two things at once (see makeAtlas): tex.rgb is the texel's
+  // own colour and tex.a is how much of it to keep. A shade-only texel takes
+  // its colour from the block's state, so one dust tile serves every level; a
+  // texel that owns its colour stays brown or grey whatever the block is doing.
+  // Blending rather than switching is what lets a repeater look like smooth
+  // stone and still turn blue when it locks.
+  float own=clamp((tex.a-0.25)/0.75,0.0,1.0);
+  float shade=max(tex.r,max(tex.g,tex.b));
+  vec3 albedo=mix(vC*shade,tex.rgb,own);
+  vec3 c=albedo*face*(0.50+0.52*key+0.16*fill)*(0.72+0.62*amb);
 
   vec3 f=fract(vW+uHalf);
   vec3 d=min(f,1.0-f);
@@ -2390,8 +2573,17 @@ function inputPoints(){
   for(const k in circ.buttons)p.push(circ.buttons[k]);
   return p;
 }
+/* A phone's canvas is nearly square and this machine is a 555 x 195 x 973 slab,
+   so fitting its longest axis inside that square leaves it a smudge in the
+   middle of a black field. Measured on an iPhone 12 profile, at the desktop
+   framing 8.3% of the canvas is above black and 188 distinct colours reach it;
+   pulled in and turned along its length, 27.7% and 322. The machine runs off
+   both edges at that framing, which is the correct impression of it. */
+const NARROW=()=>(cv.clientWidth||900)<560;
 const VIEWS={
-  all:  ms=>frameOn(allPoints(),1.10,worldCentre(),2.02,0.60,ms),
+  all:  ms=>NARROW()
+        ? frameOn(allPoints(),0.64,worldCentre(),2.35,0.42,ms)
+        : frameOn(allPoints(),1.10,worldCentre(),2.02,0.60,ms),
   disp: ms=>frameOn(lampPoints(),1.15,null,0.0,1.42,ms),
   // the control wall is a wall: look at its face, not down on it
   ctrl: ms=>frameOn(inputPoints(),1.15,null,1.35,0.22,ms),
@@ -2468,6 +2660,7 @@ function readValue(){
 }
 
 /* ---- controls ---- */
+let peakQ=0;
 function bitsOf(pad){
   let v=0;
   for(let i=0;i<circ.width;i++)
@@ -2500,8 +2693,9 @@ function refreshPanel(){
     $("fl_"+f).classList.toggle("on",world.power[flagIdx[f]]>0);
   if(circ.switches&&circ.width){
     for(const pad of["A","B"]){
-      const val=bitsOf(pad);
-      $("val"+pad).textContent=val;
+      const val=bitsOf(pad),box=$("val"+pad);
+      // never fight the person typing into it
+      if(document.activeElement!==box)box.value=val;
       for(let i=0;i<circ.width;i++)
         $("b"+pad+i).setAttribute("aria-pressed",
           world.lit[switchIdx[pad+i]]?"true":"false");
@@ -2513,6 +2707,19 @@ function refreshPanel(){
     ? `${lastFired} switched, ${lastChanged} dust`
     : (lastChanged ? `${lastChanged} dust` : "quiet");
   $("tQueue").textContent=eng.queue.length.toLocaleString();
+  // How far through a settle we are. There is no total to divide by — the queue
+  // is not a countdown — so the bar tracks the *peak* depth this run reached,
+  // which is monotone enough to read as progress and honest about being an
+  // estimate. It disappears the moment the machine is quiet.
+  const q=eng.queue.length;
+  if(q>peakQ)peakQ=q;
+  const busy=q>0||held.size>0;
+  $("prog").hidden=!busy;
+  if(busy){
+    const done=peakQ?Math.max(0,Math.min(1,1-q/peakQ)):0;
+    $("progbar").style.setProperty("--p",(done*100).toFixed(0)+"%");
+    $("progtxt").textContent=`settling · ${q.toLocaleString()} pending`;
+  }else peakQ=0;
   $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
   $("tBurn").classList.toggle("bad",eng.burned.size>0);
 }
@@ -2598,6 +2805,22 @@ function toggleBit(pad,i){
   eng.setLever(p,!world.lit[p]);
   setPlaying(true);refreshPanel();
 }
+/* Type a number, get the levers that spell it.
+
+   Only the levers that differ move, which is what a hand would do, and they all
+   move in the same instant — which is the harshest input there is and the one
+   §13 measured as clean at the delay this machine ships at: thirty vectors,
+   three seeds, every lever flipped in one game tick, nothing burned out. */
+function setOperand(pad,v){
+  const max=(1<<circ.width)-1;
+  v=Math.max(0,Math.min(max,Math.round(+v||0)));
+  for(let i=0;i<circ.width;i++){
+    const p=switchIdx[pad+i],want=!!((v>>i)&1);
+    if(!!world.lit[p]!==want)eng.setLever(p,want);
+  }
+  setPlaying(true);refreshPanel();
+  return v;
+}
 function buildControls(){
   const ops=$("ops");ops.innerHTML="";buttonIdx={};
   (circ.ops||[]).forEach((nm,k)=>{
@@ -2611,9 +2834,29 @@ function buildControls(){
   const host=$("operands");host.innerHTML="";switchIdx={};
   for(const pad of["A","B"]){
     const row=document.createElement("div");row.className="opnd";
-    row.innerHTML=`<span class="nm">${pad}</span><div class="bits" id="bits${pad}"></div>`
-                 +`<span class="val" id="val${pad}">0</span>`;
+    row.innerHTML=`<span class="nm">${pad}</span>`
+      +`<div class="bits" id="bits${pad}"></div>`
+      +`<div class="dial"><button type="button" class="tick" `
+      +`aria-label="${pad} minus one">−</button>`
+      +`<input class="val" id="val${pad}" value="0" inputmode="numeric" `
+      +`autocomplete="off" aria-label="${pad}, 0 to ${(1<<circ.width)-1}">`
+      +`<button type="button" class="tick" aria-label="${pad} plus one">+</button>`
+      +`</div>`;
     host.appendChild(row);
+    const box=row.querySelector(".val");
+    const nudge=d=>{box.value=setOperand(pad,bitsOf(pad)+d);};
+    const btns=row.querySelectorAll(".dial button");
+    btns[0].onclick=()=>nudge(-1);
+    btns[1].onclick=()=>nudge(1);
+    // commit on Enter or on leaving the field, not on every keystroke: typing
+    // "72" on the way to "723" would otherwise run the machine twice
+    box.onkeydown=e=>{
+      if(e.key==="Enter"){e.preventDefault();box.blur();}
+      else if(e.key==="ArrowUp"){e.preventDefault();nudge(1);}
+      else if(e.key==="ArrowDown"){e.preventDefault();nudge(-1);}
+    };
+    box.onchange=()=>{box.value=setOperand(pad,box.value);};
+    box.onblur=()=>{box.value=bitsOf(pad);};
     for(let i=circ.width-1;i>=0;i--){
       switchIdx[pad+i]=world.at(...circ.switches[pad+i]);
       const b=document.createElement("button");

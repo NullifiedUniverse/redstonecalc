@@ -1741,3 +1741,102 @@ be and is the reason §17 and §19 can be trusted. And the failures recorded her
 were found by testing rather than by inspection — the Z ratchet, the shorted
 rails, the invented glitch, the toothless guard, the stale repeater count. That
 is the property worth protecting.
+
+## 25. Colour in the atlas, and a page you can use with one thumb — **measured**
+
+Two things, and they turn out to be the same thing: the page was showing less
+than it knew.
+
+### The atlas was a luminance mask
+
+§21 gave every block a 16×16 texture, which was the right move and half a move.
+The tile stored *one* number per texel — a shade — and the renderer multiplied
+it by the block's state colour. That is a clean model and it cannot draw
+Minecraft. A redstone torch is a brown stick with a red head; a repeater is grey
+smooth stone with two red torches on it. One channel cannot say "brown here, red
+there" when the colour is coming from somewhere else entirely.
+
+So the atlas is RGBA now, and **alpha is a code rather than a coverage**:
+
+| alpha | means |
+|---|---|
+| 0 | no texel here — discard, and show what is behind |
+| 64 | shade only: RGB is brightness, the *state* supplies the colour |
+| 255 | this texel owns its colour outright |
+
+with everything in between a blend. That last part is the useful one. A
+repeater's slab is 55% its own grey, so it reads as smooth stone **and** still
+turns blue when the repeater locks — the state has not been thrown away to get
+the material, which a hard switch would have done. A shade-only texel is
+byte-identical in behaviour to §21's, so nothing about dust changed except that
+it got better drawn.
+
+What that buys, per block:
+
+- **stone** — clumped grains at two scales with a scatter of pits and glints,
+  because Minecraft's stone is clumps, not noise, and noise reads as paint;
+- **redstone torch** — a wooden stick with grain, a shoulder, and a head that
+  keeps a third of its own red, so a *burnt-out* torch is a dead redstone torch
+  rather than a grey lump on a stick;
+- **repeater** — smooth stone, two red torch heads in line, the groove between
+  them and the rails the delay slider runs on;
+- **comparator** — three torches in a triangle round a quartz nub, which is how
+  you tell one from a repeater across a room;
+- **lamp** — four panes in a dark frame, each brightest at its centre, with a
+  fifth of its own warmth so an unlit lamp is dark amber rather than grey;
+- **lever, glass** — a cobblestone plate with a wooden handle; a pane with a
+  border, a bevel and the two diagonal glints.
+
+Of 23 tiles, 15 are used by this machine — it has never placed a comparator
+(§17) — and **4 of those carry texels with a colour of their own**. Measured on
+the same desktop frame, distinct colours in the canvas went from 8,728 to 9,381.
+
+`check_preview` gained two assertions with it: no texel may carry an alpha the
+shader would discard (a typo in the encoding would silently delete a block
+face), and at least one tile must carry its own colour, which fails the moment
+someone flattens the atlas back to a mask.
+
+### A page you can use with one thumb
+
+The instrument was built on a desktop and it showed. Measured on an iPhone 12
+profile, three things were wrong, and all three were measurable rather than
+matters of taste.
+
+**The machine was a smudge.** A phone's canvas is nearly square; this machine is
+a 555 × 195 × 973 slab. Fitting its longest axis inside a square leaves it small
+and far away in a black field: **8.3% of the canvas above black, 188 distinct
+colours**. Pulled in and turned along its length — still the whole machine, now
+running off both edges, which is the correct impression of it — **27.7% and
+322**. The framing is responsive; the desktop one is unchanged, because on a
+wide canvas it already fits.
+
+| opening shot, iPhone 12 | canvas above black | distinct colours |
+|---|---|---|
+| fit the whole machine (desktop framing) | 8.3% | 188 |
+| circuit only, structure hidden | 1.6% | 178 |
+| **turned and pulled in** | **27.7%** | **322** |
+
+Hiding the structure is in that table because it was the obvious guess and it is
+the worst of the three: what makes the view legible is filling it, not emptying
+it.
+
+**Nobody spells 723 out of ten switches.** The bit switches are the honest
+control — they are levers on a wall, and they stay — but reaching a two-operand
+sum through twenty of them is asking someone not to bother. Each operand now has
+a decimal box with steppers, which moves only the levers that differ and moves
+them in the same instant. That is the harshest input there is and §13 measured it
+as the clean one: thirty vectors, three seeds, every lever inside one game tick,
+nothing burned out. `check_preview` types four numbers and reads them back *off
+the levers*, not out of the box — a wrong mapping would compute correctly and
+answer the wrong question, which is the worst kind of broken.
+
+**Nothing said what to do, or whether anything was happening.** The controls are
+numbered now — set two numbers, press an operation, watch it travel — with one
+primary action instead of four equal ones, and a bar that tracks the queue
+draining during the two minutes a settle takes. A number that has not moved for
+two minutes is indistinguishable from a page that has crashed.
+
+The hero also gave up a third of its height on small screens, the view chips
+became one row that fits at 375px rather than two rows eating the top of the
+canvas, and the canvas grew from 46vh to 52vh. `check_mobile` still passes at
+375px with every control at least 28px.

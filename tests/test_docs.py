@@ -140,6 +140,7 @@ ANCHORS = [
     (DESIGN, r"across ([\d,]+) blocks and 8-bit channels", "z"),
     (DESIGN, r"at\s+(\d+) × (\d+) × (\d+) that lands on", "x", "y", "z"),
     (DESIGN, r"dust: ([\d,]+) wires", "dust"),
+    (DESIGN, r"a (\d+) × (\d+) × (\d+) slab", "x", "y", "z"),
     # §22 quotes figures while explaining why quoting figures needs a guard,
     # so it is anchored by its own rule
     (DESIGN, r"one occurrence of `([\d,]+)` in README", "blocks"),
@@ -173,6 +174,8 @@ ANCHORS = [
     (PAGE, r"a machine ([\d,]+) blocks long", "z"),
     (PAGE, r"longest side, which is ([\d,]+) blocks", "z"),
     (PAGE, r"inside a (\d+)×(\d+)×(\d+)", "x", "y", "z"),
+    (PAGE, r"is a (\d+) x (\d+) x (\d+) slab", "x", "y", "z"),
+    (PAGE, r"A settle is ([\d,]+) game ticks", "settle"),
     # ---- the one source file that quotes the machine at itself ---------
     (MACHINE, r"1,825 blocks deep to ([\d,]+)", "z"),
 ]

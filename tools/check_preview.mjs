@@ -46,6 +46,38 @@ console.log(`animation: ${anim.advanced} ticks stepped, ` +
 if (anim.advanced !== 40) throw new Error("stepTick did not advance the clock");
 if (anim.active === 0) throw new Error("no block changed while stepping ticks");
 
+// --- typing a number moves the right levers -------------------------------
+// The bit switches are the truth, but nobody spells 723 out of ten of them, so
+// each operand has a decimal box that drives the same levers. If that mapping
+// is wrong the machine still computes correctly and answers the wrong question,
+// which is the worst kind of broken, so it is checked against the levers
+// themselves rather than against the box.
+const dial = await page.evaluate(() => {
+  const out = [];
+  for (const [pad, want] of [["A", 723], ["B", 300], ["A", 0], ["B", 1023]]) {
+    const box = document.querySelector("#val" + pad);
+    box.value = String(want);
+    box.dispatchEvent(new Event("change"));
+    out.push({ pad, want, levers: bitsOf(pad), box: box.value });
+  }
+  // and it must refuse what the machine cannot hold
+  const box = document.querySelector("#valA");
+  box.value = "9999"; box.dispatchEvent(new Event("change"));
+  const clamped = bitsOf("A");
+  box.value = "-5"; box.dispatchEvent(new Event("change"));
+  const floored = bitsOf("A");
+  return { out, clamped, floored };
+});
+for (const r of dial.out)
+  if (r.levers !== r.want || +r.box !== r.want)
+    throw new Error(`typing ${r.want} into ${r.pad} set the levers to ` +
+                    `${r.levers} and the box to ${r.box}`);
+if (dial.clamped !== 1023 || dial.floored !== 0)
+  throw new Error(`out-of-range entry landed on ${dial.clamped} and ` +
+                  `${dial.floored}, not 1023 and 0`);
+console.log(`operand entry: ${dial.out.map(r => r.pad + "=" + r.want).join(" ")} ` +
+            `each spelled out on the levers, out of range clamps to 0..1023`);
+
 // --- correctness, driven through the controls -----------------------------
 // Levers are moved a couple of game ticks apart, the way a hand moves them.
 // Flipping all twenty inside one tick aligns every hazard in the machine at
@@ -234,24 +266,40 @@ console.log(`strength: ${relief.levels} distinct dust heights, ` +
 const atlas = await page.evaluate(() => {
   const px = makeAtlas(), used = new Set(), n = ATLAS_TILES * ATLAS_TILES;
   for (let j = 0; j < inst.length; j++) used.add(tiles[j]);
-  const bad = [], blank = [];
+  const bad = [], blank = [], code = [];
+  let coloured = 0;
   for (const t of used) {
     if (t < 0 || t >= n) { bad.push(t); continue; }
     const ox = (t % ATLAS_TILES) * TX, oy = ((t / ATLAS_TILES) | 0) * TX;
-    let ink = 0;
-    for (let y = 0; y < TX; y++) for (let x = 0; x < TX; x++)
-      if (px[((oy + y) * ATLAS_PX + ox + x) * 4 + 3] > 127) ink++;
+    let ink = 0, own = 0;
+    for (let y = 0; y < TX; y++) for (let x = 0; x < TX; x++) {
+      const a = px[((oy + y) * ATLAS_PX + ox + x) * 4 + 3];
+      // alpha is a code, not a coverage: 0 is empty, 64 is "shade only, the
+      // block's state colours it", 255 is "this texel owns its colour".
+      // Anything below the state code would be discarded by the shader.
+      if (a > 0 && a < 60) code.push([t, a]);
+      if (a >= 60) ink++;
+      if (a > 200) own++;
+    }
     if (!ink) blank.push(t);
+    if (own) coloured++;
   }
-  return { used: used.size, capacity: n, bad, blank, bytes: px.length };
+  return { used: used.size, capacity: n, bad, blank, code, coloured,
+           bytes: px.length };
 });
 if (atlas.bad.length)
   throw new Error(`tiles outside the atlas: ${atlas.bad.join(", ")}`);
 if (atlas.blank.length)
   throw new Error(`tiles drawn from blank atlas cells: ${atlas.blank.join(", ")}`);
+if (atlas.code.length)
+  throw new Error(`texels with an alpha the shader would discard: ` +
+                  atlas.code.slice(0, 4).map(([t, a]) => `tile ${t} a=${a}`).join(", "));
+if (!atlas.coloured)
+  throw new Error("no tile carries a colour of its own — the atlas has gone " +
+                  "back to being a luminance mask");
 console.log(`atlas: ${atlas.used} of ${atlas.capacity} tiles used, ` +
-            `all inside the sheet and none blank ` +
-            `(${(atlas.bytes / 1024) | 0} KB, built in the page)`);
+            `${atlas.coloured} with colours of their own, all inside the sheet ` +
+            `and none blank (${(atlas.bytes / 1024) | 0} KB, built in the page)`);
 
 
 // --- dust is drawn pointing the way the simulator says it points ----------
