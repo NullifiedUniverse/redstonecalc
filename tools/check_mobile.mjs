@@ -65,6 +65,41 @@ want(Math.abs(orbit.az) > 0.1 && Math.abs(orbit.el) > 0.01, "one finger does not
 want(orbit.dist === 0, "one finger changed the zoom");
 console.log("one finger orbits, and only orbits");
 
+// --- and a swipe up the canvas reads on, rather than tilting -------------
+// The canvas is over half a phone's screen and takes every touch, so before
+// this the only way past the instrument was to find the strip of page beside
+// it: a straight-up swipe moved the page 0 pixels and tilted the camera 0.37
+// radians, which is what a broken page looks like. A gesture is decided by the
+// direction it commits to, so both of these have to keep working.
+await calm();
+const swipeBy = async (dx, dy, id) => {
+  const home = await page.evaluate(() => scrollY);
+  await page.evaluate(() => { document.querySelector("#view").scrollIntoView({ block: "center" }); });
+  await page.waitForTimeout(300);
+  const b = await page.locator("#cv").boundingBox();
+  const m = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  const was = await page.evaluate(() => ({ y: scrollY, az: cam.az, el: cam.el }));
+  await touch("pointerdown", id, m.x, m.y, true);
+  for (let i = 1; i <= 12; i++) await touch("pointermove", id, m.x + dx * i, m.y + dy * i, true);
+  await touch("pointerup", id, m.x + dx * 12, m.y + dy * 12, true);
+  await page.waitForTimeout(420);
+  const out = await page.evaluate(w => ({ scrolled: scrollY - w.y, az: cam.az - w.az,
+                                          el: cam.el - w.el }), was);
+  // put the page back where it was found: everything after this measures the
+  // canvas by coordinates taken once, at the top
+  await page.evaluate(y => scrollTo({ top: y, behavior: "instant" }), home);
+  await page.waitForTimeout(200);
+  return out;
+};
+const up = await swipeBy(0, -13, 21);
+want(up.scrolled > 100, `a swipe up the canvas scrolled ${Math.round(up.scrolled)}px`);
+want(up.az === 0 && up.el === 0, "a swipe up the canvas moved the camera as well");
+const turn = await swipeBy(13, 0, 22);
+want(turn.scrolled === 0, `a sideways drag scrolled the page ${Math.round(turn.scrolled)}px`);
+want(Math.abs(turn.az) > 0.1, "a sideways drag did not turn the machine");
+console.log(`a swipe reads on (${Math.round(up.scrolled)}px, camera still), ` +
+            `a drag turns (${turn.az.toFixed(2)} rad, page still)`);
+
 await calm();
 await page.evaluate(() => { window.__c = { ...cam }; });
 await touch("pointerdown", 1, mid.x - 40, mid.y, true);
@@ -124,8 +159,12 @@ if (flick.turned && flick.rest) console.log("a flick keeps turning, then settles
 await calm();
 await page.evaluate(() => { focus("ctrl", 0); showPick(-1); });
 await page.waitForTimeout(300);
-await touch("pointerdown", 3, mid.x, mid.y, true);
-await touch("pointerup", 3, mid.x + 4, mid.y + 3, true);   // fingers wobble
+// measured fresh rather than reused: a check that silently taps empty space
+// because something earlier scrolled the page is a check that proves nothing
+const tapBox = await page.locator("#cv").boundingBox();
+const tapAt = { x: tapBox.x + tapBox.width / 2, y: tapBox.y + tapBox.height / 2 };
+await touch("pointerdown", 3, tapAt.x, tapAt.y, true);
+await touch("pointerup", 3, tapAt.x + 4, tapAt.y + 3, true);   // fingers wobble
 const read = await page.evaluate(() => document.getElementById("inspect").textContent);
 want(!!read, "tapping the machine read nothing");
 if (read) console.log(`tap reads: "${read}"`);
@@ -169,6 +208,27 @@ want(rot.keptAngle, "the refit moved the camera the viewer had aimed");
 want(rot.overflow <= 0, `landscape overflows by ${rot.overflow}px`);
 if (rot.refitted && rot.keptAngle)
   console.log("rotation refits and keeps the viewer's angle");
+
+// --- and sideways is a layout of its own ------------------------------------
+// A phone held sideways is wider than the narrow breakpoint and shorter than
+// anything else, so the width rules only half applied: it spent two thirds of a
+// 390px screen on a headline before showing any machine. Height is the scarce
+// axis here, and this is what says so.
+const land = await page.evaluate(() => {
+  const r = document.querySelector("#view").getBoundingClientRect();
+  return { top: Math.round(r.top), h: Math.round(r.height), vh: innerHeight,
+           h1: Math.round(parseFloat(getComputedStyle(document.querySelector("h1")).fontSize)),
+           cols: getComputedStyle(document.querySelector(".bar")).gridTemplateColumns
+                   .split(" ").length };
+});
+want(land.top < land.vh * 0.62,
+     `sideways, the machine starts ${land.top}px into a ${land.vh}px screen`);
+want(land.h > land.vh * 0.6,
+     `sideways, the view is ${land.h}px of ${land.vh}`);
+want(land.h1 <= 26, `sideways, the headline is still ${land.h1}px`);
+want(land.cols === 2, "sideways, the control bar did not use the width it has");
+console.log(`sideways: headline ${land.h1}px, view starts ${land.top}px into ` +
+            `${land.vh} and takes ${land.h}, controls side by side`);
 
 // --- layout -----------------------------------------------------------------
 await page.setViewportSize({ width: 390, height: 844 });

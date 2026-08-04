@@ -12,27 +12,34 @@
    ------------------------------------------------------------------------ */
 :root{
   --basalt:#0d1014; --slate:#161a20; --slate2:#1d222a; --seam:#242b35;
-  --ink:#e9e7e4; --ash:#8b939d; --dim:#5a626d;
+  --ink:#e9e7e4; --ash:#a2a9b3; --dim:#868e98;
   --redstone:#ff4a3d; --torch:#ffb45c; --lamp:#ffd98a; --glass:#7fb3c8;
-  --pass:#5fd39b; --void:#06080b;
+  --pass:#5fd39b; --void:#06080b; --on-accent:#260906;
+  /* The canvas, the seven-segment readout and the panels over them are dark in
+     both themes — they are a machine in a dark room, not page furniture. Their
+     foregrounds therefore do not follow the theme: a lit lamp is the same
+     colour whichever way the page is set, and in light theme the themed amber
+     was a dark brown on near-black, at 3.0 against its own background. */
+  --on-dark:#c9d0d8; --on-dark-dim:#7c848f; --lamp-lit:#ffd98a;
+  --prim:#c9271b; --accent-on-dark:#ff5a4d;
   --serif:Charter,"Bitstream Charter","Iowan Old Style",Palatino,Georgia,serif;
   --mono:ui-monospace,"SF Mono","Cascadia Mono","DejaVu Sans Mono",Menlo,monospace;
   --r:9px;
 }
 @media (prefers-color-scheme:light){
   :root{ --basalt:#eceef1; --slate:#f7f8fa; --slate2:#eef0f4; --seam:#d9dde3;
-    --ink:#12151a; --ash:#586069; --dim:#858d97;
-    --redstone:#c9271b; --torch:#9a6207; --lamp:#8a6408; --glass:#2f6f8a;
-    --pass:#12734a; --void:#0b0e12; }
+    --ink:#12151a; --ash:#586069; --dim:#636b75;
+    --redstone:#c9271b; --torch:#8a5806; --lamp:#8a6408; --glass:#2f6f8a;
+    --pass:#12734a; --void:#0b0e12; --on-accent:#fff; }
 }
 :root[data-theme="dark"]{ --basalt:#0d1014; --slate:#161a20; --slate2:#1d222a;
-  --seam:#242b35; --ink:#e9e7e4; --ash:#8b939d; --dim:#5a626d;
+  --seam:#242b35; --ink:#e9e7e4; --ash:#a2a9b3; --dim:#868e98;
   --redstone:#ff4a3d; --torch:#ffb45c; --lamp:#ffd98a; --glass:#7fb3c8;
-  --pass:#5fd39b; --void:#06080b; }
+  --pass:#5fd39b; --void:#06080b; --on-accent:#260906; }
 :root[data-theme="light"]{ --basalt:#eceef1; --slate:#f7f8fa; --slate2:#eef0f4;
-  --seam:#d9dde3; --ink:#12151a; --ash:#586069; --dim:#858d97;
-  --redstone:#c9271b; --torch:#9a6207; --lamp:#8a6408; --glass:#2f6f8a;
-  --pass:#12734a; --void:#0b0e12; }
+  --seam:#d9dde3; --ink:#12151a; --ash:#586069; --dim:#636b75;
+  --redstone:#c9271b; --torch:#8a5806; --lamp:#8a6408; --glass:#2f6f8a;
+  --pass:#12734a; --void:#0b0e12; --on-accent:#fff; }
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -86,20 +93,26 @@ canvas:active{cursor:grabbing}
 .ghost.sep{margin-left:.55rem}
 .ghost{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;
   text-transform:uppercase;padding:.3rem .5rem;border-radius:5px;cursor:pointer;
-  border:1px solid rgba(255,255,255,.13);background:rgba(8,10,14,.72);
-  color:#9aa2ac;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  border:1px solid rgba(255,255,255,.16);background:rgba(8,10,14,.88);
+  color:var(--on-dark-dim);-webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(6px)}
 .ghost:hover{color:var(--ink);border-color:rgba(255,255,255,.28)}
-.ghost[aria-pressed="true"]{border-color:var(--redstone);color:var(--redstone)}
+/* the chips float on the canvas, so their selected state uses the accent that
+   works on black — in light theme the page's red is a deep one, and a deep red
+   on a near-black chip is 3.6 against its own background */
+.ghost[aria-pressed="true"]{border-color:var(--accent-on-dark);
+  color:var(--accent-on-dark)}
 .hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
-  font-size:.6rem;color:#59606a;letter-spacing:.05em;pointer-events:none}
+  font-size:.6rem;color:var(--on-dark-dim);letter-spacing:.05em;
+  pointer-events:none}
 .hint .narrow{display:none}
 .inspect{position:absolute;right:.7rem;bottom:.55rem;max-width:min(92%,32rem);
-  font-family:var(--mono);font-size:.65rem;color:var(--lamp);
+  font-family:var(--mono);font-size:.65rem;color:var(--lamp-lit);
   background:rgba(6,8,11,.88);border:1px solid rgba(255,255,255,.13);
   border-radius:5px;padding:.3rem .55rem;pointer-events:none}
 #boot{position:absolute;inset:0;display:flex;align-items:center;
   justify-content:center;font-family:var(--mono);font-size:.72rem;
-  color:var(--ash);background:var(--void);z-index:2;letter-spacing:.08em}
+  color:var(--on-dark);background:var(--void);z-index:2;letter-spacing:.08em}
 #boot[hidden]{display:none}
 
 /* ---- the control bar: four rows, in the order you use them ---- */
@@ -115,7 +128,7 @@ canvas:active{cursor:grabbing}
 .digit{display:grid;grid-template-columns:repeat(5,7px);
   grid-template-rows:repeat(13,4px);gap:1px}
 .px{border-radius:1px;background:#12161c}
-.px.on{background:var(--lamp);box-shadow:0 0 4px rgba(255,217,138,.7)}
+.px.on{background:var(--lamp-lit);box-shadow:0 0 4px rgba(255,217,138,.7)}
 .num{font-family:var(--mono);font-size:1.95rem;font-weight:600;
   font-variant-numeric:tabular-nums;color:var(--lamp);line-height:1}
 .state{font-family:var(--mono);font-size:.58rem;letter-spacing:.13em;
@@ -145,8 +158,12 @@ canvas:active{cursor:grabbing}
   padding:0;line-height:1;
   transition:background .12s,border-color .12s,color .12s}
 .bit:hover{border-color:var(--ash)}
+/* A lit bit keeps the accent — it is an indicator, and the whole row is read at
+   a glance — but its 9px numeral needs whichever of dark or white the accent
+   will carry, and that is not the same in both themes: the dark theme's red is
+   bright (white on it measures 3.3), the light theme's is deep. */
 .bit[aria-pressed="true"]{background:var(--redstone);border-color:var(--redstone);
-  color:#fff;font-weight:700}
+  color:var(--on-accent);font-weight:700}
 /* The bits are the truth — they are levers on a wall — but nobody thinks in
    binary, and asking someone to spell 723 out of ten switches is asking them
    not to bother. The dial is the same levers, driven from a decimal number. */
@@ -160,8 +177,7 @@ canvas:active{cursor:grabbing}
   background:transparent;border:1px solid transparent;border-radius:4px;
   padding:.2rem .15rem;min-height:30px}
 .opnd .val:hover{border-color:var(--seam)}
-.opnd .val:focus{border-color:var(--redstone);outline:none;
-  background:var(--slate2)}
+.opnd .val:focus{border-color:var(--redstone);background:var(--slate2)}
 
 /* the three things to do, in the order they are done in */
 .step{font-family:var(--mono);font-size:.58rem;letter-spacing:.09em;
@@ -197,11 +213,14 @@ canvas:active{cursor:grabbing}
   padding:.42rem .6rem;border:1px solid var(--seam);border-radius:5px;
   background:var(--slate2);color:var(--ink);cursor:pointer}
 .transport button:hover{border-color:var(--redstone);color:var(--redstone)}
-/* one obvious thing to press, because "skip to settled" next to "+1 tick" next
-   to a speed menu is four equal choices and no answer to "what do I do now" */
-.transport .prim{background:var(--redstone);border-color:var(--redstone);
+/* One obvious thing to press, because "skip to settled" next to "+1 tick" next
+   to a speed menu is four equal choices and no answer to "what do I do now".
+   Its red is a shade deeper than the accent: white on `--redstone` measures 3.3
+   against its own background, and the one control a first-time reader is meant
+   to find should not be the one they have to squint at. */
+.transport .prim{background:var(--prim);border-color:var(--prim);
   color:#fff;font-weight:600}
-.transport .prim:hover{color:#fff;filter:brightness(1.1)}
+.transport .prim:hover{color:#fff;filter:brightness(1.12)}
 .transport button[aria-pressed="true"]{border-color:var(--redstone);
   color:var(--redstone)}
 .cutrow{display:flex;align-items:center;gap:.55rem}
@@ -221,8 +240,8 @@ canvas:active{cursor:grabbing}
   border-radius:50%;background:var(--redstone);cursor:pointer}
 .cutrow input[type=range]:focus-visible{outline:2px solid var(--redstone);
   outline-offset:2px}
-button:focus-visible,select:focus-visible,summary:focus-visible{
-  outline:2px solid var(--redstone);outline-offset:2px}
+button:focus-visible,select:focus-visible,summary:focus-visible,
+input:focus-visible{outline:2px solid var(--redstone);outline-offset:2px}
 
 /* ---- the thin status strip that closes the instrument ---- */
 .strip{grid-column:1/-1;border-top:1px solid var(--seam);display:flex;
@@ -270,7 +289,7 @@ details .in table{min-width:420px}
   gap:.75rem;margin:1.2rem 0}
 .card{border:1px solid var(--seam);border-radius:var(--r);padding:.9rem 1rem;
   background:var(--slate)}
-.card h4{margin:0 0 .35rem;font-size:.72rem;font-family:var(--mono);
+.card h3{margin:0 0 .35rem;font-size:.72rem;font-family:var(--mono);
   letter-spacing:.09em;text-transform:uppercase;color:var(--torch);
   font-weight:600}
 .card p{margin:0;font-size:.88rem;color:var(--ash);line-height:1.55}
@@ -337,6 +356,32 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .transport .prim{flex:1 1 100%;padding:.7rem}
   .strip{gap:.15rem 1rem;padding:.55rem .8rem}
 }
+/* A phone turned sideways has about 390px of height for everything, and 52% of
+   it is not enough canvas to see a machine in. Give the view most of the screen
+   and let the controls scroll under it. */
+/* A phone turned sideways is 750 x 340 of usable page. It is *not* a narrow
+   window, so the rules above only half apply, and it was spending 226 of those
+   340 pixels on a headline before showing any machine at all. Height is the
+   scarce axis here, so everything above the instrument gives some back and the
+   view takes three quarters of what is left. Placed after the width rules on
+   purpose: where both match, this one is the more specific situation. */
+@media (max-height:560px) and (orientation:landscape){
+  header.top{padding:.9rem 0 .5rem}
+  h1{font-size:1.45rem;margin:0 0 .3rem}
+  .lede{font-size:.92rem;max-width:78ch}
+  .eyebrow{margin:0 0 .4rem}
+  .facts{margin:.6rem 0 0;gap:.1rem 1.4rem}
+  .facts b{font-size:.9rem}
+  .rig{margin-top:.9rem}
+  #view{height:74vh;height:74dvh;min-height:190px}
+  /* the width is there in landscape, so the answer and the controls go back
+     side by side rather than stacking */
+  .bar{grid-template-columns:minmax(210px,290px) minmax(0,1fr)}
+  .bay{border-right:1px solid var(--seam);border-bottom:none}
+  .bay:last-of-type{border-right:none}
+  main.wrap{padding-top:1.5rem}
+  section{padding:1.5rem 0}
+}
 /* below the narrowest phone, let the bit row breathe by dropping the numerals
    inside the cells rather than shrinking the cells */
 @media (max-width:360px){
@@ -374,7 +419,8 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
       </div>
       <div class="hint"><span class="wide">drag to orbit &middot; scroll to zoom
         &middot; click a block to read it, twice to fly in</span><span
-        class="narrow">drag &middot; pinch &middot; tap a block, twice to fly in</span></div>
+        class="narrow">drag to turn &middot; swipe to read on &middot; pinch
+        &middot; tap a block, twice to fly in</span></div>
       <div class="inspect" id="inspect" hidden></div>
     </div>
 
@@ -473,17 +519,17 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
         each boundary. The modules are in the source; the silicon is one block.</p>
     </div>
     <div class="cards">
-      <div class="card"><h4>The keypad cannot burn out</h4>
+      <div class="card"><h3>The keypad cannot burn out</h3>
         <p>Each key drives a repeater held from the side. Every key also feeds a
           shared <em>any key is down</em> bus, and each latch's lock is that bus
           inverted — so all eight go transparent together and the pressed key
           stores 1 while the rest store 0. One-hot, with no torch in the latch
           cell to burn.</p></div>
-      <div class="card"><h4>Leading zeros cost nothing</h4>
+      <div class="card"><h3>Leading zeros cost nothing</h3>
         <p>A digit is shown if it or anything above it is non-zero — one flat OR
           over every bit from there up. It folds into the decoder's minterms as
           one more literal, and a term is already an AND, so blanking is free.</p></div>
-      <div class="card"><h4>The top digit needs no decoder</h4>
+      <div class="card"><h3>The top digit needs no decoder</h3>
         <p>A 10-bit result cannot exceed 1023, so its thousands digit is 0 or 1
           and its upper bits are the constant rail. The decoder folds: impossible
           values drop out of the sum, and segments lit for every reachable value
@@ -829,16 +875,16 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <h2>It exports, two vanilla ways</h2>
     </div>
     <div class="cards">
-      <div class="card"><h4>Structure files</h4>
+      <div class="card"><h3>Structure files</h3>
         <p>A grid of <code>.nbt</code> files a structure block loads, plus a
           manifest giving each one's offset. Structure blocks stop at 48 blocks a
           side, so a machine this size arrives as a jigsaw of 373 pieces.</p></div>
-      <div class="card"><h4>A datapack</h4>
+      <div class="card"><h3>A datapack</h3>
         <p><code>/setblock</code> and <code>/fill</code>, batched so a server can
           run them without stalling, placed relative to wherever you stand. Runs
           of identical blocks collapse into fills: 456,558 blocks become 71,768
           commands.</p></div>
-      <div class="card"><h4>One convention to get right</h4>
+      <div class="card"><h3>One convention to get right</h3>
         <p>Minecraft's repeater <code>facing</code> runs output→input, the
           opposite of this simulator's; a wall torch's points away from its
           support. Both are flipped on the way out, and a test asserts each —
@@ -2422,7 +2468,10 @@ function describe(i){
   if(k===K_LAMP)
     return`lamp · ${w.power[i]?"lit":"dark"} · ${at}`;
   if(k===K_GLASS)return`walkway (glass, carries no power) · ${at}`;
-  return`block · ${at}`;
+  // structure and blocks of redstone are all that reach here. Named from the
+  // engine's own kind table, so there is no second list to disagree with it.
+  const nm=KINDS[k]==="solid"?"solid block":KINDS[k].replace(/_/g," ");
+  return`${nm} · ${at}`;
 }
 /* A fingertip is not a pixel. If the exact ray misses, spiral outward a little
    before giving up — on a phone the difference between "tap a block to read it"
@@ -2578,8 +2627,11 @@ function inputPoints(){
    middle of a black field. Measured on an iPhone 12 profile, at the desktop
    framing 8.3% of the canvas is above black and 188 distinct colours reach it;
    pulled in and turned along its length, 27.7% and 322. The machine runs off
-   both edges at that framing, which is the correct impression of it. */
-const NARROW=()=>(cv.clientWidth||900)<560;
+   both edges at that framing, which is the correct impression of it.
+
+   Short counts as narrow: a phone held sideways is 844 wide and 390 tall, which
+   is not a narrow window by width and is emphatically a small one. */
+const NARROW=()=>(cv.clientWidth||900)<560||(cv.clientHeight||400)<340;
 const VIEWS={
   all:  ms=>NARROW()
         ? frameOn(allPoints(),0.64,worldCentre(),2.35,0.42,ms)
@@ -2839,7 +2891,8 @@ function buildControls(){
       +`<div class="dial"><button type="button" class="tick" `
       +`aria-label="${pad} minus one">−</button>`
       +`<input class="val" id="val${pad}" value="0" inputmode="numeric" `
-      +`autocomplete="off" aria-label="${pad}, 0 to ${(1<<circ.width)-1}">`
+      +`enterkeyhint="done" autocomplete="off" `
+      +`aria-label="${pad}, 0 to ${(1<<circ.width)-1}">`
       +`<button type="button" class="tick" aria-label="${pad} plus one">+</button>`
       +`</div>`;
     host.appendChild(row);
@@ -2857,6 +2910,10 @@ function buildControls(){
     };
     box.onchange=()=>{box.value=setOperand(pad,box.value);};
     box.onblur=()=>{box.value=bitsOf(pad);};
+    // a tap into the box means "give me a different number", not "let me edit
+    // the fourth digit of this one" — so it arrives selected, and typing
+    // replaces rather than appends
+    box.onfocus=()=>box.select();
     for(let i=circ.width-1;i>=0;i--){
       switchIdx[pad+i]=world.at(...circ.switches[pad+i]);
       const b=document.createElement("button");
@@ -2901,14 +2958,29 @@ addEventListener("keydown",e=>{
    no pinch at all, only `wheel`, which a phone does not have. One finger
    orbits; two pinch to zoom. */
 const ptr=new Map();
-let pinch=null,lastTap=0,lastHit=-1,lastTapAt=null;
+let pinch=null,lastTap=0,lastHit=-1,lastTapAt=null,swipe=null;
 const ORBIT_X=0.008,ORBIT_Y=0.006,TAP_SLOP=12,TAP_MS=600,DBL_MS=600,DBL_SLOP=34;
+/* The canvas is over half a phone's screen and `touch-action:none` means the
+   browser will never scroll it — so a reader who put a thumb on the machine and
+   swiped up to reach the writing got a tilted camera and a page that had not
+   moved. Measured before the fix: 0 pixels of scroll, 0.37 radians of tilt.
+   That is a page that looks broken.
+
+   So a one-finger touch says nothing for its first `INTENT_PX`, and then the
+   direction it went decides what it was: decisively vertical is a reader
+   scrolling, anything else is a hand turning the machine. The bias is what
+   keeps tilt: a drag even 27° off vertical still orbits, and a thumb arcs. The
+   lead-in is not thrown away — the orbit picks it up — so nothing feels dead.
+
+   A mouse is left alone. It has a wheel, and the page has always scrolled. */
+const INTENT_PX=11,VERT_BIAS=2.0,FLING=14;
 cv.addEventListener("pointerdown",e=>{
   spinAz=spinEl=0;fly=null;
   ptr.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
                        vx:0,vy:0,vt:0,t:performance.now()});
   // throws if the pointer is already gone, which touch emulation does do
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  swipe=(ptr.size===1&&e.pointerType==="touch")?{mode:0}:null;
   if(ptr.size===2){
     const[a,b]=[...ptr.values()];
     pinch={d0:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),dist0:cam.dist,
@@ -2921,6 +2993,19 @@ cv.addEventListener("pointermove",e=>{
   const dx=e.clientX-q.x,dy=e.clientY-q.y;
   q.x=e.clientX;q.y=e.clientY;q.vx=dx;q.vy=dy;q.vt=performance.now();
   if(ptr.size===1){
+    if(swipe&&swipe.mode===0){
+      const tx=e.clientX-q.x0,ty=e.clientY-q.y0;
+      if(Math.hypot(tx,ty)<INTENT_PX)return;      // too early to tell
+      swipe.mode=Math.abs(ty)>VERT_BIAS*Math.abs(tx)?2:1;
+      if(swipe.mode===1){                         // orbit, lead-in included
+        cam.az-=tx*ORBIT_X;
+        cam.el=Math.max(0.05,Math.min(1.5,cam.el+ty*ORBIT_Y));
+        invalidate();return;
+      }
+      scrollBy(0,-(e.clientY-q.y0));
+      return;
+    }
+    if(swipe&&swipe.mode===2){scrollBy(0,-dy);return;}
     cam.az-=dx*ORBIT_X;
     cam.el=Math.max(0.05,Math.min(1.5,cam.el+dy*ORBIT_Y));
     invalidate();
@@ -2941,6 +3026,14 @@ function liftPointer(e){
   ptr.delete(e.pointerId);
   if(ptr.size<2)pinch=null;
   if(!q)return;
+  if(swipe&&swipe.mode===2){
+    // a flick carries on, the way the browser's own scrolling does
+    if(Math.abs(q.vy)>5&&performance.now()-q.vt<120)
+      scrollBy({top:-q.vy*FLING,behavior:REDUCE?"auto":"smooth"});
+    if(!ptr.size)swipe=null;
+    return;
+  }
+  if(!ptr.size)swipe=null;
   const moved=Math.hypot(e.clientX-q.x0,e.clientY-q.y0);
   // A tap is a press that went nowhere, and only when it was the only finger
   // down — half of a pinch is not a tap. The time limit is for touch, where a
@@ -2972,7 +3065,8 @@ function liftPointer(e){
 }
 cv.addEventListener("pointerup",liftPointer);
 cv.addEventListener("pointercancel",e=>{ptr.delete(e.pointerId);
-  if(ptr.size<2)pinch=null;});
+  if(ptr.size<2)pinch=null;
+  if(!ptr.size)swipe=null;});
 cv.addEventListener("wheel",e=>{e.preventDefault();
   fly=null;spinAz=spinEl=0;
   cam.dist=Math.max(MIN_DIST,Math.min(MAX_DIST,

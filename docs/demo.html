@@ -197,6 +197,11 @@ const BUNDLE = {"circuits":[{"n":770,"origin":[-2,-1,0],"dims":[25,18,53],"data"
    2/4/6/8 game ticks with side locking. Dust propagation is instantaneous and
    resolved to a fixed point within the tick, as in the game.                */
 
+/* The kind table: the exported blob's own ordering, written out in full. The
+   code indexes blocks with the K_* constants below, so this looks unused —
+   it is not. The preview page names an ordinary block from it rather than
+   keeping a second list that can disagree, and `tools/build_pages.py` finds the
+   start of this engine by looking for its first line. */
 const KINDS=["solid","redstone_wire","redstone_torch","repeater","comparator",
              "lever","lamp","redstone_block","glass"];
 const K_SOLID=0,K_WIRE=1,K_TORCH=2,K_REP=3,K_CMP=4,K_LEVER=5,K_LAMP=6,K_RBLOCK=7,K_GLASS=8;

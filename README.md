@@ -36,7 +36,9 @@ redstone — classic mechanics apply.
   instances to 239,571; see DESIGN §16. The older Mk I demo is at
   `docs/demo.html`. `tools/check_preview.mjs` verifies it in a real browser;
   `tools/check_mobile.mjs` does the same on a touch profile — gestures, tap
-  targets, clipping and rotation.
+  targets, clipping, rotation, and that a swipe up the canvas reads on rather
+  than tilting the machine. Both checks sweep every text node against its own
+  background at 4.5:1, in both themes.
 
 ## Mk I results — where the architecture came from
 

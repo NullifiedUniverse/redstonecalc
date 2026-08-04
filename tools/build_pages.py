@@ -11,12 +11,6 @@ import os
 
 ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-PAGES = {
-    "docs/demo.html": ("docs/demo_template.html", "out/circuits.json"),
-    "docs/preview.html": ("docs/preview_template.html", "out/preview.json"),
-}
-
-
 def read(path):
     with open(os.path.join(ROOT, path), encoding="utf-8") as f:
         return f.read()

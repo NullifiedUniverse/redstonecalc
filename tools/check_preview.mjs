@@ -46,6 +46,81 @@ console.log(`animation: ${anim.advanced} ticks stepped, ` +
 if (anim.advanced !== 40) throw new Error("stepTick did not advance the clock");
 if (anim.active === 0) throw new Error("no block changed while stepping ticks");
 
+// --- the page can be read, in both themes ---------------------------------
+// Colour is a token system with two themes, and the second one is where things
+// rot: the seven-segment readout and the chips over the canvas sit on surfaces
+// that are dark whichever way the page is set, so a token that flips with the
+// theme lands dark-on-dark there. That is how the lit lamps ended up at 3.0
+// against their own background in light theme, and how the *selected* view chip
+// ended up at 3.6. Both are measured now rather than looked at.
+const contrast = await page.evaluate(async () => {
+  const L = c => {
+    const [r, g, b] = c.match(/[\d.]+/g).map(Number).slice(0, 3).map(v => v / 255)
+      .map(v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+    return .2126 * r + .7152 * g + .0722 * b;
+  };
+  const bgOf = el => {
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+      const c = getComputedStyle(n).backgroundColor;
+      if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return c;
+    }
+    return "rgb(255,255,255)";
+  };
+  const sweep = () => {
+    const bad = [];
+    for (const el of document.querySelectorAll("body *")) {
+      const own = [...el.childNodes].filter(n => n.nodeType === 3)
+        .map(n => n.textContent.trim()).join("");
+      if (!own) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none") continue;
+      const size = parseFloat(cs.fontSize), weight = +cs.fontWeight || 400;
+      const floor = (size >= 24 || (size >= 18.66 && weight >= 700)) ? 3 : 4.5;
+      const a = L(cs.color), bg = L(bgOf(el));
+      const ratio = (Math.max(a, bg) + .05) / (Math.min(a, bg) + .05);
+      if (ratio < floor)
+        bad.push(`${(el.className || el.tagName).toString().slice(0, 24)} ` +
+                 `${size.toFixed(0)}px ${ratio.toFixed(2)} "${own.slice(0, 24)}"`);
+    }
+    return [...new Set(bad)];
+  };
+  const out = {};
+  for (const t of ["dark", "light"]) {
+    document.documentElement.setAttribute("data-theme", t);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    out[t] = sweep();
+  }
+  document.documentElement.removeAttribute("data-theme");
+  // and the structural things that are cheap to get wrong
+  const ids = new Map(), dup = [];
+  for (const el of document.querySelectorAll("[id]"))
+    ids.has(el.id) ? dup.push(el.id) : ids.set(el.id, 1);
+  const nameless = [...document.querySelectorAll("button,select,input,summary,a[href]")]
+    .filter(el => !(el.textContent || "").trim() && !el.getAttribute("aria-label")
+                  && !el.getAttribute("title") && !(el.labels && el.labels.length))
+    .map(el => el.id || el.tagName);
+  const hs = [...document.querySelectorAll("h1,h2,h3,h4,h5")].map(h => +h.tagName[1]);
+  const jumps = hs.map((v, i) => i && v - hs[i - 1] > 1 ? `${hs[i-1]}→${v}` : null)
+                  .filter(Boolean);
+  return { ...out, dup, nameless, jumps,
+           overflow: document.documentElement.scrollWidth -
+                     document.documentElement.clientWidth };
+});
+for (const t of ["dark", "light"])
+  if (contrast[t].length)
+    throw new Error(`${t} theme has text below its contrast floor: ` +
+                    contrast[t].slice(0, 3).join(" | "));
+if (contrast.dup.length)
+  throw new Error(`duplicate element ids: ${contrast.dup.join(", ")}`);
+if (contrast.nameless.length)
+  throw new Error(`controls with no accessible name: ${contrast.nameless.join(", ")}`);
+if (contrast.jumps.length)
+  throw new Error(`heading levels skip: ${contrast.jumps.join(", ")}`);
+if (contrast.overflow > 0)
+  throw new Error(`the page scrolls sideways by ${contrast.overflow}px`);
+console.log("readable: no text below 4.5:1 in either theme, no duplicate ids, " +
+            "every control named, headings in order, no sideways scroll");
+
 // --- typing a number moves the right levers -------------------------------
 // The bit switches are the truth, but nobody spells 723 out of ten of them, so
 // each operand has a decimal box that drives the same levers. If that mapping

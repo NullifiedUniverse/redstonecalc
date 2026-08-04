@@ -1840,3 +1840,110 @@ The hero also gave up a third of its height on small screens, the view chips
 became one row that fits at 375px rather than two rows eating the top of the
 canvas, and the canvas grew from 46vh to 52vh. `check_mobile` still passes at
 375px with every control at least 28px.
+
+## 26. A debugging pass over the page, and one trap in it — **measured**
+
+The page had been read on a phone. It had not been *used* on one, and the
+difference produced one genuine trap and a handful of things that were wrong in
+ways nobody would report — they would just leave.
+
+### The canvas ate the page
+
+`touch-action:none` on the canvas is correct for a 3D view: it stops the browser
+scrolling while you turn the machine. On a phone that canvas is over half the
+screen, so a reader who put a thumb on the machine and swiped up to reach the
+writing got **0 pixels of scroll and 0.37 radians of tilt**. Nothing about that
+looks like a design decision. It looks like a broken page.
+
+The fix is to let the gesture say what it is before acting on it. A one-finger
+touch does nothing for its first 11 pixels; the direction it commits to then
+decides:
+
+| gesture on the canvas | page | camera |
+|---|---|---|
+| straight up | **338px** | still |
+| straight down | **−212px** | still |
+| sideways | 0 | **−1.15 rad** of turn |
+| diagonal | 0 | turns and tilts |
+
+The bias is what keeps tilt reachable: a drag has to be more than twice as
+vertical as it is horizontal to count as scrolling, so anything within 27° of
+sideways still orbits, and a thumb arcs. The lead-in is not thrown away — the
+orbit picks it up — so nothing feels dead at the start of a drag. A flick
+carries on, the way the browser's own scrolling does. A mouse is left alone: it
+has a wheel, and the page has always scrolled.
+
+`check_mobile` asserts both halves now, because "one finger orbits" and "one
+finger scrolls" are each a plausible reading of the same code.
+
+### Colour that only worked in one theme
+
+The palette is a token system with two themes, and the second one is where
+things rot. Sweeping every text node in the rendered page against its own
+background, at the 4.5:1 floor:
+
+| | before | after |
+|---|---|---|
+| dark theme | 1 below the floor | **0** |
+| light theme | 3 below the floor | **0** |
+
+The interesting failures were not the obvious ones:
+
+- **`--dim` failed in both themes** — 2.8:1 to 3.2:1 — and it carries every label
+  on the page. Raising it collapsed the gap to `--ash`, so `--ash` went up too:
+  two steps of hierarchy, both legible, rather than three of which one could not
+  be read.
+- **Surfaces that are dark in both themes were taking themed foregrounds.** The
+  canvas, the seven-segment readout and the chips floating over them are a
+  machine in a dark room, not page furniture. In light theme the amber for a
+  *lit lamp* was a dark brown sitting on near-black at 3.0, and the **selected**
+  view chip was a deep red on black at 3.6. Those colours do not follow the
+  theme any more: `--lamp-lit`, `--on-dark`, `--on-dark-dim`, `--accent-on-dark`
+  are fixed, because what they sit on is fixed.
+- **What goes *on* the accent flips with it.** The dark theme's red is bright, so
+  white on it measures 3.3; the light theme's is deep, so a dark numeral on it
+  measures 3.4. A lit bit therefore takes `--on-accent`, which is near-black in
+  one theme and white in the other. The primary action button took a deeper red
+  instead — the one control a first-time reader is meant to find should not be
+  the one they squint at.
+
+That sweep is now part of `check_preview`, along with duplicate ids, unnamed
+controls, heading order and sideways overflow. It found a heading jump on its
+first run — the cards were `h4` under an `h2`, with no `h3` in between — and it
+found the lit bit, which the ad-hoc version of the same scan had missed because
+no bit happened to be lit at the moment it looked.
+
+### Sideways was nobody's layout
+
+A phone held sideways is 844 × 390: **wider than the narrow breakpoint and
+shorter than anything else**, so it got desktop type in a 390-pixel window and
+spent 226 of those pixels on a headline before showing any machine. Height is
+the scarce axis there, and now the rules say so — headline 34px → 23px, the
+machine starting 187px in rather than 226, the control bar back to two columns
+because the width is there to use. The opening framing keys off canvas size, not
+window width, for the same reason: a 711 × 265 canvas is a small one however
+wide the phone is.
+
+### Four smaller things
+
+**A check that had stopped checking.** `check_mobile` taps the canvas at
+coordinates measured once, at the top of the run — and the new swipe test
+scrolled the page between. It went on passing by tapping empty space. The tap
+point is measured fresh now, and the swipe test puts the page back where it
+found it.
+
+**A name that looked dead and was load-bearing.** `KINDS` in the browser engine
+is indexed by nothing — the code uses the `K_*` constants — but
+`tools/build_pages.py` finds the start of the engine by looking for its first
+line. Deleting it as unused would have broken the preview's build silently. It
+is documented, and it is now *used*: an ordinary block names itself from it
+rather than from a second list that could disagree, so a solid block reads
+"solid block" instead of "block".
+
+**Dead config that lied.** A `PAGES` table added with the last change described
+how the page build works and was never read by it. Removed.
+
+**A focus ring I had removed.** The new operand boxes styled `:focus` with a
+border colour and `outline:none`, which is the standard way to make a control
+invisible to someone navigating by keyboard. Tabbing the page reaches 40
+controls; every one of them shows a ring again.
