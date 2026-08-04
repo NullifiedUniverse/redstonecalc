@@ -230,6 +230,24 @@ want(land.cols === 2, "sideways, the control bar did not use the width it has");
 console.log(`sideways: headline ${land.h1}px, view starts ${land.top}px into ` +
             `${land.vh} and takes ${land.h}, controls side by side`);
 
+// --- the view is bounded in pixels, not just in viewport units --------------
+// This page ships as an artifact, which means an iframe whose height is set
+// from the content inside it. A viewport-height unit there is circular: the
+// canvas grows, the document grows, the frame grows, and the canvas is a
+// percentage of the frame. Measured before the caps, a phone-width frame took
+// the canvas to 5,598px, then 7,707px, with the frame past 14,000 and climbing.
+// A very tall viewport is the same condition without the iframe.
+for (const [w, h] of [[390, 12000], [844, 9000], [1200, 20000]]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(350);
+  const view = await page.evaluate(() =>
+    Math.round(document.querySelector("#view").getBoundingClientRect().height));
+  want(view <= 600, `in a ${w}x${h} viewport the view is ${view}px — a height ` +
+                    `in viewport units with no pixel cap runs away inside a ` +
+                    `frame that is sized from its content`);
+}
+console.log("the view stays bounded in a viewport 20,000px tall");
+
 // --- layout -----------------------------------------------------------------
 await page.setViewportSize({ width: 390, height: 844 });
 await page.waitForTimeout(400);

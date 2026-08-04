@@ -37,8 +37,12 @@ redstone — classic mechanics apply.
   `docs/demo.html`. `tools/check_preview.mjs` verifies it in a real browser;
   `tools/check_mobile.mjs` does the same on a touch profile — gestures, tap
   targets, clipping, rotation, and that a swipe up the canvas reads on rather
-  than tilting the machine. Both checks sweep every text node against its own
-  background at 4.5:1, in both themes.
+  than tilting the machine. The wheel belongs to the page too: plain scroll
+  moves the article, ⌘/ctrl + scroll zooms, and there are buttons for it.
+  Both checks sweep every text node against its own background at 4.5:1, in
+  both themes, and the view is capped in pixels as well as in viewport units —
+  it is published in a frame sized from its own content, where a height in `vh`
+  is circular and runs away.
 
 ## Mk I results — where the architecture came from
 

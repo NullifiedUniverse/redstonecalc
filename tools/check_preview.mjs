@@ -121,6 +121,56 @@ if (contrast.overflow > 0)
 console.log("readable: no text below 4.5:1 in either theme, no duplicate ids, " +
             "every control named, headings in order, no sideways scroll");
 
+// --- the wheel belongs to the page ----------------------------------------
+// The canvas is most of a screen. Taking the wheel over it meant a reader
+// scrolling down the article stopped dead the moment the pointer crossed the
+// instrument — the same trap a thumb hits on a phone, wearing a different hat.
+const wheel = await page.evaluate(() => {
+  document.querySelector("#view").scrollIntoView({ block: "center" });
+  const y0 = scrollY, d0 = cam.dist;
+  // a plain wheel must not be swallowed
+  const plain = cv.dispatchEvent(new WheelEvent("wheel",
+    { deltaY: 200, bubbles: true, cancelable: true }));
+  // and the modifier — which is also what a trackpad pinch sends — must zoom
+  cv.dispatchEvent(new WheelEvent("wheel",
+    { deltaY: -200, ctrlKey: true, bubbles: true, cancelable: true }));
+  const zoomed = d0 - cam.dist;
+  cam.dist = d0; invalidate();      // put the camera back for what comes after
+  return { plainAllowed: plain, zoomed: +zoomed.toFixed(4),
+           scrolledByZoom: scrollY - y0,
+           hinted: !document.querySelector("#nudge").hidden,
+           buttons: !!document.querySelector("#zIn") && !!document.querySelector("#zOut") };
+});
+if (!wheel.plainAllowed)
+  throw new Error("a plain wheel over the canvas is still cancelled, so the " +
+                  "page cannot scroll past the instrument");
+if (wheel.zoomed <= 0)
+  throw new Error(`ctrl + wheel changed the zoom by ${wheel.zoomed}`);
+if (!wheel.hinted)
+  throw new Error("scrolling over the view said nothing about how to zoom");
+if (!wheel.buttons)
+  throw new Error("zoom is gesture-only again — there are no zoom buttons");
+console.log(`wheel: plain scrolls the page, ⌘/ctrl zooms by ` +
+            `${wheel.zoomed.toFixed(3)}, and the view says so once`);
+
+// --- nothing the arrival animation hides may stay hidden -------------------
+// `.rise` starts at opacity 0 and is revealed by an observer. If that observer
+// never fires the page is blank prose, so the fallback is checked here rather
+// than hoped for.
+const reveal = await page.evaluate(async () => {
+  scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
+  await new Promise(r => setTimeout(r, 900));
+  scrollTo({ top: 0, behavior: "instant" });
+  await new Promise(r => setTimeout(r, 400));
+  const all = [...document.querySelectorAll(".rise, .rig")];
+  return { n: all.length,
+           hidden: all.filter(e => getComputedStyle(e).opacity === "0").length };
+});
+if (reveal.hidden)
+  throw new Error(`${reveal.hidden} of ${reveal.n} revealed elements are still ` +
+                  `invisible after scrolling the whole page`);
+console.log(`arrival: ${reveal.n} elements rise into view, none left hidden`);
+
 // --- typing a number moves the right levers -------------------------------
 // The bit switches are the truth, but nobody spells 723 out of ten of them, so
 // each operand has a decimal box that drives the same levers. If that mapping

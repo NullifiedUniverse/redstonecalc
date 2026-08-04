@@ -1947,3 +1947,84 @@ how the page build works and was never read by it. Removed.
 border colour and `outline:none`, which is the standard way to make a control
 invisible to someone navigating by keyboard. Tabbing the page reaches 40
 controls; every one of them shows a ring again.
+
+## 27. Two traps, a runaway, and some motion — **measured**
+
+### The runaway that would have shipped
+
+This page is published as an artifact, which means it renders in a frame whose
+height is set from the content inside it. A viewport-height unit in that
+situation is **circular**: the canvas is a percentage of the viewport, the
+viewport is the frame, the frame is the document, and the document contains the
+canvas. Measured with a frame sized the way a host sizes one:
+
+| | canvas | frame |
+|---|---|---|
+| desktop width | 540px, stable | 6,001px |
+| **phone width, first settle** | **5,598px** | 10,766px |
+| **phone width, a moment later** | **7,707px** | 14,821px, still climbing |
+
+The desktop rule was only ever safe because it happened to carry a pixel cap;
+the mobile and landscape rules, written later, did not. Every height is capped
+in pixels now, and `#view` carries a `max-height` as a backstop so a rule added
+later cannot bring the runaway back. `check_mobile` puts the page in a viewport
+20,000 pixels tall — the same condition without the iframe — and requires the
+canvas to stay under 600.
+
+Worth being precise about why this was invisible: every check ran the page at
+the top level, where the viewport is fixed and vh means what it says. The bug
+lived entirely in the difference between how the page was *tested* and how it is
+*delivered*.
+
+### The wheel belonged to the canvas
+
+§26 gave a thumb its scroll back. The mouse still had the same problem wearing a
+different hat: the canvas took every wheel event to zoom, so a reader scrolling
+down the article stopped dead the moment the pointer crossed the instrument.
+
+A plain wheel is now left alone and the page scrolls. Zoom is ⌘/ctrl + wheel,
+which is also exactly what a trackpad pinch sends, and the first time someone
+scrolls over the view the page says so once rather than leaving them to guess.
+Gesture-only zoom was a discoverability problem in its own right — a phone has
+no wheel at all — so there are two buttons for it now, which is the control that
+should have existed from the start.
+
+### An opening shot, measured rather than chosen
+
+The wide framing looked down on the machine from 0.60 radians with 10% of slack.
+That puts a long thin slab across the middle of a wide canvas with air all
+round: **9.5% of the frame above black and 360 distinct colours**. Dropping the
+eye to 0.34 and turning the long axis onto the diagonal fills the same frame
+with the same machine — still all of it, and now with the lamp display in shot —
+for **11.8% and 552**. The narrow framing (§25) is unchanged and still measured
+separately, because a phone's canvas is a different shape.
+
+### Motion, and the two ways it goes wrong
+
+Three moments, and no more: the masthead arrives in the order you read it, the
+instrument settles into place, and each section rises as you reach it. The
+measured figures count up once, from the digits already in the markup, so the
+number a reader ends on is the number the document says, comma included.
+
+Both bugs in it were about *not showing* things:
+
+**A safety net that defeated the thing it protected.** Content hidden by script
+must never stay hidden, so a timer revealed everything after four seconds. But
+this page takes seconds to boot on a phone — the net fired before anyone had
+scrolled and threw the whole effect away. The net is conditional now: it asks
+whether the observer works *at all*, and the elements at the top of the page
+intersect the moment it is armed, so on any working browser it has already
+proved itself long before the check runs.
+
+**An observer that cannot report what it never saw.** `IntersectionObserver`
+reports threshold *crossings*. An element that goes from below the viewport to
+above it in one jump — an anchor, a find-in-page, a flick to the end of a long
+article — never crosses anything: not intersecting before, not intersecting
+after, no entry delivered, opacity 0 for ever. Measured: jumping to the bottom
+of this page left **24 of 35 elements hidden**. A rAF-throttled sweep of what is
+left, on scroll, empties the list as it goes. `check_preview` scrolls the whole
+page and requires nothing to be invisible at the end of it.
+
+`prefers-reduced-motion` is honoured twice over — the transitions are
+neutralised and the observer is never armed — and the hidden state is applied
+from script, so a page with no JavaScript shows everything.

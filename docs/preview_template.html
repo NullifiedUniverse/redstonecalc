@@ -80,9 +80,20 @@ header.top{padding:2.6rem 0 1.5rem}
 /* ---- the instrument ---- */
 .rig{border:1px solid var(--seam);border-radius:var(--r);overflow:hidden;
   background:var(--slate);margin:1.4rem 0 0}
-/* dvh, because mobile browser chrome slides away and vh does not notice */
+/* dvh, because mobile browser chrome slides away and vh does not notice.
+
+   Every one of these heights is capped in *pixels* as well, and that is not
+   belt-and-braces — it is load-bearing. This page is published as an artifact,
+   which means it is embedded in a frame whose height is set from the content
+   inside it. A viewport-height unit in that situation is circular: the canvas
+   grows, the document grows, the frame grows, and the viewport the canvas is a
+   percentage of grows with it. Measured with a frame sized the way a host sizes
+   one, the uncapped mobile rule took the canvas to 5,598px, then 7,707px, with
+   the frame past 14,000 and still climbing. The desktop rule was only ever safe
+   because it happened to carry a cap. `max-height` here is the backstop: a rule
+   added later cannot reintroduce the runaway. */
 #view{position:relative;background:var(--void);height:min(58vh,540px);
-  height:min(58dvh,540px);min-height:320px}
+  height:min(58dvh,540px);min-height:320px;max-height:560px}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;
   /* a long press on a 3D view should orbit, not raise iOS's text callout */
   -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
@@ -102,6 +113,25 @@ canvas:active{cursor:grabbing}
    on a near-black chip is 3.6 against its own background */
 .ghost[aria-pressed="true"]{border-color:var(--accent-on-dark);
   color:var(--accent-on-dark)}
+/* Zoom you can press. The wheel now belongs to the page (see the handler), a
+   phone has no wheel at all, and "pinch" is not a discoverable instruction — so
+   the one control that was gesture-only gets a button. */
+.zoom{position:absolute;right:.6rem;top:.6rem;display:flex;gap:.3rem}
+.zoom button{width:30px;height:30px;border-radius:5px;cursor:pointer;
+  font-family:var(--mono);font-size:.95rem;line-height:1;padding:0;
+  border:1px solid rgba(255,255,255,.16);background:rgba(8,10,14,.88);
+  color:var(--on-dark-dim);-webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(6px)}
+.zoom button:hover{color:var(--on-dark);border-color:rgba(255,255,255,.3)}
+/* Said once, when someone scrolls over the view expecting it to zoom. */
+.nudge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.05em;
+  color:var(--on-dark);background:rgba(8,10,14,.9);border-radius:6px;
+  padding:.5rem .8rem;border:1px solid rgba(255,255,255,.16);
+  pointer-events:none;animation:nudgeIn .18s ease-out}
+.nudge[hidden]{display:none}
+@keyframes nudgeIn{from{opacity:0;transform:translate(-50%,-46%)}
+                   to{opacity:1;transform:translate(-50%,-50%)}}
 .hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
   font-size:.6rem;color:var(--on-dark-dim);letter-spacing:.05em;
   pointer-events:none}
@@ -334,7 +364,7 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .hint .wide{display:none} .hint .narrow{display:inline}
   .bar{grid-template-columns:1fr}
   .bay{border-right:none;border-bottom:1px solid var(--seam);padding:.9rem .8rem}
-  #view{height:52vh;height:52dvh;min-height:300px}
+  #view{height:min(52vh,460px);height:min(52dvh,460px);min-height:300px}
   .ops{grid-template-columns:repeat(4,1fr)}
   .key{padding:.6rem 0;font-size:.74rem}
   .opnds{gap:.65rem}
@@ -373,7 +403,7 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .facts{margin:.6rem 0 0;gap:.1rem 1.4rem}
   .facts b{font-size:.9rem}
   .rig{margin-top:.9rem}
-  #view{height:74vh;height:74dvh;min-height:190px}
+  #view{height:min(74vh,420px);height:min(74dvh,420px);min-height:190px}
   /* the width is there in landscape, so the answer and the controls go back
      side by side rather than stacking */
   .bar{grid-template-columns:minmax(210px,290px) minmax(0,1fr)}
@@ -388,16 +418,52 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .bit{font-size:0}
   .facts{gap:.15rem 1rem}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* ---- motion ----
+   Three moments, and no more than three. The masthead arrives in the order you
+   read it; a section rises as you reach it; the measured figures count up once,
+   because they are measurements and watching one land is worth a beat. Anything
+   else on a page that already has half a million blocks moving in it would be
+   noise competing with the subject.
+
+   Everything here is additive: `.rise` starts hidden only once the script has
+   said it can, so a page with no JavaScript, or one whose observer never fires,
+   shows everything. */
+.js .rise{opacity:0;transform:translateY(16px);
+  transition:opacity .55s cubic-bezier(.22,.7,.28,1),
+             transform .55s cubic-bezier(.22,.7,.28,1)}
+.js .rise.in{opacity:1;transform:none}
+.js .rise.d1{transition-delay:.06s} .js .rise.d2{transition-delay:.12s}
+.js .rise.d3{transition-delay:.18s} .js .rise.d4{transition-delay:.24s}
+
+/* the instrument settles into place rather than appearing */
+.js .rig{opacity:0;transform:translateY(20px) scale(.995);
+  transition:opacity .7s cubic-bezier(.22,.7,.28,1),
+             transform .7s cubic-bezier(.22,.7,.28,1)}
+.js .rig.in{opacity:1;transform:none}
+
+/* hover is a hint that a thing can be pressed, not a light show */
+.key,.card,.transport button,.zoom button,.dial button{
+  transition:transform .12s ease,border-color .12s,color .12s,background .12s}
+.key:hover,.transport button:hover,.dial button:hover{transform:translateY(-1px)}
+.key:active,.transport button:active,.dial button:active{transform:translateY(0)}
+.card{transition:border-color .18s,transform .18s}
+.card:hover{border-color:var(--ash);transform:translateY(-2px)}
+.bit{transition:background .12s,border-color .12s,color .12s,transform .1s}
+.bit:active{transform:scale(.94)}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+  .js .rise,.js .rig{opacity:1;transform:none}
+}
 </style>
 
 <header class="top"><div class="wrap">
-  <p class="eyebrow">Mk III &middot; Minecraft Java 26.2 &middot; tick-accurate simulation</p>
-  <h1>A 10-bit calculator made of <em>redstone</em></h1>
-  <p class="lede">Half a million blocks of stone and glowing dust, simulated one
+  <p class="eyebrow masthead-line">Mk III &middot; Minecraft Java 26.2 &middot; tick-accurate simulation</p>
+  <h1 class="masthead-line d1">A 10-bit calculator made of <em>redstone</em></h1>
+  <p class="lede masthead-line d2">Half a million blocks of stone and glowing dust, simulated one
     game tick at a time at the speed it would run in Minecraft. Set two numbers,
     choose an operation, and watch the answer travel.</p>
-  <div class="facts">
+  <div class="facts masthead-line d3">
     <div><b id="hBlocks">—</b><span>blocks</span></div>
     <div><b id="hGates">—</b><span>gates</span></div>
     <div><b id="hDepth">—</b><span>stages deep</span></div>
@@ -417,8 +483,13 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
         <button type="button" class="ghost" id="look_ctrl" aria-pressed="false">controls</button>
         <button type="button" class="ghost sep" id="bStruct" aria-pressed="false">circuit only</button>
       </div>
-      <div class="hint"><span class="wide">drag to orbit &middot; scroll to zoom
-        &middot; click a block to read it, twice to fly in</span><span
+      <div class="zoom">
+        <button type="button" id="zOut" aria-label="zoom out">&minus;</button>
+        <button type="button" id="zIn" aria-label="zoom in">+</button>
+      </div>
+      <div class="nudge" id="nudge" hidden></div>
+      <div class="hint"><span class="wide">drag to orbit &middot; ⌘/ctrl + scroll
+        to zoom &middot; click a block to read it, twice to fly in</span><span
         class="narrow">drag to turn &middot; swipe to read on &middot; pinch
         &middot; tap a block, twice to fly in</span></div>
       <div class="inspect" id="inspect" hidden></div>
@@ -484,7 +555,7 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
       </div>
     </div>
   </div>
-  <p class="small col" style="margin-top:.8rem">Signal level is height as well as
+  <p class="small col rig-note" style="margin-top:.8rem">Signal level is height as well as
     colour. Dust carries a strength from 15 down to 0, losing one per block, so a
     fading run is a visible ramp and a wavefront is a ridge that travels.
     Components that <em>switch</em> flash hotter and hold it longer — those are
@@ -2200,9 +2271,17 @@ function inputPoints(){
    is not a narrow window by width and is emphatically a small one. */
 const NARROW=()=>(cv.clientWidth||900)<560||(cv.clientHeight||400)<340;
 const VIEWS={
+  /* The wide framing used to look down on the machine from 0.60 radians with
+     10% of slack, which put a long thin slab across the middle of a wide canvas
+     with air all round it: 9.5% of the frame above black and 360 distinct
+     colours. Dropping the eye to 0.34 and turning the long axis onto the
+     diagonal fills the same frame with the same machine — still all of it, now
+     with the lamp display in shot — for 11.8% and 552, at the 1.04 of slack
+     that ships. (At an exact fit it is 13.0% and 611; the slack is worth the
+     four per cent, because a framing with none clips on some aspect ratios.) */
   all:  ms=>NARROW()
         ? frameOn(allPoints(),0.64,worldCentre(),2.35,0.42,ms)
-        : frameOn(allPoints(),1.10,worldCentre(),2.02,0.60,ms),
+        : frameOn(allPoints(),1.04,worldCentre(),2.45,0.34,ms),
   disp: ms=>frameOn(lampPoints(),1.15,null,0.0,1.42,ms),
   // the control wall is a wall: look at its face, not down on it
   ctrl: ms=>frameOn(inputPoints(),1.15,null,1.35,0.22,ms),
@@ -2341,6 +2420,92 @@ function refreshPanel(){
   }else peakQ=0;
   $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
   $("tBurn").classList.toggle("bad",eng.burned.size>0);
+}
+
+/* ---- arrival ----
+   The page is a document with an instrument in it, and both should turn up the
+   way you read them: the masthead in order, the instrument settling into place,
+   each section rising as you reach it. The class goes on the root *from
+   script*, so nothing is hidden unless something is here to reveal it — a
+   stylesheet that hides content and waits for JavaScript is a stylesheet that
+   can lose it.
+
+   `prefers-reduced-motion` is honoured twice over: the CSS neutralises the
+   transitions, and the observer is skipped so nothing waits on a scroll. */
+const REVEAL_SEL=".masthead-line, main section > *, .rig-note";
+function armReveals(){
+  if(REDUCE||!("IntersectionObserver" in window))return;
+  document.documentElement.classList.add("js");
+  const rig=$("view").closest(".rig");
+  const items=[...document.querySelectorAll(REVEAL_SEL)];
+  for(const el of items)el.classList.add("rise");
+  // the cards inside a section rise in sequence rather than as a slab
+  document.querySelectorAll(".cards").forEach(g=>{
+    [...g.children].forEach((c,i)=>{
+      c.classList.add("rise","d"+Math.min(4,i+1));
+      items.push(c);
+    });
+  });
+  let fired=false;
+  const pending=new Set(items);
+  const show=el=>{el.classList.add("in");io.unobserve(el);pending.delete(el);};
+  const io=new IntersectionObserver(es=>{
+    for(const e of es)if(e.isIntersecting){fired=true;show(e.target);}
+  },{rootMargin:"0px 0px -8% 0px",threshold:0.02});
+  for(const el of items)io.observe(el);
+  /* Anything scrolled *past* counts as arrived, and an observer will not tell
+     you that. IntersectionObserver reports threshold crossings, and an element
+     that goes from below the viewport to above it in one jump — an anchor, a
+     find-in-page, a flick to the end of a long article — never crosses
+     anything: it is not intersecting before and not intersecting after, so no
+     entry is delivered and it sits at opacity 0 for ever. Measured: jumping to
+     the bottom of this page left 24 of 35 hidden. One rAF-throttled sweep of
+     what is left, on scroll, and the list empties as it goes. */
+  const sweep=()=>{
+    for(const el of [...pending])
+      if(el.getBoundingClientRect().top<0)show(el);
+  };
+  let queued=0;
+  addEventListener("scroll",()=>{
+    if(queued||!pending.size)return;
+    queued=requestAnimationFrame(()=>{queued=0;sweep();});
+  },{passive:true});
+  if(rig){
+    // the instrument is above the fold: give it a beat rather than a trigger
+    requestAnimationFrame(()=>requestAnimationFrame(()=>rig.classList.add("in")));
+  }
+  /* A safety net, and deliberately not a plain timer. Content hidden by script
+     must never stay hidden — but this page takes seconds to boot on a phone, so
+     a timeout that reveals everything unconditionally fires long before anyone
+     has scrolled and throws the whole thing away. The condition is whether the
+     observer works *at all*: the elements at the top of the page intersect the
+     moment it is armed, so on any working browser this has already proved
+     itself well before the check runs. */
+  setTimeout(()=>{if(!fired)for(const el of items)el.classList.add("in");},2500);
+}
+
+/* Numbers that were measured are worth watching land. Counted from the digits
+   already in the markup, so the figure a reader ends on is the figure the
+   document says, character for character — including its comma. */
+function countUp(el,ms=900){
+  const target=el.textContent.trim();
+  const n=+target.replace(/,/g,"");
+  if(!isFinite(n)||n<=0)return;
+  const grouped=target.includes(",");
+  const t0=performance.now();
+  const tick=()=>{
+    const k=Math.min(1,(performance.now()-t0)/ms);
+    const e=1-Math.pow(1-k,3);
+    const v=Math.round(n*e);
+    el.textContent=grouped?v.toLocaleString("en-US"):String(v);
+    if(k<1)requestAnimationFrame(tick);else el.textContent=target;
+  };
+  el.textContent=grouped?"0":"0";
+  requestAnimationFrame(tick);
+}
+function countFacts(){
+  if(REDUCE)return;
+  document.querySelectorAll(".facts b").forEach(b=>countUp(b));
 }
 
 /* ---- the tick loop: this is the whole point ---- */
@@ -2634,11 +2799,34 @@ cv.addEventListener("pointerup",liftPointer);
 cv.addEventListener("pointercancel",e=>{ptr.delete(e.pointerId);
   if(ptr.size<2)pinch=null;
   if(!ptr.size)swipe=null;});
-cv.addEventListener("wheel",e=>{e.preventDefault();
-  fly=null;spinAz=spinEl=0;
-  cam.dist=Math.max(MIN_DIST,Math.min(MAX_DIST,
-    cam.dist*(1+Math.sign(e.deltaY)*0.12)));
-  invalidate();},{passive:false});
+/* The wheel belongs to the page.
+
+   This canvas is most of a screen. Taking the wheel over it meant a reader
+   scrolling down the article stopped dead the moment the pointer crossed the
+   instrument — the same trap a thumb hit on a phone, wearing a different hat.
+   So a plain wheel is left alone and the page scrolls; zoom is ⌘/ctrl + wheel,
+   which is also exactly what a trackpad pinch sends. The first time someone
+   scrolls over the view, the page says so once rather than leaving them to
+   guess. */
+let zoomBy=f=>{fly=null;spinAz=spinEl=0;
+  cam.dist=Math.max(MIN_DIST,Math.min(MAX_DIST,cam.dist*f));invalidate();};
+let nudgeSeen=false,nudgeT=0;
+function sayZoom(){
+  if(nudgeSeen)return;
+  nudgeSeen=true;
+  const n=$("nudge");
+  n.textContent=(navigator.platform||"").startsWith("Mac")
+    ? "⌘ + scroll to zoom" : "ctrl + scroll to zoom";
+  n.hidden=false;
+  clearTimeout(nudgeT);nudgeT=setTimeout(()=>{n.hidden=true;},2200);
+}
+cv.addEventListener("wheel",e=>{
+  if(!(e.ctrlKey||e.metaKey)){sayZoom();return;}   // let the page have it
+  e.preventDefault();
+  zoomBy(1+Math.sign(e.deltaY)*0.12);
+},{passive:false});
+$("zIn").onclick=()=>zoomBy(0.8);
+$("zOut").onclick=()=>zoomBy(1.25);
 
 /* Turning a phone sideways changes the aspect ratio by a factor of five, and
    the fit distance was computed for the old one — so the machine came back
@@ -2677,6 +2865,8 @@ addEventListener("resize",()=>{
   status.textContent="";
   $("boot").hidden=true;
   loop();
+  armReveals();
+  countFacts();
   window.__ready=true;
 })();
 </script>
