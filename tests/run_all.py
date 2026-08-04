@@ -27,8 +27,10 @@ FAST = [
     ("test_errors.py", "error handling and structural invariants"),
     ("test_mcbuild.py", "Minecraft build output"),
     ("test_docs.py", "the prose against the machine it describes"),
+    ("test_pages.py", "the shipped pages against their templates"),
 ]
 SLOW = [
+    ("test_exhaustive.py", "10-bit logic, every operand pair"),
     ("test_console.py", "Mk II decimal console"),
     ("test_alu.py", "Mk I ALU, exhaustive at 4 bits"),
     ("test_machine.py", "Mk III 10-bit machine"),

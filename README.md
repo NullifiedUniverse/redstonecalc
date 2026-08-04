@@ -81,7 +81,8 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
 | Operations | ADD SUB AND OR XOR NOT SHL SHR, with CARRY/ZERO/NEG/OVF |
 | Repeater delay | 4 — see below |
 | Settle | 2,352 game ticks (118 s in game) from the operation lever to the answer |
-| Verified | all eight operations driven only through the wall levers, answers read off the lamps, including runs of operations back to back |
+| Verified | on blocks: all eight operations driven only through the wall levers, answers read off the lamps, including runs of operations back to back |
+| Logic | exhaustive — all 8,388,608 operand pairs, every segment line and flag, in 31 s |
 
 The modules are separate in the source — `alu`, `bcd`, `display`, `keypad`,
 `harness`, `logic` — each with its own tests, and `machine.py` is the only file
@@ -91,6 +92,26 @@ set by how many gates sit in *that* stage, so pipelining the ALU into the
 converter into the decoders uses disjoint stages and costs no extra rail, while
 splitting them into separately placed modules would add an inter-module loom at
 every boundary.
+
+### Verified two ways, and they are not the same claim — **measured**
+
+**On blocks**, the machine is driven through nothing but the wall levers and read
+off the lamps: every operation, boundary values, operations run back to back with
+nothing cleared between them, hostile lever timing. That is 300 vectors
+(`tools/verify_full.py`), and it stays 300, because settling half a million
+blocks costs about a second each.
+
+**In logic**, every operand pair the machine can be given —
+**8 operations × 1,048,576 pairs**, read at the seven-segment lines and the four
+flags, so the ALU, the decimal conversion, the decoders and leading-zero blanking
+are all in the path. It takes 31 seconds, because a gate here is an OR of
+literals and a thousand vectors fit in the bits of one integer
+(`tools/verify_logic.py`). It found nothing, which is the point: the design was
+already right and now that is known rather than probable.
+
+The two are deliberately separate. The sweep says the design computes the right
+answer; it places no block and simulates no tick. Timing, signal strength,
+hazards and burnout live entirely in the 300.
 
 ### What it costs to keep stable — **measured**
 
@@ -236,6 +257,15 @@ would feed it anyway. Fixed in both the Python engine and the JavaScript port.
 The compiled machine happened not to depend on it — rails always put dust or a
 solid block behind a repeater — but that was luck, not design.
 
+**What is still open.** Both engines were written from the same reading of the
+same rules, so a shared misreading produces two engines that agree with each
+other and disagree with Minecraft, and every test here passes. Only the game can
+settle that, which is why each rule is also a circuit you can build. And the
+browser carries a *third* implementation — the JavaScript engine the page runs
+on — whose only evidence is that the whole machine gives 32 correct answers in a
+real browser. That covers the paths those 32 vectors touch and nothing else.
+DESIGN §24 says what it would take to close both.
+
 It also corrected a wrong assumption in my own reference, which became rule R13:
 Minecraft schedules at most one pending update per component and re-reads the
 input when it fires, rather than applying the value that was scheduled. And it
@@ -311,9 +341,10 @@ place.** The remaining wins are architectural: §12's Z ratchet.
 ## Running it
 
 ```sh
-python3 tests/run_all.py           # everything fast (8 seconds)
-python3 tests/run_all.py --slow    # including the Mk III machine
+python3 tests/run_all.py           # 11 fast modules, 11 seconds
+python3 tests/run_all.py --slow    # all 15, about six minutes
 
+python3 tools/verify_logic.py                            # every operand pair, 31 s
 python3 tools/verify_full.py                             # 300 vectors, flags too
 python3 tools/verify_machine.py --delay 4 --vectors 40   # a quicker sweep
 python3 tools/build_world.py                             # export for Minecraft

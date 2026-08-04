@@ -1559,3 +1559,185 @@ does not just misinform, it can quietly reverse the reasoning built on it.
 count the same document quotes since before §18. They do now, exactly —
 249,613 + 189,125 + 15,585 + 2,024 + 121 + 62 + 28 — which is a thing a reader
 can check with a calculator, and now a thing the suite checks on every run.
+
+## 23. Every operand pair, at the width it actually ships — **measured**
+
+Read back through this document and one claim is quietly weaker than the rest.
+The ALU is **exhaustive at 4 bits** (§8), boundaries plus a random sample at 8,
+and the machine that ships is **10 bits wide**. Above 4 bits, every number in
+here rests on sampling: 300 vectors through the placed blocks
+(`tools/verify_full.py`), 21 more in the test suite, 32 in the browser. Nothing
+had ever swept the shipped width.
+
+Sampling was not laziness. Verification on blocks means settling half a million
+of them per vector, about a second each, and 8 × 1,048,576 of those is three
+months of wall clock. The measurement that matters is expensive, so it is
+narrow, and that is the right trade — but it left a gap that could be closed
+separately and had not been.
+
+### Bit slicing, which makes it a rounding error
+
+A gate in this design is an **OR of literals** and nothing else (§3). That is
+the whole trick: `acc |= v[src]` costs one instruction whether `v[src]` holds
+one vector or a thousand, provided the thousand are packed into the bits of one
+integer. Python's integers are arbitrary-width already, so a full sweep of A is
+*one pass over the netlist* with 1,024-bit words, and the outer loop is over B
+alone. The expected answers are assembled into lanes the same way, so the
+comparison is 32 integer `!=` per pass rather than 32,768.
+
+| | vectors | wall clock |
+|---|---|---|
+| placed blocks, `verify_full.py` | 300 | ~7 min |
+| netlist, one vector at a time | 8,388,608 | ~28 hours |
+| netlist, bit-sliced | **8,388,608** | **31 s** |
+
+That is the whole logic chain, not just the ALU: opcode decode, the ALU and its
+four flags, binary-to-BCD, four seven-segment decoders and leading-zero
+blanking, read at the lines that drive the lamps.
+
+```
+1649 gates, depth 36, 10 bits: 8 operations x 1024 x 1024 operand pairs
+  ADD  1,048,576 pairs    4.0s  OK
+  ...
+8,388,608 operand pairs, 268,435,456 output lines, 31s
+all correct
+```
+
+It found nothing. That is the honest result and it is worth stating plainly: the
+design was already right, and now that is known rather than probable. What it
+buys is not a fix but a floor — every future change to the ALU, the converter or
+the decoders is now checked against every input the machine can be given, in
+half a minute, instead of against a sample.
+
+### What it deliberately does not do
+
+**No block is placed and no tick is simulated.** This verifies the logic the
+redstone implements, not the redstone. Placement, strength budgeting, hazards
+and burnout are exactly the parts a netlist sweep cannot see, and they stay the
+job of `test_machine.py` and `verify_full.py` on real blocks. Two halves,
+separately evidenced, deliberately not conflated — §14 makes the same argument
+about the simulator and its reference.
+
+Two things had to be checked before trusting it. Bit slicing walks the node list
+in order and takes it for granted that a node's sources come earlier;
+`check_topological` asserts that outright, because the file is wrong in a way
+that still produces plausible answers if it ever stops holding. And the sweep
+has to be able to *fail*: `test_the_sweep_can_fail` bends one expected answer
+out of 1,048,576 and requires the sweep to catch it and to name the operands
+that carry it. §22's lesson, applied the same day it was learned.
+
+## 24. Reading the whole thing back, objectively
+
+Twenty-three sections in, the useful question is not what to add but what is
+weakest. This is that list, in order of how much it would cost to be wrong,
+written after re-reading the compiler, the engine, the machine, the tests and
+both pages. Three of the items were fixed while writing it and are marked; the
+rest are stated because stating them is worth more than pretending.
+
+### 1. The simulator has never met Minecraft — **unresolved, and it is the big one**
+
+Every measured number in this document is measured *in `rscalc/engine.py`*. The
+repeater delay the machine ships at, the settle time, the burnout tables, the
+verdict on comparator taps: all of it is true of the simulator. Whether it is
+true of the game rests on the engine implementing Java Edition correctly.
+
+The defences are real and worth having. `tests/refsim.py` is a second engine
+written from the rules rather than from the first, and the two are compared
+block for block over 2,880 ticks. `tests/test_minecraft_rules.py` states each
+rule as its own minimal circuit a reader can build and look at. `World.lint()`
+refuses constructions whose behaviour the model does not guarantee.
+
+None of that closes the gap, and it is important to be exact about why: **both
+engines were written from the same reading of the same rules by the same
+author.** A shared misreading — of the burnout window, of what counts as a
+strongly powered block, of a comparator's side inputs — produces two engines
+that agree with each other and disagree with Minecraft, and every test here
+passes. The whole project rests on this, and no test inside the project can
+settle it.
+
+The two things that would: run the exported datapack in a real world and
+compare state, or differentially test against an independent third-party
+redstone simulator. Both need something this environment does not have. Until
+one of them happens, every figure here is *"measured in a simulator that models
+these rules"*, and the reader is entitled to that qualification.
+
+### 2. The browser carries a second engine, checked only end to end — **unresolved**
+
+`docs/demo_template.html` contains a JavaScript redstone engine, ~436 lines, and
+`docs/preview.html` is built with that same source injected so there is exactly
+one copy of the rules in the repository (now enforced —
+`tests/test_pages.py::test_the_preview_has_no_engine_of_its_own`). But one copy
+in JavaScript is still a *second* implementation of the rules next to the
+Python one, and it has nothing like `refsim`: its only evidence is that the
+whole machine gives 32 correct answers in a real browser.
+
+That is strong evidence for the paths those 32 vectors touch and no evidence at
+all for the rest. The page is the artefact most people will ever see, and it
+could show a machine that computes correctly while misrepresenting strengths or
+timings. The fix is the trick that already worked once: export a few hundred
+(world, tick, per-block state) traces from Python and assert the browser
+reproduces them exactly, the way `refsim` is used. It is a day's work and it is
+not done.
+
+### 3. Block-level verification is 300 vectors and always will be — **inherent**
+
+§23 closed the logic side: all 8,388,608 operand pairs, every segment line and
+flag. On *blocks* the number is 300, because a settle costs about a second.
+Nothing is wrong with that, but the two must not be conflated: the exhaustive
+sweep says the design computes the right answer, and says nothing about whether
+the redstone carries it. Timing, strength budgeting, hazards and burnout live
+entirely in the 300.
+
+### 4. The generated pages could drift from their sources — **fixed**
+
+`docs/preview.html` and `docs/demo.html` are committed built, because they are
+what a reader opens. Three inputs each, none of which announce themselves:
+template, circuit bundle, and the borrowed engine. Editing a template and
+forgetting to rebuild leaves a shipped page disagreeing with its own source —
+and the browser checks run against the *built* page, so they would go on
+passing while testing something nobody could reproduce from the repository.
+`tests/test_pages.py` renders both in memory and compares byte for byte.
+
+### 5. PLAN §10 was a table of a machine that stopped existing three sections ago — **fixed**
+
+§22 built a guard that reads README, DESIGN, the page and `machine.py`. It did
+not read `docs/PLAN.md`, which carried a summary table headed *"Mk III, as
+built — measured"* whose every figure was from a build superseded by §§18–20,
+and a sentence saying the machine *is* 1,825 blocks deep. Exactly the disease
+§22 was written to cure, one file outside its reach. The section now opens by
+saying what it is, and PLAN is scanned — for superseded figures only, since a
+planning document records what was true when it was written and a figure of its
+own that is still current is a coincidence rather than a promise.
+
+### 6. Two pieces of compiler debt — **one fixed, one deliberate**
+
+`_emit_run` used to read the repeater delay off an attribute that placement
+functions set on the `Layout` immediately before calling it — invisible
+coupling that worked only because of call order. It takes the delay as an
+argument now.
+
+`compile_netlist` prunes the netlist **in place**, renumbering node indices.
+That looks like a bug and is not: the pruned count is what the caller wants to
+report, because it is what was actually built. It was undocumented, which was
+the actual defect. Now it is the second paragraph of the docstring.
+
+### 7. Everything is run by hand — **unresolved**
+
+There is no CI. The full suite is 13 modules and about six minutes; the two
+browser checks are several more. Nothing enforces that any of them ran.
+For a repository whose whole claim is that its numbers are measured, the numbers
+are checked exactly as often as someone remembers to check them — which is the
+same weakness §22 found in the prose, one level up.
+
+### What is genuinely solid
+
+Worth saying, because a list of weaknesses reads like a verdict and this is not
+one. The layered architecture holds up: a gate is an OR of literals, a collector
+is that OR made of dust, and a two-level sum-of-products is two stages — the
+correspondence between the logic and the geometry is exact, which is why
+`GATE_PITCH = 3` could be derived as a floor rather than guessed at. The
+negative results are kept with their measurements, which is rarer than it should
+be and is the reason §17 and §19 can be trusted. And the failures recorded here
+were found by testing rather than by inspection — the Z ratchet, the shorted
+rails, the invented glitch, the toothless guard, the stale repeater count. That
+is the property worth protecting.

@@ -231,6 +231,13 @@ Steps 5 and 6 are **done** — see §10. The rest stands.
 
 ## 10. Mk III, as built — **measured**
 
+> **These are the figures of the build that existed when this section was
+> written**, before §§18–20 of DESIGN took the Z ratchet, a quarter of the gate
+> pitch and most of the display's air out of it. They are kept because they are
+> what the plan was judged against; the machine is a good deal smaller and
+> faster now. README's table and DESIGN §22 carry the current numbers, and are
+> checked against a freshly built machine on every test run.
+
 A 10-bit calculator in one world, driven by levers and a button, answering in
 decimal on four lamp digits.
 
@@ -253,9 +260,10 @@ Two of the plan's older assumptions are now settled by it:
   side by side, because pipelined stages are disjoint and cost no extra rail —
   splitting them would add an inter-module loom at every boundary.
 - **Depth still is not the constraint.** 1,648 gates over 36 stages, and the
-  machine is 1,825 blocks deep in Z of which roughly three quarters is exit-slot
-  drift rather than logic (see DESIGN §12). Size is latency here, and the
-  remaining size is geometry, not gates.
+  machine was 1,825 blocks deep in Z at the time, of which roughly three
+  quarters was exit-slot drift rather than logic (see DESIGN §12, and §18 for
+  the fix that removed it). Size is latency here, and the remaining size is
+  geometry, not gates.
 
 ## 11. What Mk II's console became
 

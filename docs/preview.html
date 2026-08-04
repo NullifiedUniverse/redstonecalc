@@ -426,9 +426,9 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
       <p>Modules are tested exhaustively wherever the input space allows it, and
         the whole machine is driven only through the levers a player would touch,
         with the answer read off the lamps. Nothing reaches inside. The headline:
-        <b>2,048 vectors exhaustive</b> on the 4-bit ALU, <b>2,304 exhaustive</b>
-        on the binary-to-BCD converter, all eight operations correct on the
-        10-bit machine including fifteen run back to back with nothing cleared
+        the 10-bit logic checked over <b>all 8,388,608 operand pairs</b> it can
+        ever be given, the machine itself driven on blocks through all eight
+        operations including fifteen run back to back with nothing cleared
         between them, and <b>zero torches burned out</b>.</p>
     </div>
     <details>
@@ -466,6 +466,11 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
         <tr><td>Build output</td><td>structure files parsed back; datapack
           commands replayed into a fresh world</td><td class="n">block for block</td>
           <td>identical</td></tr>
+        <tr class="hi"><td><b>Mk III logic, every operand pair</b></td>
+          <td>all eight operations across the full 10-bit input space, read at
+          the segment lines and flags — ALU, BCD, decoders and blanking, bit
+          sliced so a thousand vectors cost one pass</td>
+          <td class="n">8,388,608</td><td><b>exhaustive</b></td></tr>
         <tr class="hi"><td><b>Mk III, all eight operations</b></td><td>levers
           flipped, an operation chosen, the answer read off the lamps</td>
           <td class="n">32 cases</td><td>all correct</td></tr>
@@ -476,6 +481,23 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
           cell, and every control must still be a lever</td>
           <td class="n">60 nets</td><td>none shared</td></tr>
       </table></div></div>
+    </details>
+    <details>
+      <summary>What none of that settles</summary>
+      <div class="in">
+        <p>Every figure on this page is measured <i>in a simulator</i>. Two
+          independent engines agree block for block, and each Minecraft rule is
+          written as a minimal circuit you can build and look at — but both were
+          written from the same reading of the same rules, so a shared
+          misreading would produce two engines that agree with each other and
+          disagree with the game, and every test here would still pass. Only
+          running the exported build in a real world settles that.</p>
+        <p>The engine <b>this page</b> runs on is a third implementation, in
+          JavaScript, and its evidence is thinner still: the whole machine gives
+          32 correct answers in a real browser. That covers the paths those
+          vectors touch and nothing else. DESIGN §24 says what closing both
+          would take.</p>
+      </div>
     </details>
   </section>
 

@@ -39,7 +39,17 @@ PAGE = "docs/preview_template.html"
 #: own dimensions — §20 already had to de-number a constant here for exactly the
 #: reason this test exists, so it is checked alongside the prose
 MACHINE = "rscalc/machine.py"
-FILES = (README, DESIGN, PAGE, MACHINE)
+#: the planning document. It quotes no current figure, so nothing in it is
+#: anchored — but its §10 is a table of a build that has not existed for three
+#: sections, which is precisely the failure this file exists to catch.
+PLAN = "docs/PLAN.md"
+#: files whose figures must equal the current build. PLAN is deliberately not
+#: one of them: it is a record of what the machine looked like when each plan
+#: was written, so a figure of its own that happens to still be true is a
+#: coincidence, not a promise.
+FIGURE_FILES = (README, DESIGN, PAGE, MACHINE)
+#: everything scanned for figures from builds that no longer exist
+FILES = FIGURE_FILES + (PLAN,)
 
 
 #: set by the mutation self-check below; empty in a normal run
@@ -174,7 +184,7 @@ def line_of(text, pos):
 
 def test_headline_figures_match_the_machine():
     fig = figures()
-    text = {p: read(p) for p in FILES}
+    text = {p: read(p) for p in FIGURE_FILES}
     covered = {p: [] for p in text}
     bad = []
 
@@ -230,6 +240,8 @@ SUPERSEDED = {
     "2,644": "the pre-§18 settle",
     "2,374": "the pre-§19 settle",
     "146 torches": "the pre-§18 delay-2 burnout",
+    "590,555": "the block count in PLAN §10's snapshot",
+    "2,584": "the settle in PLAN §10's snapshot",
 }
 
 #: What counts as saying so, in prose: a word that puts the number in the past.

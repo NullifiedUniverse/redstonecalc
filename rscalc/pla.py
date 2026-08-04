@@ -97,6 +97,12 @@ def compile_netlist(nl: Netlist, world: World | None = None,
                     fixed_input_order=False, alternate=False) -> Layout:
     """Compile `nl` into blocks in `world`.
 
+    **`nl` is pruned in place.** Gates no output depends on are dropped and the
+    remaining node indices are renumbered, so `nl.gate_count()` afterwards is
+    the count of what was actually *built* — which is what a caller reporting
+    statistics wants, and why this is not a copy. A caller holding node indices
+    from before the call is holding the wrong ones.
+
     `alternate` reads each stage's collectors at the opposite end from the one
     below, which stops Z ratcheting with depth (`_assign_exits`). It is off by
     default because it is not free and does not always pay: it trades hazard
@@ -350,7 +356,7 @@ def plan_run(cells, taps, src_power, min_at_tap=2):
     return None
 
 
-def _emit_run(L, plan, cells, y, coord, direction):
+def _emit_run(L, plan, cells, y, coord, direction, delay):
     """Realise a plan along a run. `coord(x)` maps a step to a world position."""
     for x in cells:
         pos = coord(x)
@@ -359,7 +365,7 @@ def _emit_run(L, plan, cells, y, coord, direction):
         if kind == "dust":
             L._dust(pos)
         elif kind == "rep":
-            L._repeater(pos, direction, L.delay)
+            L._repeater(pos, direction, delay)
         else:
             L._solid(pos)
 
@@ -368,7 +374,6 @@ def _place_rail(L: Layout, x_src, x_lo, x_hi, y, z, tap_x, delay, src_power):
     """Dust along X, fed from `x_src`, running outwards in both directions."""
     x_lo = min(x_lo, x_src)
     x_hi = max(x_hi, x_src)
-    L.delay = delay
     L._floor((x_src, y - 1, z))
     L._dust((x_src, y, z))
     for direction, stepd in (("east", 1), ("west", -1)):
@@ -378,7 +383,8 @@ def _place_rail(L: Layout, x_src, x_lo, x_hi, y, z, tap_x, delay, src_power):
             continue
         plan = plan_run(cells, tap_x, src_power)
         assert plan is not None, f"rail at z={z} cannot be routed"
-        _emit_run(L, plan, cells, y, lambda x: (x, y, z), direction)
+        _emit_run(L, plan, cells, y, lambda x: (x, y, z), direction,
+                  delay)
 
 
 def plan_collector(cells, taps, max_span=13):
@@ -463,7 +469,6 @@ def _place_collector(L: Layout, x, y, z0, z1, tap_zs, delay, step=1):
     Returns the strength the next rail starts from, so it can budget its own
     repeaters honestly instead of assuming a full 15.
     """
-    L.delay = delay
     cells = list(range(z0, z1 + step, step))
     taps = set(tap_zs)
     plan = plan_collector(cells, taps)
@@ -482,7 +487,7 @@ def _place_collector(L: Layout, x, y, z0, z1, tap_zs, delay, step=1):
             plan[cells[-2]] = "blockA"
         worst = 16
     _emit_run(L, plan, cells, y, lambda z: (x, y, z),
-              "south" if step > 0 else "north")
+              "south" if step > 0 else "north", delay)
     return 14 if plan[cells[-1]] == "rep" else max(worst - 2, 1)
 
 
