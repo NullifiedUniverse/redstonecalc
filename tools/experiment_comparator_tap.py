@@ -163,13 +163,14 @@ conclusion
   The comparator inverts, and it cannot burn out. Paying for it costs a
   restoring repeater, the block that repeater powers, a comparator and a
   redstone block, where a torch costs a stub, a block, itself and a block.
-  At RAIL_PITCH = GATE_PITCH = 4 the tap gets three cells of Z and three of X,
-  and no arrangement of those four keeps the strongly powered block off the
-  rail *and* every dust off the collector: the rail bounds the envelope on one
-  side and the collector bounds it on the other. Widening the lattice to fit it
-  grows the machine's longest axis by half, which lengthens every collector
-  crossing that axis, which adds back the repeaters the change was meant to
-  remove.
+  At the pitch this was measured on — RAIL_PITCH = GATE_PITCH = 4 — the tap gets
+  three cells of Z and three of X, and no arrangement of those four keeps the
+  strongly powered block off the rail *and* every dust off the collector: the
+  rail bounds the envelope on one side and the collector bounds it on the other.
+  Widening the lattice to fit it grows the machine's longest axis by half, which
+  lengthens every collector crossing that axis, which adds back the repeaters
+  the change was meant to remove. GATE_PITCH is 3 now (DESIGN §18), which leaves
+  the envelope a column narrower still.
 
   So the tap keeps its torch. The cheaper version of the same idea — a repeater
   in the stub's cell, which costs no space at all — was measured too, and lost

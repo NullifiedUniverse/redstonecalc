@@ -226,6 +226,34 @@ console.log(`strength: ${relief.levels} distinct dust heights, ` +
             `pointer hits ${relief.hitRate}, e.g. "${relief.pick}"`);
 
 
+// --- the atlas has a tile for everything that asks for one ----------------
+// A tile index past the end of the atlas samples whatever happens to be there,
+// which on a 128x128 texture is another block's texture rather than an error.
+// Rebuild the atlas here and insist that every tile any instance names is both
+// inside it and not blank.
+const atlas = await page.evaluate(() => {
+  const px = makeAtlas(), used = new Set(), n = ATLAS_TILES * ATLAS_TILES;
+  for (let j = 0; j < inst.length; j++) used.add(tiles[j]);
+  const bad = [], blank = [];
+  for (const t of used) {
+    if (t < 0 || t >= n) { bad.push(t); continue; }
+    const ox = (t % ATLAS_TILES) * TX, oy = ((t / ATLAS_TILES) | 0) * TX;
+    let ink = 0;
+    for (let y = 0; y < TX; y++) for (let x = 0; x < TX; x++)
+      if (px[((oy + y) * ATLAS_PX + ox + x) * 4 + 3] > 127) ink++;
+    if (!ink) blank.push(t);
+  }
+  return { used: used.size, capacity: n, bad, blank, bytes: px.length };
+});
+if (atlas.bad.length)
+  throw new Error(`tiles outside the atlas: ${atlas.bad.join(", ")}`);
+if (atlas.blank.length)
+  throw new Error(`tiles drawn from blank atlas cells: ${atlas.blank.join(", ")}`);
+console.log(`atlas: ${atlas.used} of ${atlas.capacity} tiles used, ` +
+            `all inside the sheet and none blank ` +
+            `(${(atlas.bytes / 1024) | 0} KB, built in the page)`);
+
+
 // --- dust is drawn pointing the way the simulator says it points ----------
 // A wire's shape is not decoration: a dot powers nothing horizontally, a
 // straight line powers the block behind it, and which of those a cell is
@@ -321,16 +349,36 @@ console.log(`light: ${light.cell}-block cells in a ${light.tex} atlas; ` +
 
 
 // --- the viewport is actually drawing -------------------------------------
+// A smoke test, not a metric. It used to report the colour count from whatever
+// camera the checks above happened to leave behind, which swung it threefold
+// run to run and made it look like a measurement of something. Snap to a known
+// view, and assert the one thing it can actually prove: that the frame is not
+// blank. A shader that fails to compile, a buffer that never uploads and a
+// camera aimed at nothing all end here.
 const px = await page.evaluate(() => {
+  focus("all", 0);
   const c = document.getElementById("cv"), g = c.getContext("webgl");
   draw();     // no preserveDrawingBuffer: read back in the same task as the draw
   const buf = new Uint8Array(c.width * c.height * 4);
   g.readPixels(0, 0, c.width, c.height, g.RGBA, g.UNSIGNED_BYTE, buf);
   const seen = new Set();
-  for (let i = 0; i < buf.length; i += 4)
-    seen.add(buf[i] * 65536 + buf[i + 1] * 256 + buf[i + 2]);
-  return { distinctColours: seen.size, w: c.width, h: c.height };
+  let ink = 0;
+  const bg = buf[0] * 65536 + buf[1] * 256 + buf[2];
+  for (let i = 0; i < buf.length; i += 4) {
+    const v = buf[i] * 65536 + buf[i + 1] * 256 + buf[i + 2];
+    seen.add(v);
+    if (v !== bg) ink++;
+  }
+  return { distinctColours: seen.size, litFraction: +(ink / (buf.length / 4)).toFixed(3),
+           w: c.width, h: c.height };
 });
+if (px.distinctColours < 500 || px.litFraction < 0.05)
+  throw new Error(`the frame is essentially blank: ${px.distinctColours} ` +
+                  `colours, ${px.litFraction * 100}% of pixels not background`);
+// litFraction is the stable half — the geometry drawn is the same every run.
+// distinctColours is not, and cannot be: the page animates between these
+// evaluate() calls, so the machine has settled a different amount each time
+// and the dust is at different levels. It is here to look at, not to compare.
 console.log("canvas:", px);
 
 const perf = await page.evaluate(() => {

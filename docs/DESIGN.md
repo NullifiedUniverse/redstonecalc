@@ -427,10 +427,10 @@ must sit past those taps. Over 36 stages Z ratchets upward and never returns:
 | 24 | 24 | 740 … 988 | 748 … 1016 |
 | 36 (outputs) | 33 | 992 … 1816 | 1000 … 1824 |
 
-The widest stage has 119 gates and needs **476 blocks of Z**. The machine is
-**1,825 deep**. About three quarters of that is drift, not logic — and every
-block of drift lengthens the collectors crossing it, which is where the
-repeaters go.
+The widest stage has 119 gates and needs **476 blocks of Z**. The machine was
+**1,825 deep** before §18 fixed this. About three quarters of that was drift,
+not logic — and every block of drift lengthened the collectors crossing it,
+which is where the repeaters go.
 
 The fix is specific: **alternate the collector direction stage by stage**,
 placing exits below the taps on odd stages and above on even ones, so Z
@@ -445,38 +445,48 @@ game ticks. Mk III is 36 stages deep, and hazard glitching in a network that
 deep does exactly that. Two independent things reduce it, and only one of them
 is free.
 
-**Repeater delay**, over sixteen vectors, re-measured on the build with the
-control wall (§15) — which matters, because that wall added 196 torches:
+**Repeater delay**, over the same sixteen vectors, **re-measured on the current
+build** — §§18–19 took a fifth of it away, and that turned out to matter:
 
-| delay | result |
-|---|---|
-| 2 (4 gt) | 2/16 correct, **146 torches burned out** |
-| 3 (6 gt) | 16/16 correct, but **one torch burned out** on the ordinary sequence |
-| **4 (8 gt)** | **16/16 correct, none burned**, 2,352 gt to the answer |
-
-The middle row moved. On the build before the control wall, delay 3 was clean
-over the same vectors and only failed when handed a hostile sequence; 196 more
-torches was enough to make an ordinary one cost a torch. Burnout margin is not
-a property of the logic — it scales with how much torch there is to glitch.
-
-**How fast the inputs move.** Delay 3 on the earlier build looked clean until it
-was given a hostile sequence: operand pairs chosen to change ten or more levers
-at once. Over ten such vectors, varying only how far apart the lever flips were
-placed in time:
-
-| game ticks between lever flips | correct | torches burned |
+| delay | on the build of §15 | **on this build** |
 |---|---|---|
-| 0 — every lever in the same instant | 5/10 | 5 |
-| 1 | 7/10 | 4 |
-| 2 | 9/10 | 2 |
-| 4 | 9/10 | 2 |
+| 2 (4 gt) | 2/16 correct, 146 burned | **1/16 correct, 140 burned** |
+| 3 (6 gt) | 16/16 correct, 1 burned | **5/16 correct, 3 burned** |
+| **4 (8 gt)** | 16/16, none burned | **16/16, none burned**, 2,272 gt |
 
-Spacing is real and it is not enough. It is also the more interesting number,
-because **a player cannot flip twenty levers inside a twentieth of a second**.
-Changing every input in the same game tick aligns every hazard in the machine at
-one instant, and that is a load the build never sees in a world with a person in
-it. `Machine.set_operands` therefore moves only the levers that differ, two game
-ticks apart, and says why.
+**Delay 3 got substantially worse when the machine got smaller**, and that is
+worth being precise about, because the obvious explanation is the wrong one. It
+is not more torch to glitch — the torch count did not move at all, it is 2,024
+in both builds. It is not less wire either, which is the part that surprised me:
+this build carries **more** repeaters than §15's, 15,585 against 14,464, because
+§20's tighter loom put some back. What fell is how many of them sit in *series*.
+The machine is 852 blocks shallower, so a collector crosses half the Z it used
+to, and the answer arrives 292 game ticks sooner (2,644 → 2,352). Fewer
+repeaters in series means signals that used to reach a collector several ticks
+apart now reach it within one, so transitions that used to be spread out
+coincide — and coincident
+transitions are exactly what forces a torch off repeatedly. Making the machine
+faster made its hazards tighter. That is the reading of the numbers rather than
+a separate measurement, and what would test it is instrumenting arrival spread
+per collector, which has not been done.
+
+Delay 4 absorbs it, and this is the row that ships: 16/16, nothing burned, and
+**every one of §17's hostile sequences clean at every spacing** — thirty vectors
+over three seeds, including flipping every lever in the same game tick, which
+the earlier build's driver had to avoid:
+
+| gt between lever flips | seed 11 | seed 23 | seed 41 |
+|---|---|---|---|
+| 0 — every lever at once | 10/10, 0 burned | 10/10, 0 burned | 10/10, 0 burned |
+| 2 | 10/10, 0 burned | 10/10, 0 burned | 10/10, 0 burned |
+| 4 | 10/10, 0 burned | 10/10, 0 burned | 10/10, 0 burned |
+
+Spacing was the interesting number when delay 3 was a candidate, because **a
+player cannot flip twenty levers inside a twentieth of a second** and changing
+every input in one game tick aligns every hazard in the machine at one instant.
+At delay 4 it has stopped mattering: the build takes that load. `set_operands`
+still moves only the levers that differ, two game ticks apart, because it costs
+nothing and it is what a hand does.
 
 The honest summary: this machine needs both a slower repeater setting than Mk II
 — delay 4, which is what it now defaults to — and inputs that arrive at human
@@ -485,12 +495,15 @@ no burnout rule at all, so the whole question would stop existing rather than
 being paid for in latency. §17 went and measured that. It does not fit, and
 neither does the cheaper version of the same idea.
 
-One correction to the second table, found while measuring §17: the vectors
-matter more than the spacing does. Re-run with three seeds instead of one and
-the same spacing is clean on two of them and burns a torch on the third, at
-every spacing from 0 to 20 game ticks. The spacing row that looked like a trend
-was one seed's luck. `tools/experiment_hostile_inputs.py` is that measurement,
-kept runnable.
+Two corrections worth keeping, both found by re-running rather than by
+re-reading. The first, from §17: **the vectors matter more than the spacing
+does** — the old four-row spacing table was one seed, and three seeds show the
+same spacing clean on two and burning a torch on the third, at every spacing
+from 0 to 20 game ticks. The second is the tables above: they were quoted for
+two more sections after the build they described had been replaced, which is
+exactly the failure §20 went looking for. `tools/experiment_hostile_inputs.py`
+and `tools/verify_machine.py --delay 2 --delay 3 --delay 4` are both of these,
+kept runnable, and they are the reason the numbers here are current.
 
 ## 14. Verifying the simulator separately, and the bug that found
 
@@ -870,8 +883,8 @@ The machine is built from seven kinds of block, and nothing else:
 | | count |
 |---|---|
 | solid | 249,613 |
-| redstone dust | 250,840 |
-| repeater | 20,644 |
+| redstone dust | 189,125 |
+| repeater | 15,585 |
 | **redstone torch** | **2,024** |
 | lamp | 121 |
 | glass | 62 |
@@ -944,14 +957,20 @@ overwhelmingly a property of the tap, and replacing the tap is the right target.
    lever off — measured, and it is what rules out the only cell a repeater
    reading the rail can reach.
 
-At `RAIL_PITCH = GATE_PITCH = 4` a tap gets three cells of Z and three of X, and
-the envelope is bounded by the rail on one side and the collector on the other:
-no dust may touch the collector except at the injection point, and no strongly
-powered block may touch the rail at all. Four components have to fit inside
-that where a torch needs one. Widening the lattice to 6 grows the machine's
-longest axis by half — it is already **1,825 deep** (§12) — which lengthens
-every collector crossing it, which adds back the repeaters the change was meant
-to remove. Not built.
+At the pitch this was measured on — `RAIL_PITCH = GATE_PITCH = 4` — a tap gets
+three cells of Z and three of X, and the envelope is bounded by the rail on one
+side and the collector on the other: no dust may touch the collector except at
+the injection point, and no strongly powered block may touch the rail at all.
+Four components have to fit inside that where a torch needs one. Widening the
+lattice to 6 grows the machine's longest axis by half, which lengthens every
+collector crossing it, which adds back the repeaters the change was meant to
+remove. Not built.
+
+§18 has since taken `GATE_PITCH` to 3, which does not rescue this — it makes it
+worse. A gate now owns its collector column and the tap column beside it with
+**one** free column before the next gate's collector rather than two, so the
+envelope the comparator did not fit into is a column narrower than when it was
+measured. The conclusion is the same conclusion for a stronger reason.
 
 ### The cheap version of the same idea, and why it also lost
 
@@ -1307,9 +1326,12 @@ this document, and the reasoning that hangs off both. They are the load-bearing
 description of the architecture, so they are worth more than a comment.
 
 `machine.DEFAULT_DELAY` likewise carried a burnout figure from a measurement two
-builds old (*"117 torches over fourteen vectors"* against §13's 146 over
-sixteen). Constants that quote numbers have to be re-read whenever the numbers
-move, and this one had not been.
+builds old (*"117 torches over fourteen vectors"*, against the 146 §13 was
+quoting at the time). Constants that quote numbers have to be re-read whenever
+the numbers move, and this one had not been — and then went stale *again* one
+section later, when §13 itself was re-measured. It no longer quotes any: it
+states the invariant, points at §13, and gives the command that reproduces it.
+A number in two places is a number that will disagree with itself.
 
 ### Code that multiplied by zero
 
@@ -1446,3 +1468,94 @@ costs — it takes early-Z off the whole pass. In this container, which rasteris
 in software, boot went from about 5.1 s to about 5.8 s; on a real GPU that is
 fragment work of the kind a GPU exists to absorb, and the deterministic figure
 above — the rebuild, which is CPU — did not move.
+
+## 22. Breaking the documents on purpose — **measured**
+
+Every section above ends in numbers, and the whole claim of this project is that
+they were measured rather than asserted. That claim decays. Four times a
+documented figure has quietly stopped being true — the block counts after the
+gate pitch narrowed (§20), PLAN's BCD table whose measurement could not even be
+run (§20), §13's stability table twice, and now §13's *explanation* of that
+table. Each was found by hand, reading. That is not a process.
+
+So: build the machine, take the figures off it, and check the prose against
+them. `tests/test_docs.py`, 2.4 s, in the fast suite.
+
+### The obvious version of that test does not work
+
+The first version asked whether the right number appeared *somewhere* in each
+file. It passed. To find out whether it passed for a good reason, the documents
+were broken on purpose — one occurrence of `456,558` in README changed to
+something else, and a sentence marked as history un-marked:
+
+```
+MISSED  a wrong headline figure
+MISSED  a superseded figure as present tense
+```
+
+Both. README quotes the block count four times, so corrupting one leaves three
+to satisfy a presence check. And the history check read a window of whole lines,
+so a sentence claiming the machine *is* 1,825 deep today was accepted on the
+strength of a `was` that belonged to the sentence after it.
+
+A check that cannot fail is worse than no check, because it is also a claim that
+someone looked.
+
+### What replaced it
+
+**Anchors, not presence.** Each figure is tied to the sentence or table cell
+that carries it — 42 of them — and every capture has to equal what the build
+measures. A pattern that matches nothing fails too: the prose it was anchoring
+moved, and the anchor has to move with it.
+
+**Coverage, so anchors cannot be dodged.** Every occurrence of a watched figure
+must sit inside an anchor. Writing a new sentence that quotes one therefore
+fails the test until an anchor is added for it. That is the cost of the design,
+paid every time this document grows, and it is the point: an unanchored
+occurrence is one that can go stale in silence. Table rows are exempt, because
+every before/after table here carries its own header and a row under
+`before | after` is not a claim about the present.
+
+**Sentences, not windows.** The history check joins the neighbouring lines,
+because prose wraps mid-claim, and then splits on terminators and reads only the
+sentence the number is actually in. Joining widens what can be read; splitting
+narrows what counts.
+
+**Four files, and one of them is source.** `rscalc/machine.py` is checked
+alongside the three documents, because its comments quote the machine's own
+depth — and §20 had already been forced to de-number a constant in that same
+file for exactly this reason. A comment that quotes a measurement is
+documentation whatever file it lives in.
+
+**The mutation check is itself a test.** `test_the_guards_catch_a_broken_document`
+applies five deliberate breakages and requires each to be rejected;
+`python3 tests/test_docs.py --mutate` prints them one by one. Two of the five
+were originally written wrong — *"The machine was / **1,825 deep** in this
+build"* is still marked as history by the `was` that wraps from the line above,
+and the guard was right to accept it. The mutations had to be rewritten to make
+a genuine present-tense claim before they caught anything, which is the strongest
+evidence available that the check is reading the sentence rather than the noise
+around it.
+
+### What it found the first time it ran
+
+| where | said | measures | how stale |
+|---|---|---|---|
+| §13, README, page — the delay-3 explanation | 12,424 repeaters | **15,585** | two builds |
+| §17 — kinds of block | 250,840 dust | **189,125** | two builds |
+| §17 — kinds of block | 20,644 repeaters | **15,585** | two builds |
+
+The first one is the interesting failure, because the stale number was not
+merely wrong, it was **carrying an argument in the wrong direction**. §13
+explains why delay 3 got *worse* as the machine got smaller, and said the cause
+was less wire — 14,464 repeaters becoming 12,424. Measure it and this build has
+**more** repeaters than the one it was compared against — 15,585 against 14,464
+— because §20's tighter loom put some back. What actually fell is how many sit
+in *series*: the depth halved, and the answer arrives 292 game ticks sooner
+(2,644 → 2,352). Same conclusion, opposite evidence. A figure that goes stale
+does not just misinform, it can quietly reverse the reasoning built on it.
+
+§17's table was worse in a smaller way: its rows had not summed to the block
+count the same document quotes since before §18. They do now, exactly —
+249,613 + 189,125 + 15,585 + 2,024 + 121 + 62 + 28 — which is a thing a reader
+can check with a calculator, and now a thing the suite checks on every run.

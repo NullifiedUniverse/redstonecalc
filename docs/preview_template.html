@@ -488,43 +488,51 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
         that. Two independent things reduce it, and neither is free.</p>
     </div>
     <div class="tw"><table>
-      <tr><th>repeater delay</th><th>result over sixteen vectors</th></tr>
+      <tr><th>repeater delay</th><th>on the earlier build</th><th>on this one</th></tr>
       <tr><td>2 <small>(4 gt)</small></td>
-        <td class="n">2/16 correct, <b>146 torches burned out</b></td></tr>
+        <td class="n">2/16, 146 burned</td>
+        <td class="n">1/16, <b>140 burned</b></td></tr>
       <tr><td>3 <small>(6 gt)</small></td>
-        <td class="n">16/16 correct, but <b>one torch burned out</b></td></tr>
+        <td class="n">16/16, 1 burned</td>
+        <td class="n">5/16, <b>3 burned</b></td></tr>
       <tr class="hi"><td>4 <small>(8 gt)</small></td>
-        <td class="n"><b>16/16 correct, none burned</b>, 2,352 gt to the answer</td></tr>
+        <td class="n">16/16, none burned</td>
+        <td class="n"><b>16/16, none burned</b>, 2,272 gt</td></tr>
     </table></div>
     <div class="col">
-      <p>The middle row moved when the control wall was added. Before it, delay 3
-        was clean over the same vectors and only failed on a hostile sequence;
-        196 more torches was enough to make an ordinary one cost a torch. Burnout
-        margin is not a property of the logic — it scales with how much torch
-        there is to glitch.</p>
+      <p><b>Delay 3 got worse as the machine got smaller</b>, and not for the
+        obvious reason. The torch count did not move — 2,024 either way — and
+        there is <i>more</i> wire, not less: 15,585 repeaters against the old
+        build's 14,464. What fell is how many sit in series. Half the depth, and
+        the answer arrives 292 game ticks sooner, so signals that used to reach a
+        collector several ticks apart now reach it within one. Coincident
+        transitions are what force a torch off repeatedly, so making the machine
+        faster made its hazards tighter.</p>
+      <p>Delay 4 absorbs it, and that is the row that ships — clean on the
+        harshest input there is, including flipping <b>every lever in the same
+        game tick</b>, which the earlier build's driver had to avoid.</p>
     </div>
     <details>
       <summary>The other lever: how fast the inputs arrive</summary>
       <div class="in">
-        <p class="small">Delay 3 only fails when handed a hostile sequence —
-          operand pairs chosen to change ten or more levers at once. Ten such
-          vectors, three different seeds, varying how far apart the flips are
-          placed in time:</p>
+        <p class="small">The harshest input there is: operand pairs chosen to
+          change ten or more levers at once, ten of them, three different seeds,
+          varying how far apart the flips are placed in time. At delay 4 the
+          machine takes all of it:</p>
         <div class="tw"><table>
           <tr><th>gt between lever flips</th><th>seed 11</th><th>seed 23</th><th>seed 41</th></tr>
-          <tr><td>0 — every lever at once</td><td class="n">1 burned</td><td class="n">clean</td><td class="n">clean</td></tr>
-          <tr><td>2</td><td class="n">2 burned</td><td class="n">clean</td><td class="n">clean</td></tr>
-          <tr><td>4</td><td class="n">clean</td><td class="n">clean</td><td class="n">clean</td></tr>
+          <tr><td>0 — every lever at once</td><td class="n">10/10, clean</td><td class="n">10/10, clean</td><td class="n">10/10, clean</td></tr>
+          <tr><td>2</td><td class="n">10/10, clean</td><td class="n">10/10, clean</td><td class="n">10/10, clean</td></tr>
+          <tr><td>4</td><td class="n">10/10, clean</td><td class="n">10/10, clean</td><td class="n">10/10, clean</td></tr>
         </table></div>
-        <p class="small">The first version of this table used one seed and read
-          as a trend in the spacing. It is not: <b>which numbers you type matters
-          more than how fast you type them</b>, and at delay 4 every cell above
-          is clean at every spacing. Spacing still counts — <b>a player cannot
-          flip twenty levers inside a twentieth of a second</b>, and changing
-          every input in the same game tick aligns every hazard in the machine at
-          one instant, a load the build never sees in a world with a person in
-          it. The machine moves only the levers that differ, two game ticks
-          apart, and so does this page.</p>
+        <p class="small">An earlier version of this table was run at delay 3 and
+          with one seed, and read as a trend in the spacing. It was not:
+          <b>which numbers you type matters more than how fast you type them</b>.
+          At delay 4 neither matters — even changing every input in the same game
+          tick, which aligns every hazard in the machine at one instant and which
+          <b>no player can do anyway</b>. The machine still moves only the levers
+          that differ, two game ticks apart, and so does this page, because it
+          costs nothing and it is what a hand does.</p>
       </div>
     </details>
     <details>
@@ -1739,12 +1747,30 @@ function pickAt(px,py){
   return -1;
 }
 const DIRNAME=["north","south","west","east","up","down"];
+/* What shape a wire is, in words.
+
+   It is drawn from `eng.points` and so is this, which means the readout and the
+   picture cannot disagree — and it matters more than it sounds: a *dot* powers
+   nothing horizontally and a *line* powers the block behind it as well as in
+   front, so two wires that look equally lit can do completely different things
+   to their neighbours. §2's rule table, made clickable. */
+const DIRBIT=["north","south","west","east"];
+function shapeName(i){
+  const m=eng.points[i]&15;
+  if(!m)return"a dot, powering nothing horizontally";
+  if(m===3)return"a line, north–south";
+  if(m===12)return"a line, west–east";
+  const arms=DIRBIT.filter((_,b)=>m>>b&1);
+  const kind=arms.length===2?"a corner":arms.length===3?"a T":"a cross";
+  return`${kind}, ${arms.join("/")}`;
+}
+
 function describe(i){
   if(i<0)return"";
   const w=world,k=w.kind[i];
   const at=`${w.bx[i]}, ${w.by[i]}, ${w.bz[i]}`;
   if(k===K_WIRE)
-    return`redstone dust · strength ${w.power[i]} of 15 · ${at}`;
+    return`redstone dust · strength ${w.power[i]} of 15 · ${shapeName(i)} · ${at}`;
   if(k===K_TORCH)
     return`torch · ${w.lit[i]?"lit":"out"}${eng.burned.has(i)?" · BURNED OUT":""} · ${at}`;
   if(k===K_REP)

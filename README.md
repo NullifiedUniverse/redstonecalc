@@ -100,31 +100,23 @@ things reduce it:
 
 | repeater delay | result over sixteen vectors |
 |---|---|
-| 2 (4 gt) | 2/16 correct, **146 torches burned out** |
-| 3 (6 gt) | 16/16 correct, but **one torch burned out** |
-| **4 (8 gt)** | **16/16 correct, none burned**, 2,352 gt to the answer |
+| 2 (4 gt) | 1/16 correct, **140 torches burned out** |
+| 3 (6 gt) | 5/16 correct, **3 torches burned out** |
+| **4 (8 gt)** | **16/16 correct, none burned**, 2,272 gt to the answer |
 
-Re-measured on the build with the control wall, which added 196 torches. That
-alone moved delay 3 from clean-on-ordinary-vectors to costing a torch: burnout
-margin scales with how much torch there is to glitch, not with the logic.
+Delay 3 got *worse* as the machine got smaller, and not for the obvious reason:
+the torch count did not move (2,024 either way), and there is more wire, not
+less — 15,585 repeaters against the old build's 14,464. What fell is how many
+sit in *series*: half the depth, and the answer 292 game ticks sooner. Signals
+that used to reach a collector several ticks apart now reach it within one, and
+coincident transitions are what force a torch off repeatedly. Making it faster
+made its hazards tighter. DESIGN §13 has it.
 
-The other lever is how fast the inputs move. On the earlier build, delay 3 only
-failed once it was handed operand pairs that change ten or more levers at once.
-Varying nothing but how far apart the flips were placed in time, over ten such
-vectors:
-
-| game ticks between lever flips | correct | torches burned |
-|---|---|---|
-| 0 — every lever in the same instant | 5/10 | 5 |
-| 1 | 7/10 | 4 |
-| 2 | 9/10 | 2 |
-| 4 | 9/10 | 2 |
-
-Spacing is real and it is not sufficient — but **a player cannot flip twenty
-levers inside a twentieth of a second**. Changing every input in the same game
-tick aligns every hazard in the machine at one instant, a load the build never
-sees in a world with a person in it. `Machine.set_operands` moves only the
-levers that differ, two game ticks apart, and says why.
+Delay 4 absorbs that, and it is clean on the harshest input there is: ten
+operand pairs each moving 10+ levers, three seeds, including flipping **every
+lever in the same game tick** — 30/30 correct, nothing burned, at every spacing
+tried. `Machine.set_operands` still moves only the levers that differ, two game
+ticks apart, because it costs nothing and it is what a hand does.
 
 Three results worth calling out:
 

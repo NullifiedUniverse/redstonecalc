@@ -26,6 +26,7 @@ FAST = [
     ("test_display.py", "seven-segment display and the torch-free latch"),
     ("test_errors.py", "error handling and structural invariants"),
     ("test_mcbuild.py", "Minecraft build output"),
+    ("test_docs.py", "the prose against the machine it describes"),
 ]
 SLOW = [
     ("test_console.py", "Mk II decimal console"),

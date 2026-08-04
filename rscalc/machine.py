@@ -41,11 +41,13 @@ FLAGS = ["CARRY", "ZERO", "NEG", "OVF"]
 #: "any key is down" bus runs four blocks past its outermost key, and without a
 #: gap it would land on the last operand rail and drive it.
 N_GAPS = 3
-#: The repeater setting the machine is stable at, measured in §13: over
-#: sixteen vectors, delay 2 gets 2 of them right and burns 146 torches out,
-#: delay 3 gets all sixteen but still costs one torch, and delay 4 is clean on
-#: every sequence tried — including all ten of §17's hostile ones at every
-#: input spacing, which delay 3 is not.
+#: The repeater setting the machine is stable at. Every setting below it burns
+#: torches out and gets the wrong answer; this one is clean on every sequence
+#: tried, including flipping every lever in the same game tick. The margin moves
+#: whenever the layout does — §13's table has been re-measured twice for exactly
+#: that reason — so the numbers live there and not here, where they would go
+#: quietly stale. `tools/verify_machine.py --delay 2 --delay 3 --delay 4`
+#: reproduces it in about six minutes.
 DEFAULT_DELAY = 4
 #: worst settle measured over the 300 vectors in `tools/verify_full.py` at
 #: DEFAULT_DELAY — from the operation lever going down to the last lamp holding
