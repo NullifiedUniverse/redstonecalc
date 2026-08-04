@@ -2028,3 +2028,77 @@ page and requires nothing to be invisible at the end of it.
 `prefers-reduced-motion` is honoured twice over — the transitions are
 neutralised and the observer is never armed — and the hidden state is applied
 from script, so a page with no JavaScript shows everything.
+
+## 28. Four things that were wrong with the demo — **measured**
+
+### The glow shone through the machine
+
+The emissive discs were drawn with the depth test off. §19 argued for it — a
+depth-tested disc gets sliced by whatever it overlaps, and a sliced disc is a
+hard triangle of light — but the price turned out to be worse than the problem:
+every torch buried in the lattice shone straight through the floors and walls in
+front of it, so a solid machine looked translucent and the glow stopped meaning
+*there is a light here*.
+
+The slicing had exactly one real cause, and it was the block the torch stands
+on: the disc is centred on the torch, so half of it starts behind that block's
+face. Lifting it **0.62 blocks toward the eye** clears its own support and
+nothing else — a wall in front of a torch is further away than that — and the
+depth test does the rest. Depth *writes* stay off, because the discs are
+additive and must not occlude each other.
+
+Measured close in on a torch column, warm pixels fell from **0.37% of the frame
+to 0.31%**: the glow that vanished is exactly the glow that was coming through
+stone.
+
+### The whole structure blinked during operations
+
+This one is a good lesson in where to look. The rendered frames were fine — mean
+luminance over forty frames of a running machine swung 0.49 out of 19.5, and
+frame-to-frame pixel differences were fractions of a percent. Nothing was
+flickering *in the image*.
+
+What flickered was the frames that were never drawn. `flushDirty()` returns
+early on a tick that touched nothing, so it never calls `invalidate()` — and the
+canvas is created with `preserveDrawingBuffer:false`, which means the contents
+of the drawing buffer are **undefined** once the browser has composited them. A
+quiet tick during a settle therefore handed the compositor a buffer nobody had
+drawn into, and the machine blinked out for that frame. A settle is two minutes
+long and full of quiet ticks, which is why it read as the whole structure
+strobing rather than as one dropped frame.
+
+The page now draws every animation frame while the machine is running, and only
+skips when nothing at all is happening. An idle page still draws nothing.
+
+### The page slid out from under people using the demo
+
+§26 gave a reader their scroll back by deciding what a one-finger gesture meant
+from the direction it committed to. The bias was 2.0, which counts anything
+within **27° of straight up** as reading rather than turning — and tilting the
+machine *is* a vertical drag. So the people it hurt most were the ones actually
+using the thing.
+
+Direction alone was the wrong rule. It is 3.2 now — a swipe has to be within
+about 17° of vertical — and, more to the point, the canvas remembers: any
+gesture that turned the machine, and any pinch, keeps it **engaged for 2.6
+seconds**, during which one finger orbits, full stop. A reader who arrives and
+swipes up still scrolls, because they have not touched anything yet.
+
+| gesture | page | camera |
+|---|---|---|
+| arriving cold, straight up | **338px** | still |
+| a sideways drag | 0 | −1.25 rad |
+| straight up, 2.6s after turning it | **0** | **0.59 rad of tilt** |
+| straight up once that lapses | **338px** | still |
+
+### The demo did not say it was working
+
+A settle is 2,352 game ticks, and the only sign of progress was a number in the
+control bay below the view. There is a rail across the foot of the canvas now —
+where the eye already is — filling as the queue drains, with the tick count and
+what is left beside it. It appears when the machine starts working and goes when
+it stops, and the hint text steps aside for it rather than the layout moving.
+
+The fill is honest about being an estimate: there is no total to divide by,
+because a queue is not a countdown, so it tracks the deepest the queue got this
+run. That is monotone enough to read as progress and it never claims to be more.

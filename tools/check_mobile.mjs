@@ -91,6 +91,8 @@ const swipeBy = async (dx, dy, id) => {
   await page.waitForTimeout(200);
   return out;
 };
+// a reader arriving cold: the canvas has to let them past
+await page.evaluate(() => { engagedUntil = 0; });
 const up = await swipeBy(0, -13, 21);
 want(up.scrolled > 100, `a swipe up the canvas scrolled ${Math.round(up.scrolled)}px`);
 want(up.az === 0 && up.el === 0, "a swipe up the canvas moved the camera as well");
@@ -99,6 +101,39 @@ want(turn.scrolled === 0, `a sideways drag scrolled the page ${Math.round(turn.s
 want(Math.abs(turn.az) > 0.1, "a sideways drag did not turn the machine");
 console.log(`a swipe reads on (${Math.round(up.scrolled)}px, camera still), ` +
             `a drag turns (${turn.az.toFixed(2)} rad, page still)`);
+
+// ...and someone plainly driving the machine has to be able to tilt it without
+// the page sliding out from under them. Tilting *is* a vertical drag, which is
+// why direction alone was not enough: a canvas that has just been turned stays
+// engaged, and one finger orbits until that lapses. The whole gesture goes in
+// one page task, because a round trip per pointermove in this container takes
+// longer than the engagement lasts.
+const tilt = await page.evaluate(() => {
+  const r = cv.getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const ev = (t, cx, cy, bt) => cv.dispatchEvent(new PointerEvent(t,
+    { pointerId: 77, pointerType: "touch", isPrimary: true, bubbles: true,
+      clientX: cx, clientY: cy, buttons: bt }));
+  // Turn it first, so the canvas is engaged. The release has to be where the
+  // finger *ended*: let go back at the start and the page rightly reads the
+  // whole thing as a tap, which is what this check did on its first outing.
+  ev("pointerdown", x, y, 1);
+  ev("pointermove", x + 40, y, 1);
+  ev("pointerup", x + 40, y, 0);
+  const was = { y: scrollY, el: cam.el,
+                left: Math.round(engagedUntil - performance.now()) };
+  ev("pointerdown", x, y, 1);
+  for (let i = 1; i <= 12; i++) ev("pointermove", x, y - i * 13, 1);
+  ev("pointerup", x, y - 156, 0);
+  showPick(-1);
+  return { engaged: was.left, scrolled: scrollY - was.y,
+           tilted: Math.abs(cam.el - was.el) };
+});
+want(tilt.engaged > 0, "the canvas did not stay engaged after being turned");
+want(tilt.scrolled === 0,
+     `tilting an engaged canvas scrolled the page ${tilt.scrolled}px`);
+console.log(`while you are driving it (${tilt.engaged}ms left), a vertical drag ` +
+            `tilts by ${tilt.tilted.toFixed(2)} rad and the page holds still`);
 
 await calm();
 await page.evaluate(() => { window.__c = { ...cam }; });

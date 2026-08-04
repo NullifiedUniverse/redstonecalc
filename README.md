@@ -42,7 +42,11 @@ redstone — classic mechanics apply.
   Both checks sweep every text node against its own background at 4.5:1, in
   both themes, and the view is capped in pixels as well as in viewport units —
   it is published in a frame sized from its own content, where a height in `vh`
-  is circular and runs away.
+  is circular and runs away. While the machine is settling a rail across the
+  foot of the view fills as the queue drains, the glow is depth-tested so a
+  torch behind a wall stays behind it, and a canvas you have just turned keeps
+  one finger on orbit for a couple of seconds so tilting does not scroll the
+  page out from under you.
 
 ## Mk I results — where the architecture came from
 

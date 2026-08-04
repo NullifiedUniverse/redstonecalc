@@ -132,6 +132,27 @@ canvas:active{cursor:grabbing}
 .nudge[hidden]{display:none}
 @keyframes nudgeIn{from{opacity:0;transform:translate(-50%,-46%)}
                    to{opacity:1;transform:translate(-50%,-50%)}}
+/* The demo's own progress: a hairline across the foot of the view, filling as
+   the queue drains, with the count beside it. It sits above the hint and slides
+   in rather than appearing, so a machine that starts working announces itself
+   without the layout moving. */
+.rail{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
+  gap:.6rem;padding:.42rem .7rem .5rem;
+  background:linear-gradient(to top,rgba(6,8,11,.94),rgba(6,8,11,0));
+  font-family:var(--mono);font-size:.58rem;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--on-dark-dim);pointer-events:none;
+  animation:railIn .22s cubic-bezier(.22,.7,.28,1)}
+.rail[hidden]{display:none}
+.rail i{flex:1;height:2px;border-radius:2px;background:rgba(255,255,255,.14);
+  position:relative;overflow:hidden}
+.rail i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--p,0%);
+  background:var(--accent-on-dark);transition:width .2s linear}
+.rail span{white-space:nowrap;font-variant-numeric:tabular-nums}
+@keyframes railIn{from{opacity:0;transform:translateY(6px)}
+                  to{opacity:1;transform:none}}
+/* the hint steps aside while the rail is up */
+.rail:not([hidden])~.hint{opacity:0}
+.hint{transition:opacity .2s}
 .hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
   font-size:.6rem;color:var(--on-dark-dim);letter-spacing:.05em;
   pointer-events:none}
@@ -488,6 +509,13 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
         <button type="button" id="zIn" aria-label="zoom in">+</button>
       </div>
       <div class="nudge" id="nudge" hidden></div>
+      <!-- The settle takes two minutes of game time. Inside the view, where
+           the eye already is, a rail says how far through it is and how much
+           is still to come. -->
+      <div class="rail" id="rail" hidden>
+        <i id="railbar"></i>
+        <span id="railtxt">settling</span>
+      </div>
       <div class="hint"><span class="wide">drag to orbit &middot; ⌘/ctrl + scroll
         to zoom &middot; click a block to read it, twice to fly in</span><span
         class="narrow">drag to turn &middot; swipe to read on &middot; pinch
@@ -2172,6 +2200,11 @@ function flushDirty(){
 //: tested, large also means torches deep inside the lattice wash over the face
 //: in front of them.
 const GLOW_GROW=1.15;
+//: How far toward the camera a glow disc is pushed, in blocks. It has one job:
+//: clear the block the torch is standing on, so the depth test does not cut the
+//: disc in half on its own support. Anything larger starts letting a torch peek
+//: out from behind a wall it is genuinely behind.
+const GLOW_LIFT=0.62;
 //: anyone who asked their system for reduced motion gets the plain lattice
 const glowOn=!matchMedia("(prefers-reduced-transparency: reduce)").matches;
 let lastMVP=null;
@@ -2255,12 +2288,15 @@ function draw(){
    exactly nothing with no bookkeeping of its own. */
 const GVS=`attribute vec2 aQuad;attribute vec3 iOff;attribute vec3 iScale;
 attribute vec3 iCol;uniform mat4 uMVP;uniform float uYMax;uniform float uGrow;
-uniform vec3 uRight;uniform vec3 uUp;
+uniform vec3 uRight;uniform vec3 uUp;uniform vec3 uFwd;uniform float uLift;
 varying vec2 vL;varying vec3 vC;
 void main(){vC=iCol;vL=aQuad;
   if(iOff.y>uYMax){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
   float s=max(iScale.x,max(iScale.y,iScale.z))*0.5+uGrow;
-  gl_Position=uMVP*vec4(iOff+uRight*(aQuad.x*s)+uUp*(aQuad.y*s),1.0);}`;
+  // toward the eye by uLift, so the disc clears the block its torch stands on
+  // and the depth test can do its job on everything further away
+  vec3 c=iOff+uFwd*uLift;
+  gl_Position=uMVP*vec4(c+uRight*(aQuad.x*s)+uUp*(aQuad.y*s),1.0);}`;
 const GFS=`precision mediump float;varying vec2 vL;varying vec3 vC;
 void main(){
   float lum=dot(vC,vec3(0.3,0.6,0.1));
@@ -2280,6 +2316,8 @@ const GA={quad:gl.getAttribLocation(gprog,"aQuad"),
 const GU={mvp:gl.getUniformLocation(gprog,"uMVP"),
   ymax:gl.getUniformLocation(gprog,"uYMax"),
   grow:gl.getUniformLocation(gprog,"uGrow"),
+  fwd:gl.getUniformLocation(gprog,"uFwd"),
+  lift:gl.getUniformLocation(gprog,"uLift"),
   right:gl.getUniformLocation(gprog,"uRight"),
   up:gl.getUniformLocation(gprog,"uUp")};
 const qvbo=gl.createBuffer(),qibo=gl.createBuffer();
@@ -2419,16 +2457,33 @@ function drawGlow(){
   gl.uniformMatrix4fv(GU.mvp,false,lastMVP);
   gl.uniform1f(GU.ymax,cut);
   gl.uniform1f(GU.grow,GLOW_GROW);
+  gl.uniform1f(GU.lift,GLOW_LIFT);
   const b3=basis(cam.az,cam.el);
   gl.uniform3f(GU.right,b3.right[0],b3.right[1],b3.right[2]);
   gl.uniform3f(GU.up,b3.up[0],b3.up[1],b3.up[2]);
-  // Depth-tested, the disc gets sliced by whatever it overlaps and the slice is
-  // a hard triangle of light — the one thing worse than no glow. Real bloom is
-  // applied after depth and bleeds over everything in front of it too, so this
-  // does the same: no depth test, and faint enough that a torch behind a floor
-  // reads as a hint of one rather than a torch drawn through a floor.
+  // `f` points from the target toward the eye, so this is the way out of the
+  // screen: the disc moves toward the camera, not along its own axis
+  gl.uniform3f(GU.fwd,b3.f[0],b3.f[1],b3.f[2]);
+  /* Depth-tested, and that is a reversal.
+
+     It was not depth-tested, on the argument that a tested disc gets sliced by
+     whatever it overlaps and a sliced disc is a hard triangle of light. True —
+     but the price was worse: every torch buried in the lattice shone straight
+     through the floors and walls in front of it, so a solid machine looked
+     translucent and the glow stopped meaning "there is a light here" and
+     started meaning nothing at all.
+
+     The slicing had one real cause, which is the block the torch stands on:
+     the disc is centred on the torch and half of it is behind that block's
+     face. So the disc is lifted toward the eye by `GLOW_LIFT` blocks — enough
+     to clear its own support, far less than the distance to anything else — and
+     the depth test does the rest. A wall in front of a torch now hides it, and
+     the disc is no longer cut by the block it sits on.
+
+     Depth *writes* stay off: the discs are additive and must not occlude each
+     other or anything drawn after them. */
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
-  gl.depthMask(false);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
+  gl.depthMask(false);gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
   const bind=(b,l,n,dv)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);
     gl.vertexAttribPointer(l,n,gl.FLOAT,false,0,0);ext.vertexAttribDivisorANGLE(l,dv);};
   bind(qvbo,GA.quad,2,0);
@@ -2448,7 +2503,20 @@ function loop(){
   const w=cv.clientWidth,h=cv.clientHeight||380;
   const dpr=Math.min(devicePixelRatio||1,inst.length>160000?1.25:2);
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr))needsDraw=true;
-  if(needsDraw){needsDraw=false;draw();}
+  /* Draw every frame while the machine is running, even the frames where
+     nothing changed.
+
+     `flushDirty` returns early on a tick that touched nothing, so it never
+     invalidates — and with `preserveDrawingBuffer:false` the contents of the
+     drawing buffer are *undefined* after the browser composites them. A quiet
+     tick during a settle therefore left the compositor a buffer nobody had
+     drawn into, and the whole machine blinked out for that frame. Over the two
+     minutes a settle takes there are a great many quiet ticks, which is why it
+     read as the entire structure flickering rather than as one dropped frame.
+
+     Redrawing costs a few milliseconds and only while something is happening;
+     an idle page still draws nothing at all. */
+  if(needsDraw||playing){needsDraw=false;draw();}
   requestAnimationFrame(loop);
 }
 
@@ -2846,10 +2914,15 @@ function refreshPanel(){
   if(q>peakQ)peakQ=q;
   const busy=q>0||held.size>0;
   $("prog").hidden=!busy;
+  $("rail").hidden=!busy;
   if(busy){
     const done=peakQ?Math.max(0,Math.min(1,1-q/peakQ)):0;
-    $("progbar").style.setProperty("--p",(done*100).toFixed(0)+"%");
+    const pct=(done*100).toFixed(0)+"%";
+    $("progbar").style.setProperty("--p",pct);
+    $("railbar").style.setProperty("--p",pct);
     $("progtxt").textContent=`settling · ${q.toLocaleString()} pending`;
+    $("railtxt").textContent=`tick ${eng.now.toLocaleString()} · `
+      +`${q.toLocaleString()} pending`;
   }else peakQ=0;
   $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
   $("tBurn").classList.toggle("bad",eng.burned.size>0);
@@ -3138,7 +3211,19 @@ const ORBIT_X=0.008,ORBIT_Y=0.006,TAP_SLOP=12,TAP_MS=600,DBL_MS=600,DBL_SLOP=34;
    lead-in is not thrown away — the orbit picks it up — so nothing feels dead.
 
    A mouse is left alone. It has a wheel, and the page has always scrolled. */
-const INTENT_PX=11,VERT_BIAS=2.0,FLING=14;
+/* `VERT_BIAS` was 2.0, which meant anything within 27° of straight up counted
+   as reading rather than turning — and tilting the machine *is* a vertical
+   drag, so people trying to look at the underside of it got the page moving
+   under them instead. It is 3.2 now: a swipe has to be within about 17° of
+   vertical to be taken as a scroll.
+
+   And once you are plainly driving the instrument, one finger orbits, full
+   stop. Any gesture that turned the machine, and any pinch, keeps the canvas
+   engaged for `ENGAGED_MS`; a gesture that starts inside that window never
+   hands itself to the page. A reader who arrives and swipes up still scrolls,
+   because they have not touched anything yet. */
+const INTENT_PX=11,VERT_BIAS=3.2,FLING=14,ENGAGED_MS=2600;
+let engagedUntil=0;
 cv.addEventListener("pointerdown",e=>{
   spinAz=spinEl=0;fly=null;
   ptr.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
@@ -3161,8 +3246,11 @@ cv.addEventListener("pointermove",e=>{
     if(swipe&&swipe.mode===0){
       const tx=e.clientX-q.x0,ty=e.clientY-q.y0;
       if(Math.hypot(tx,ty)<INTENT_PX)return;      // too early to tell
-      swipe.mode=Math.abs(ty)>VERT_BIAS*Math.abs(tx)?2:1;
+      const reading=Math.abs(ty)>VERT_BIAS*Math.abs(tx)
+                    &&performance.now()>engagedUntil;
+      swipe.mode=reading?2:1;
       if(swipe.mode===1){                         // orbit, lead-in included
+        engagedUntil=performance.now()+ENGAGED_MS;
         cam.az-=tx*ORBIT_X;
         cam.el=Math.max(0.05,Math.min(1.5,cam.el+ty*ORBIT_Y));
         invalidate();return;
@@ -3171,10 +3259,12 @@ cv.addEventListener("pointermove",e=>{
       return;
     }
     if(swipe&&swipe.mode===2){scrollBy(0,-dy);return;}
+    if(swipe)engagedUntil=performance.now()+ENGAGED_MS;
     cam.az-=dx*ORBIT_X;
     cam.el=Math.max(0.05,Math.min(1.5,cam.el+dy*ORBIT_Y));
     invalidate();
   }else if(ptr.size===2&&pinch){
+    engagedUntil=performance.now()+ENGAGED_MS;
     const[a,b]=[...ptr.values()];
     const d=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
     // fingers apart = closer in, which is what every map does

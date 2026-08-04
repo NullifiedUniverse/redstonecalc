@@ -141,6 +141,7 @@ ANCHORS = [
     (DESIGN, r"at\s+(\d+) × (\d+) × (\d+) that lands on", "x", "y", "z"),
     (DESIGN, r"dust: ([\d,]+) wires", "dust"),
     (DESIGN, r"a (\d+) × (\d+) × (\d+) slab", "x", "y", "z"),
+    (DESIGN, r"A settle is ([\d,]+) game ticks", "settle"),
     # §22 quotes figures while explaining why quoting figures needs a guard,
     # so it is anchored by its own rule
     (DESIGN, r"one occurrence of `([\d,]+)` in README", "blocks"),
