@@ -1237,7 +1237,8 @@ green on this build.
 
 Blocks were one flat colour with a seam drawn between them, and a floor of
 identical grey cubes reads as a bar of paint with a grid on it. Two things fix
-that and neither is an image — this page still has no asset of any kind:
+that and neither is an image — this page carries no image anywhere, then or now
+(§29 added an animation library to it, which is code, not an asset):
 
 - **A value per block cell.** `hash3(floor(worldPos))`, ±7%, so no two blocks in
   a 418-block slab are the same shade. This is the one that does the work; a
@@ -2102,3 +2103,110 @@ it stops, and the hint text steps aside for it rather than the layout moving.
 The fill is honest about being an estimate: there is no total to divide by,
 because a queue is not a countdown, so it tracks the deepest the queue got this
 run. That is monotone enough to read as progress and it never claims to be more.
+
+## 29. GSAP, a proper meter, and a phone you can actually work — **measured**
+
+### An animation library, inlined, and why that is not a detail
+
+The page is choreographed with **GSAP 3.15 and ScrollTrigger**. Both are
+**inlined** into the built page from `vendor/gsap/`, not fetched, and that is
+the whole engineering content of the decision: this page is published as an
+artifact, and the artifact runtime serves it under a policy that blocks every
+external host. A `<script src>` pointing at a CDN does not fail loudly there. It
+fails *silently* — the page arrives with no animation, no error, and nothing in
+the console for anyone to find. `tests/test_pages.py` now fails the build if the
+page contains any tag, `@import`, `url()`, `fetch()` or image load pointing
+off-site, and the check was proved by adding a CDN tag and watching it fire.
+
+It costs 117KB, and it costs a claim: this page used to have "no asset of any
+kind", and now it carries a third-party library. The README and §19 say so
+rather than quietly keeping the old sentence. There is still no *image*
+anywhere — every texture is drawn into an array at load.
+
+### What is animated, and what deliberately is not
+
+One arrival, one reveal per section, and a small set of responses to things the
+reader does. That is the whole list, and the restraint is the design: this is a
+page with half a million blocks moving on it, and anything else competes with
+the subject.
+
+- **The masthead reads itself out.** The headline is split into words, each
+  rising out of its own mask — words, not characters, because it is a sentence
+  to read and letters flying in individually is a different, worse page.
+- **The measured figures count up**, from the digits already in the markup, so
+  the number a reader lands on is the number the document says, comma included.
+- **Each section rises as it is reached**, with its cards and its table rows on
+  their own small stagger.
+- **The masthead drifts** as you leave it, and a hairline at the top of the page
+  tracks how far through you are.
+- **Presses answer back**: a bit, an operation key, a zoom button. The answer
+  itself flashes when it lands, because that is the event the whole page is about.
+
+Two things are load-bearing rather than decorative:
+
+**Nothing is hidden by CSS.** Every reveal is a `from` tween, so the resting
+document *is* the finished page. If the script never runs, or the library is
+stripped, the page is complete and static rather than blank — which is the
+failure mode worth designing for, and the reason the start state is not in the
+stylesheet.
+
+**ScrollTrigger fixed the bug §27 could not.** IntersectionObserver reports
+threshold *crossings*, so an element that went from below the viewport to above
+it in one jump never reported at all. ScrollTrigger computes from scroll
+position, so "reached" and "passed" are the same question. `check_preview` walks
+the whole page and requires all 36 animated elements to be fully visible at the
+end of it.
+
+### The meter is a component now
+
+A settle is 2,352 game ticks and about two minutes of watching. It had a
+hairline; it has an instrument: a live dot, a percentage, a track with tenth
+marks so the bar has a *scale* rather than only a length, a lit fill, a sheen
+that sweeps only while there is a backlog, and the tick and the queue underneath.
+
+Two decisions inside it are worth stating. The fill is **tweened, not
+transitioned** — the queue drains in jumps and a linear CSS transition turns
+those into a stutter, where an eased tween reads as one thing making progress.
+And it **only ever goes forward**: a queue that refills would otherwise walk the
+bar backwards, which reads as a fault rather than as work. It is honest about
+being an estimate — there is no total to divide by, so it measures against the
+deepest the queue got this run and claims nothing more.
+
+The duplicate progress line in the control bay is gone. Two bars describing one
+thing is one bar too many.
+
+### A phone you can actually work
+
+| | before | now |
+|---|---|---|
+| bit switch | 28 × 28 | **36 × 44** |
+| stepper button | 34 × 34 | **44 × 44** |
+| view chip, zoom button | 30 tall | **40 tall** |
+| the check's floor | 28px | **40px in the dimension that has room** |
+
+Ten bit switches cannot each be 44 wide on a 390px phone, so they take the
+height instead — for a row you sweep along, depth of target is what the thumb is
+aiming at, and the check now says so in those terms rather than accepting a
+square 28.
+
+The real gap was elsewhere. On a phone the controls sit a screen below the
+readout, so **pressing an operation sends the answer off the top of the
+display** and leaves you working a keypad with no idea what the machine is
+doing. A peek bar follows it down: the value, how far through the settle it is,
+and a tap to go back to the machine. It appears only once the readout has
+actually gone — triggered on the *answer*, not on the instrument, because the
+controls are inside the instrument and a reader at the keypad has not left it.
+
+And the wall gets `env(safe-area-inset-*)`, so a notched phone in landscape does
+not tuck the first and last columns of the control wall under its own corners.
+
+### One thing that was the test's fault, not the page's
+
+The contrast sweep started failing on the bit numerals at 3.16 — light-theme
+text measured against a dark-theme background, a combination that exists in no
+frame anyone sees. Switching the theme rewrites custom properties on the root,
+and Chromium will hand back a *partially* recalculated style for a descendant in
+the frames right after: the element's own `--dim` reads as the new value while
+its resolved `color` is still the old one. The check now detaches the root to
+force a full restyle and then waits on a canary before believing anything it
+measures.

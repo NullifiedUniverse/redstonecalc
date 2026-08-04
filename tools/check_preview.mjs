@@ -84,10 +84,32 @@ const contrast = await page.evaluate(async () => {
     }
     return [...new Set(bad)];
   };
+  // Switching the theme rewrites custom properties on the root, and Chromium
+  // will happily hand back a *partially* recalculated style for a descendant in
+  // the frames right after: the element's own --dim reads as the new value
+  // while its resolved `color` is still the old one. Sweeping into that gives
+  // light text measured against a dark background — a 3.16 that exists in no
+  // frame anyone sees. Detaching the root forces a full restyle, and then a
+  // canary is checked before believing any of it.
+  const settle = async () => {
+    const root = document.documentElement;
+    const was = root.style.display;
+    root.style.display = "none"; void root.offsetHeight; root.style.display = was;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => requestAnimationFrame(r));
+      const want = getComputedStyle(root).getPropertyValue("--dim").trim();
+      const el = document.querySelector(".bit");
+      if (!el) return;
+      const got = getComputedStyle(el).color;
+      const hex = "#" + got.match(/\d+/g).slice(0, 3)
+        .map(n => (+n).toString(16).padStart(2, "0")).join("");
+      if (hex === want.toLowerCase()) return;
+    }
+  };
   const out = {};
   for (const t of ["dark", "light"]) {
     document.documentElement.setAttribute("data-theme", t);
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await settle();
     out[t] = sweep();
   }
   document.documentElement.removeAttribute("data-theme");
@@ -153,23 +175,35 @@ if (!wheel.buttons)
 console.log(`wheel: plain scrolls the page, ⌘/ctrl zooms by ` +
             `${wheel.zoomed.toFixed(3)}, and the view says so once`);
 
-// --- nothing the arrival animation hides may stay hidden -------------------
-// `.rise` starts at opacity 0 and is revealed by an observer. If that observer
-// never fires the page is blank prose, so the fallback is checked here rather
-// than hoped for.
+// --- nothing the animation touches may be left invisible -------------------
+// Every reveal is a GSAP `from` tween, which means the start state is written
+// by script and the resting document is already the finished page. The failure
+// to guard against is a tween that starts an element at opacity 0 and never
+// finishes it — a ScrollTrigger that never fires, a timeline that throws
+// halfway. So this scrolls the whole page, top to bottom and back, and then
+// insists that nothing anyone is meant to read is transparent.
 const reveal = await page.evaluate(async () => {
-  scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
-  await new Promise(r => setTimeout(r, 900));
-  scrollTo({ top: 0, behavior: "instant" });
-  await new Promise(r => setTimeout(r, 400));
-  const all = [...document.querySelectorAll(".rise, .rig")];
-  return { n: all.length,
-           hidden: all.filter(e => getComputedStyle(e).opacity === "0").length };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const h = document.body.scrollHeight;
+  for (let y = 0; y <= h; y += Math.round(innerHeight * 0.8)) {
+    scrollTo({ top: y, behavior: "instant" }); await wait(120);
+  }
+  scrollTo({ top: h, behavior: "instant" }); await wait(700);
+  scrollTo({ top: 0, behavior: "instant" }); await wait(700);
+  const content = [...document.querySelectorAll(
+    "header.top .wrap > *, .rig, .rig-note, main section > *, " +
+    ".cards > *, footer .wrap")];
+  const invisible = content.filter(e => {
+    const cs = getComputedStyle(e);
+    return cs.display !== "none" && +cs.opacity < 0.99;
+  }).map(e => (e.className || e.tagName).toString().slice(0, 30));
+  return { n: content.length, invisible: [...new Set(invisible)] };
 });
-if (reveal.hidden)
-  throw new Error(`${reveal.hidden} of ${reveal.n} revealed elements are still ` +
-                  `invisible after scrolling the whole page`);
-console.log(`arrival: ${reveal.n} elements rise into view, none left hidden`);
+if (reveal.invisible.length)
+  throw new Error(`${reveal.invisible.length} elements are still not fully ` +
+                  `visible after scrolling the page: ${reveal.invisible.slice(0, 4).join(", ")}`);
+console.log(`arrival: ${reveal.n} animated elements, every one fully visible ` +
+            `after a pass down the page and back`);
 
 // --- typing a number moves the right levers -------------------------------
 // The bit switches are the truth, but nobody spells 723 out of ten of them, so

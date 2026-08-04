@@ -28,6 +28,19 @@ def engine_source(demo_src):
     return demo_src[start:end].rstrip()
 
 
+def motion_source():
+    """GSAP and ScrollTrigger, inlined.
+
+    Not a `<script src>` to a CDN: the preview is published as an artifact, and
+    the artifact runtime serves it under a policy that blocks every external
+    host. A blocked CDN tag does not fail loudly — the page simply arrives with
+    no animation and no error anyone will see. Inlining keeps the page a single
+    self-contained file, which is what it has always been.
+    """
+    return "\n".join(read(f"vendor/gsap/{f}")
+                     for f in ("gsap.min.js", "ScrollTrigger.min.js"))
+
+
 def render():
     """Both pages as strings, without writing anything."""
     demo_src = read("docs/demo_template.html")
@@ -35,6 +48,7 @@ def render():
                                               read("out/circuits.json"))}
     out["docs/preview.html"] = (
         read("docs/preview_template.html")
+        .replace("__GSAP__", motion_source())
         .replace("__ENGINE__", engine_source(demo_src))
         .replace("__CIRCUIT_DATA__", read("out/preview.json")))
     return out

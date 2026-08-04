@@ -25,7 +25,7 @@ redstone — classic mechanics apply.
   that runs the whole machine tick by tick, drawing signal *level* as height as
   well as colour, with any block clickable for its exact strength and state.
   Every face is a **16×16 texture** at Minecraft's resolution, drawn into an
-  array at load rather than fetched — the page has no asset of any kind — with
+  array at load rather than fetched — the page carries no image, anywhere — with
   wood, stone and redstone in their own colours: a torch is a brown stick with a
   red head, a repeater is smooth stone with two torches on it, a lamp is four
   amber panes in a dark frame. Redstone dust is drawn **pointing the way the
@@ -46,7 +46,10 @@ redstone — classic mechanics apply.
   foot of the view fills as the queue drains, the glow is depth-tested so a
   torch behind a wall stays behind it, and a canvas you have just turned keeps
   one finger on orbit for a couple of seconds so tilting does not scroll the
-  page out from under you.
+  page out from under you. The page is choreographed with **GSAP and
+  ScrollTrigger**, both *inlined* rather than fetched — the artifact runtime
+  blocks external hosts, and a blocked CDN tag fails silently — and on a phone a
+  peek bar follows the answer down while you work the keypad. See DESIGN §29.
 
 ## Mk I results — where the architecture came from
 

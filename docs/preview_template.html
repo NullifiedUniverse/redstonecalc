@@ -48,7 +48,13 @@ button,select,input,summary{touch-action:manipulation;
   -webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--basalt);color:var(--ink);font-family:var(--serif);
   font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1120px;margin:0 auto;padding:0 1.15rem}
+/* `env()` so a notched phone does not tuck the first and last columns of the
+   control wall under its own rounded corners in landscape. */
+.wrap{max-width:1120px;margin:0 auto;
+  padding:0 max(1.15rem,env(safe-area-inset-left))
+          0 max(1.15rem,env(safe-area-inset-right))}
+.wrap{padding-left:max(1.15rem,env(safe-area-inset-left));
+  padding-right:max(1.15rem,env(safe-area-inset-right))}
 .col{max-width:66ch}
 h1,h2,h3{text-wrap:balance;font-weight:600}
 h1{font-size:clamp(1.9rem,4.4vw,2.9rem);line-height:1.1;letter-spacing:-.018em;
@@ -132,25 +138,47 @@ canvas:active{cursor:grabbing}
 .nudge[hidden]{display:none}
 @keyframes nudgeIn{from{opacity:0;transform:translate(-50%,-46%)}
                    to{opacity:1;transform:translate(-50%,-50%)}}
-/* The demo's own progress: a hairline across the foot of the view, filling as
-   the queue drains, with the count beside it. It sits above the hint and slides
-   in rather than appearing, so a machine that starts working announces itself
-   without the layout moving. */
-.rail{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
-  gap:.6rem;padding:.42rem .7rem .5rem;
-  background:linear-gradient(to top,rgba(6,8,11,.94),rgba(6,8,11,0));
-  font-family:var(--mono);font-size:.58rem;letter-spacing:.09em;
-  text-transform:uppercase;color:var(--on-dark-dim);pointer-events:none;
-  animation:railIn .22s cubic-bezier(.22,.7,.28,1)}
+/* ---- the settle meter ----
+   A settle is 2,352 game ticks and about two minutes of watching, so this is a
+   component rather than a hairline: a live dot, a title, a percentage, a track
+   with a lit fill and a sheen that only moves while there is something to wait
+   for, and the tick and the backlog underneath. It sits inside the view, over
+   the machine it is describing, on a gradient that lifts it off whatever is
+   behind without a hard edge.
+
+   The fill is driven by GSAP rather than a CSS transition: the queue moves in
+   jumps and a linear transition makes the bar stutter, where an eased tween
+   reads as one continuous thing making progress. */
+.rail{position:absolute;left:0;right:0;bottom:0;
+  padding:1.5rem max(.8rem,env(safe-area-inset-right)) .62rem
+                 max(.8rem,env(safe-area-inset-left));
+  background:linear-gradient(to top,rgba(6,8,11,.96) 42%,rgba(6,8,11,0));
+  font-family:var(--mono);pointer-events:none;
+  display:flex;flex-direction:column;gap:.34rem}
 .rail[hidden]{display:none}
-.rail i{flex:1;height:2px;border-radius:2px;background:rgba(255,255,255,.14);
-  position:relative;overflow:hidden}
-.rail i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--p,0%);
-  background:var(--accent-on-dark);transition:width .2s linear}
-.rail span{white-space:nowrap;font-variant-numeric:tabular-nums}
-@keyframes railIn{from{opacity:0;transform:translateY(6px)}
-                  to{opacity:1;transform:none}}
-/* the hint steps aside while the rail is up */
+.rail-head{display:flex;align-items:center;gap:.45rem}
+.rail-dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;
+  background:var(--accent-on-dark);box-shadow:0 0 8px var(--accent-on-dark)}
+.rail-title{font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--on-dark)}
+.rail-pct{margin-left:auto;font-size:.66rem;font-variant-numeric:tabular-nums;
+  color:var(--on-dark);font-weight:600}
+.rail-track{position:relative;height:4px;border-radius:3px;overflow:hidden;
+  background:rgba(255,255,255,.12)}
+/* a tick every tenth, so the bar has a scale rather than just a length */
+.rail-track::after{content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),
+    rgba(6,8,11,.75) calc(10% - 1px) 10%)}
+.rail-fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;
+  background:linear-gradient(90deg,#8a1a12,var(--accent-on-dark));
+  overflow:hidden}
+.rail-sheen{position:absolute;top:0;bottom:0;width:34px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
+.rail-foot{display:flex;gap:.8rem;font-size:.55rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--on-dark-dim);
+  font-variant-numeric:tabular-nums}
+.rail-foot span:last-child{margin-left:auto}
+/* the hint steps aside while the meter is up */
 .rail:not([hidden])~.hint{opacity:0}
 .hint{transition:opacity .2s}
 .hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
@@ -239,14 +267,6 @@ canvas:active{cursor:grabbing}
   border:1px solid var(--seam);color:var(--ash);font-size:.54rem;
   font-weight:700;flex:0 0 auto}
 
-/* how far through a settle the machine is */
-.prog{display:flex;align-items:center;gap:.5rem;font-family:var(--mono);
-  font-size:.56rem;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--dim)}
-.prog i{flex:1;height:3px;border-radius:2px;background:var(--seam);
-  position:relative;overflow:hidden}
-.prog i::after{content:"";position:absolute;inset:0 auto 0 0;
-  width:var(--p,0%);background:var(--redstone);transition:width .18s linear}
 .ops{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem}
 .key{font-family:var(--mono);font-size:.7rem;font-weight:600;padding:.45rem 0;
   border:1px solid var(--seam);border-radius:5px;background:var(--slate2);
@@ -307,6 +327,30 @@ input:focus-visible{outline:2px solid var(--redstone);outline-offset:2px}
 .chip{width:8px;height:8px;border-radius:2px;border:1px solid var(--seam);
   display:inline-block;vertical-align:-1px}
 .strip span{display:flex;align-items:center;gap:.3rem}
+
+/* ---- the peek bar: the answer, following you down a phone ---- */
+.peek{display:none}
+@media (max-width:820px){
+  .peek{position:fixed;left:.6rem;right:.6rem;
+    bottom:max(.6rem,env(safe-area-inset-bottom));z-index:50;
+    display:flex;align-items:center;gap:.6rem;
+    padding:.6rem .75rem;min-height:52px;
+    border:1px solid var(--seam);border-radius:11px;
+    background:color-mix(in srgb,var(--slate) 92%,transparent);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    box-shadow:0 10px 30px -14px rgba(0,0,0,.6);
+    font-family:var(--mono);cursor:pointer;text-align:left}
+  .peek[hidden]{display:none}
+  .peek-val{font-size:1.15rem;font-weight:600;color:var(--lamp);
+    font-variant-numeric:tabular-nums;line-height:1;min-width:3.5ch}
+  .peek-state{font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);white-space:nowrap}
+  .peek-bar{flex:1;height:3px;border-radius:2px;background:var(--seam);
+    position:relative;overflow:hidden;min-width:40px}
+  .peek-bar i{position:absolute;inset:0 auto 0 0;width:0;border-radius:2px;
+    background:var(--redstone)}
+  .peek-up{font-size:.9rem;color:var(--ash);line-height:1}
+}
 
 /* ---- the notebook ---- */
 /* the notebook is narrower than the instrument on purpose: a wide rig you
@@ -372,7 +416,7 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .facts span{font-size:.54rem;letter-spacing:.1em}
   .ghost.sep{margin-left:0}
   /* a thumb, not a mouse */
-  .ghost{padding:.6rem .7rem;font-size:.62rem}
+  .ghost{padding:.6rem .7rem;font-size:.62rem;min-height:40px}
   /* One row rather than two eating the top of the view — and all four visible
      in it, because a control a thumb has to scroll to find is a control nobody
      finds. The chips lose letter-spacing and horizontal padding, not height:
@@ -380,8 +424,9 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .overlay.tl{max-width:calc(100% - 1.2rem);flex-wrap:nowrap;overflow-x:auto;
     scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .overlay.tl::-webkit-scrollbar{display:none}
-  .overlay.tl .ghost{flex:0 0 auto;padding:.56rem .4rem;font-size:.55rem;
-    letter-spacing:.02em}
+  .overlay.tl .ghost{flex:0 0 auto;padding:.56rem .42rem;font-size:.55rem;
+    letter-spacing:.02em;min-height:40px}
+  .zoom button{width:40px;height:40px;font-size:1.05rem}
   .hint .wide{display:none} .hint .narrow{display:inline}
   .bar{grid-template-columns:1fr}
   .bay{border-right:none;border-bottom:1px solid var(--seam);padding:.9rem .8rem}
@@ -395,10 +440,15 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
     grid-template-areas:"nm val" "bits bits";gap:.2rem .5rem}
   .opnd .nm{grid-area:nm;width:auto}
   .dial{grid-area:val}
-  .dial button{width:34px;height:34px}
-  .opnd .val{font-size:1.05rem;min-height:34px;border-color:var(--seam)}
+  .dial button{width:44px;height:44px;font-size:1.05rem}
+  .opnd .val{font-size:1.1rem;min-height:44px;border-color:var(--seam);
+    width:4.6ch}
   .bits{grid-area:bits;gap:.22rem}
-  .bit{max-width:34px;font-size:.6rem}
+  /* A bit is the control a thumb uses most, and 28px square is under every
+     guideline there is. Ten of them cannot each be 44 wide on a 390px phone, so
+     they get the height instead: 44 tall, as wide as the row allows. Depth of
+     target matters more than width for a row you sweep along. */
+  .bit{max-width:36px;font-size:.62rem;aspect-ratio:auto;min-height:44px}
   .num{font-size:1.6rem}
   .step{font-size:.55rem}
   .transport{gap:.4rem}
@@ -440,41 +490,28 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .facts{gap:.15rem 1rem}
 }
 /* ---- motion ----
-   Three moments, and no more than three. The masthead arrives in the order you
-   read it; a section rises as you reach it; the measured figures count up once,
-   because they are measurements and watching one land is worth a beat. Anything
-   else on a page that already has half a million blocks moving in it would be
-   noise competing with the subject.
+   The choreography lives in JavaScript (GSAP, inlined above); what is here is
+   only what CSS does better than a tween: the hover and press states that have
+   to respond inside one frame, and the two paint-only effects.
 
-   Everything here is additive: `.rise` starts hidden only once the script has
-   said it can, so a page with no JavaScript, or one whose observer never fires,
-   shows everything. */
-.js .rise{opacity:0;transform:translateY(16px);
-  transition:opacity .55s cubic-bezier(.22,.7,.28,1),
-             transform .55s cubic-bezier(.22,.7,.28,1)}
-.js .rise.in{opacity:1;transform:none}
-.js .rise.d1{transition-delay:.06s} .js .rise.d2{transition-delay:.12s}
-.js .rise.d3{transition-delay:.18s} .js .rise.d4{transition-delay:.24s}
+   Nothing is hidden by this stylesheet. Elements start visible and GSAP takes
+   them from an offset — so a page whose script never runs, or whose animation
+   library never loads, is a page that simply does not animate. That is the
+   whole reason the start state is not in the CSS. */
+.key,.card,.transport button,.zoom button,.dial button,.ghost{
+  transition:border-color .14s ease,color .14s ease,background .14s ease}
+.card{transition:border-color .2s ease,box-shadow .2s ease}
+.card:hover{border-color:var(--ash);
+  box-shadow:0 6px 22px -12px rgba(0,0,0,.55)}
 
-/* the instrument settles into place rather than appearing */
-.js .rig{opacity:0;transform:translateY(20px) scale(.995);
-  transition:opacity .7s cubic-bezier(.22,.7,.28,1),
-             transform .7s cubic-bezier(.22,.7,.28,1)}
-.js .rig.in{opacity:1;transform:none}
-
-/* hover is a hint that a thing can be pressed, not a light show */
-.key,.card,.transport button,.zoom button,.dial button{
-  transition:transform .12s ease,border-color .12s,color .12s,background .12s}
-.key:hover,.transport button:hover,.dial button:hover{transform:translateY(-1px)}
-.key:active,.transport button:active,.dial button:active{transform:translateY(0)}
-.card{transition:border-color .18s,transform .18s}
-.card:hover{border-color:var(--ash);transform:translateY(-2px)}
-.bit{transition:background .12s,border-color .12s,color .12s,transform .1s}
-.bit:active{transform:scale(.94)}
+/* the reading rail at the very top of the page */
+.scrollrail{position:fixed;left:0;top:0;height:2px;width:100%;z-index:60;
+  transform-origin:0 50%;transform:scaleX(0);background:var(--redstone);
+  pointer-events:none;opacity:.85}
 
 @media (prefers-reduced-motion:reduce){
   *{transition:none!important;animation:none!important}
-  .js .rise,.js .rig{opacity:1;transform:none}
+  .scrollrail{display:none}
 }
 </style>
 
@@ -512,9 +549,19 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
       <!-- The settle takes two minutes of game time. Inside the view, where
            the eye already is, a rail says how far through it is and how much
            is still to come. -->
-      <div class="rail" id="rail" hidden>
-        <i id="railbar"></i>
-        <span id="railtxt">settling</span>
+      <div class="rail" id="rail" hidden aria-hidden="true">
+        <div class="rail-head">
+          <span class="rail-dot"></span>
+          <span class="rail-title">settling</span>
+          <span class="rail-pct" id="railPct">0%</span>
+        </div>
+        <div class="rail-track" id="railTrack">
+          <div class="rail-fill" id="railFill"><i class="rail-sheen"></i></div>
+        </div>
+        <div class="rail-foot">
+          <span id="railTick">tick 0</span>
+          <span id="railLeft">0 pending</span>
+        </div>
       </div>
       <div class="hint"><span class="wide">drag to orbit &middot; ⌘/ctrl + scroll
         to zoom &middot; click a block to read it, twice to fly in</span><span
@@ -531,14 +578,6 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
             <span class="num" id="value">——</span>
             <span class="state" id="valstate">idle</span>
           </div>
-        </div>
-        <!-- A settle is 2,352 game ticks. Watching a number not change for two
-             minutes is indistinguishable from a page that has crashed, so the
-             machine says how far through it is: the bar is the queue draining,
-             which is the honest measure of "still thinking". -->
-        <div class="prog" id="prog" hidden>
-          <i id="progbar"></i>
-          <span id="progtxt">settling</span>
         </div>
         <div class="flagrow" id="flagrow"></div>
       </div>
@@ -590,6 +629,18 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
     the events; the dust between them is the consequence. At <b>1×</b> the wait
     is the real one: a little over two minutes from the lever to the lamps.</p>
 </div>
+
+<!-- On a phone the controls sit a screen below the readout, so pressing an
+     operation sends the answer off the top of the display. This follows it
+     down: the value, what the machine is doing, and how far through it is —
+     and it takes you back to the view when tapped. It only exists on small
+     screens, and only once the instrument has scrolled away. -->
+<button type="button" class="peek" id="peek" hidden aria-label="back to the machine">
+  <span class="peek-val" id="peekVal">——</span>
+  <span class="peek-state" id="peekState">idle</span>
+  <span class="peek-bar"><i id="peekFill"></i></span>
+  <span class="peek-up" aria-hidden="true">↑</span>
+</button>
 
 <main class="wrap">
 
@@ -1022,6 +1073,12 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
   blocks. Mk I remains verified: the 4-bit ALU is correct on all 2,048 vectors.
 </div></footer>
 
+<!-- GSAP and ScrollTrigger, inlined by tools/build_pages.py from vendor/gsap.
+     Not a CDN tag: this page is published as an artifact, and the artifact
+     runtime blocks every external host — a blocked script does not fail loudly,
+     it just arrives with no animation and no error anyone will see. -->
+<script>__GSAP__</script>
+
 <script>
 const BUNDLE = __CIRCUIT_DATA__;
 __ENGINE__
@@ -1036,7 +1093,7 @@ const deriv=gl.getExtension("OES_standard_derivatives");
 /* ---- textures, at Minecraft's resolution, drawn rather than loaded ----
 
    Every block face is a **16 x 16 texture**, sampled with nearest-neighbour so
-   a texel is a texel. There is still no asset anywhere on this page: the atlas
+   a texel is a texel. There is no image anywhere on this page: the atlas
    is drawn into a Uint8Array at load, which is a few hundred lines of pixel art
    in code and about a millisecond.
 
@@ -2425,8 +2482,55 @@ function readValue(){
   return seen?total:null;
 }
 
+/* ---- the settle meter ----
+   How far through a settle the machine is. There is no total to divide by — a
+   queue is not a countdown — so it measures against the deepest the queue got
+   this run, which is monotone enough to read as progress and never claims to be
+   more than an estimate. It only ever goes forward: a queue that refills would
+   otherwise walk the bar backwards, which reads as a fault rather than as work.
+
+   Width is tweened rather than transitioned. The queue drains in jumps, and a
+   linear CSS transition turns those into a stutter; an eased tween reads as one
+   thing making progress. The sheen only sweeps while there is a backlog, so a
+   meter that is moving looks different from one that has stalled. */
+let peakQ=0,meterShown=false,meterPct=0,sheenTween=null;
+function setMeter(q){
+  const busy=q>0||held.size>0;
+  if(q>peakQ)peakQ=q;
+  if(busy!==meterShown){
+    meterShown=busy;
+    $("rail").hidden=!busy;
+    if(typeof gsap!=="undefined"&&!REDUCE){
+      if(busy){
+        gsap.fromTo("#rail",{y:14,opacity:0},
+          {y:0,opacity:1,duration:.4,ease:"power3.out"});
+        sheenTween=gsap.fromTo(".rail-sheen",{xPercent:-140},
+          {xPercent:1400,duration:1.5,ease:"none",repeat:-1});
+      }else{
+        if(sheenTween)sheenTween.kill(),sheenTween=null;
+      }
+    }
+  }
+  if(!busy){
+    peakQ=0;meterPct=0;
+    syncPeek($("value").textContent,
+             readyIdx>=0&&world.power[readyIdx]>0?"answer":"idle",0);
+    return;
+  }
+  const pct=peakQ?Math.max(0,Math.min(1,1-q/peakQ)):0;
+  meterPct=Math.max(meterPct,pct);           // forward only
+  const w=(meterPct*100).toFixed(1)+"%";
+  if(typeof gsap!=="undefined"&&!REDUCE){
+    gsap.to("#railFill",{width:w,duration:.45,ease:"power2.out",overwrite:true});
+  }else $("railFill").style.width=w;
+  $("railPct").textContent=Math.round(meterPct*100)+"%";
+  $("railTick").textContent="tick "+eng.now.toLocaleString();
+  $("railLeft").textContent=q.toLocaleString()+" pending";
+  syncPeek($("value").textContent,`${Math.round(meterPct*100)}% · settling`,
+           meterPct);
+}
+
 /* ---- controls ---- */
-let peakQ=0;
 function bitsOf(pad){
   let v=0;
   for(let i=0;i<circ.width;i++)
@@ -2436,7 +2540,11 @@ function bitsOf(pad){
 function refreshPanel(){
   const v=readValue();
   const ready=readyIdx>=0&&world.power[readyIdx]>0;
-  $("value").textContent=v===null?"——":v;
+  const shown=v===null?"——":String(v);
+  if($("value").textContent!==shown){
+    $("value").textContent=shown;
+    if(v!==null)flashValue($("value"));
+  }
   $("valstate").textContent=
     !ready?"no operation":(v===null?"settling":"stable");
 
@@ -2479,106 +2587,191 @@ function refreshPanel(){
   // estimate. It disappears the moment the machine is quiet.
   const q=eng.queue.length;
   if(q>peakQ)peakQ=q;
-  const busy=q>0||held.size>0;
-  $("prog").hidden=!busy;
-  $("rail").hidden=!busy;
-  if(busy){
-    const done=peakQ?Math.max(0,Math.min(1,1-q/peakQ)):0;
-    const pct=(done*100).toFixed(0)+"%";
-    $("progbar").style.setProperty("--p",pct);
-    $("railbar").style.setProperty("--p",pct);
-    $("progtxt").textContent=`settling · ${q.toLocaleString()} pending`;
-    $("railtxt").textContent=`tick ${eng.now.toLocaleString()} · `
-      +`${q.toLocaleString()} pending`;
-  }else peakQ=0;
+  setMeter(q);
   $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
   $("tBurn").classList.toggle("bad",eng.burned.size>0);
 }
 
-/* ---- arrival ----
-   The page is a document with an instrument in it, and both should turn up the
-   way you read them: the masthead in order, the instrument settling into place,
-   each section rising as you reach it. The class goes on the root *from
-   script*, so nothing is hidden unless something is here to reveal it — a
-   stylesheet that hides content and waits for JavaScript is a stylesheet that
-   can lose it.
+/* ---- motion ----------------------------------------------------------------
 
-   `prefers-reduced-motion` is honoured twice over: the CSS neutralises the
-   transitions, and the observer is skipped so nothing waits on a scroll. */
-const REVEAL_SEL=".masthead-line, main section > *, .rig-note";
-function armReveals(){
-  if(REDUCE||!("IntersectionObserver" in window))return;
-  document.documentElement.classList.add("js");
-  const rig=$("view").closest(".rig");
-  const items=[...document.querySelectorAll(REVEAL_SEL)];
-  for(const el of items)el.classList.add("rise");
-  // the cards inside a section rise in sequence rather than as a slab
-  document.querySelectorAll(".cards").forEach(g=>{
-    [...g.children].forEach((c,i)=>{
-      c.classList.add("rise","d"+Math.min(4,i+1));
-      items.push(c);
-    });
-  });
-  let fired=false;
-  const pending=new Set(items);
-  const show=el=>{el.classList.add("in");io.unobserve(el);pending.delete(el);};
-  const io=new IntersectionObserver(es=>{
-    for(const e of es)if(e.isIntersecting){fired=true;show(e.target);}
-  },{rootMargin:"0px 0px -8% 0px",threshold:0.02});
-  for(const el of items)io.observe(el);
-  /* Anything scrolled *past* counts as arrived, and an observer will not tell
-     you that. IntersectionObserver reports threshold crossings, and an element
-     that goes from below the viewport to above it in one jump — an anchor, a
-     find-in-page, a flick to the end of a long article — never crosses
-     anything: it is not intersecting before and not intersecting after, so no
-     entry is delivered and it sits at opacity 0 for ever. Measured: jumping to
-     the bottom of this page left 24 of 35 hidden. One rAF-throttled sweep of
-     what is left, on scroll, and the list empties as it goes. */
-  const sweep=()=>{
-    for(const el of [...pending])
-      if(el.getBoundingClientRect().top<0)show(el);
-  };
-  let queued=0;
-  addEventListener("scroll",()=>{
-    if(queued||!pending.size)return;
-    queued=requestAnimationFrame(()=>{queued=0;sweep();});
-  },{passive:true});
-  if(rig){
-    // the instrument is above the fold: give it a beat rather than a trigger
-    requestAnimationFrame(()=>requestAnimationFrame(()=>rig.classList.add("in")));
+   GSAP, inlined above, with ScrollTrigger. Choreographed rather than sprinkled:
+   one arrival for the page, one for each section as it is reached, and a small
+   set of responses to things the reader does. Everything is registered through
+   `gsap.matchMedia`, so `prefers-reduced-motion` is not a patch over the top —
+   the reduced branch simply never builds the timelines.
+
+   Nothing is hidden by CSS. Every reveal is a `from` tween, which means the
+   resting state in the document *is* the final state: if this script never
+   runs, or GSAP is stripped, the page is complete and static rather than
+   blank. That is the failure mode worth designing for.
+
+   ScrollTrigger also fixes something the hand-rolled observer could not.
+   IntersectionObserver reports threshold *crossings*, so an element that goes
+   from below the viewport to above it in one jump — an anchor, a find, a flick
+   to the end — never reported at all and stayed invisible. ScrollTrigger
+   computes from scroll position, so "passed" and "reached" are the same
+   question and both are answered. */
+let MM=null,scrollRail=null;
+
+/* Split a heading into words wrapped in masks, so each can rise out of its own
+   line rather than the block fading as one. Words, not characters: this is a
+   sentence to read, and letters flying in individually is a different, worse
+   page. */
+function maskWords(el){
+  const words=el.textContent.split(/(\s+)/);
+  const frag=document.createDocumentFragment();
+  const inner=[];
+  for(const w of words){
+    if(!w.trim()){frag.appendChild(document.createTextNode(w));continue;}
+    const mask=document.createElement("span");
+    mask.style.cssText="display:inline-block;overflow:hidden;vertical-align:top";
+    const span=document.createElement("span");
+    span.style.cssText="display:inline-block;will-change:transform";
+    span.textContent=w;
+    mask.appendChild(span);frag.appendChild(mask);inner.push(span);
   }
-  /* A safety net, and deliberately not a plain timer. Content hidden by script
-     must never stay hidden — but this page takes seconds to boot on a phone, so
-     a timeout that reveals everything unconditionally fires long before anyone
-     has scrolled and throws the whole thing away. The condition is whether the
-     observer works *at all*: the elements at the top of the page intersect the
-     moment it is armed, so on any working browser this has already proved
-     itself well before the check runs. */
-  setTimeout(()=>{if(!fired)for(const el of items)el.classList.add("in");},2500);
+  // keep the accent word's colour: it is an <em> in the source
+  const em=el.querySelector("em");
+  const emText=em?em.textContent:null;
+  el.textContent="";el.appendChild(frag);
+  if(emText)for(const sp of inner)
+    if(sp.textContent===emText)sp.style.color="var(--redstone)";
+  return inner;
 }
 
-/* Numbers that were measured are worth watching land. Counted from the digits
-   already in the markup, so the figure a reader ends on is the figure the
-   document says, character for character — including its comma. */
-function countUp(el,ms=900){
-  const target=el.textContent.trim();
-  const n=+target.replace(/,/g,"");
-  if(!isFinite(n)||n<=0)return;
-  const grouped=target.includes(",");
-  const t0=performance.now();
-  const tick=()=>{
-    const k=Math.min(1,(performance.now()-t0)/ms);
-    const e=1-Math.pow(1-k,3);
-    const v=Math.round(n*e);
-    el.textContent=grouped?v.toLocaleString("en-US"):String(v);
-    if(k<1)requestAnimationFrame(tick);else el.textContent=target;
-  };
-  el.textContent=grouped?"0":"0";
-  requestAnimationFrame(tick);
+/* Count a measured figure up to the number already in the markup, so what a
+   reader ends on is what the document says, comma and all. */
+function countTo(el,ms){
+  const target=el.textContent.trim(),n=+target.replace(/,/g,"");
+  if(!isFinite(n)||n<=0)return null;
+  const grouped=target.includes(","),o={v:0};
+  return gsap.to(o,{v:n,duration:ms,ease:"power2.out",
+    onUpdate(){const v=Math.round(o.v);
+      el.textContent=grouped?v.toLocaleString("en-US"):String(v);},
+    onComplete(){el.textContent=target;}});
 }
-function countFacts(){
-  if(REDUCE)return;
-  document.querySelectorAll(".facts b").forEach(b=>countUp(b));
+
+function buildMotion(){
+  if(typeof gsap==="undefined")return;
+  gsap.registerPlugin(ScrollTrigger);
+  // the canvas is WebGL and sizes itself; ScrollTrigger must not touch it
+  ScrollTrigger.config({ignoreMobileResize:true});
+  MM=gsap.matchMedia();
+
+  MM.add({motion:"(prefers-reduced-motion: no-preference)",
+          still:"(prefers-reduced-motion: reduce)"},ctx=>{
+    if(ctx.conditions.still){
+      // the resting document is already the finished page; just fill the meter
+      // instantly when it is asked to move
+      return;
+    }
+    const q=gsap.utils.selector(document);
+
+    /* --- the reading rail, top of the page --- */
+    scrollRail=document.createElement("div");
+    scrollRail.className="scrollrail";
+    document.body.appendChild(scrollRail);
+    gsap.to(scrollRail,{scaleX:1,ease:"none",
+      scrollTrigger:{trigger:document.body,start:"top top",
+                     end:"bottom bottom",scrub:0.25}});
+
+    /* --- arrival: the masthead reads itself out, then the instrument lands --- */
+    const h1=document.querySelector("h1");
+    const words=h1?maskWords(h1):[];
+    const tl=gsap.timeline({defaults:{ease:"power3.out"}});
+    tl.from(".eyebrow",{y:10,opacity:0,duration:.5})
+      .from(words,{yPercent:115,duration:.75,stagger:.045},"-=.28")
+      .from(".lede",{y:14,opacity:0,duration:.6},"-=.42")
+      .from(".facts div",{y:12,opacity:0,duration:.5,stagger:.06},"-=.38")
+      .from(".rig",{y:26,opacity:0,scale:.99,duration:.8,
+                    transformOrigin:"50% 0%"},"-=.44")
+      .from(".overlay.tl .ghost",{y:-8,opacity:0,duration:.4,stagger:.05},"-=.5")
+      .from(".zoom button",{opacity:0,duration:.35,stagger:.05},"<")
+      .add(()=>{for(const b of document.querySelectorAll(".facts b"))
+                  countTo(b,1.1);},"-=.9");
+
+    /* --- the masthead drifts as you leave it --- */
+    gsap.to(".top .wrap",{y:-40,opacity:.35,ease:"none",
+      scrollTrigger:{trigger:"header.top",start:"top top",
+                     end:"bottom top",scrub:.4}});
+
+    /* --- each section arrives as it is reached --- */
+    for(const sec of document.querySelectorAll("main section")){
+      const bits=sec.querySelectorAll(":scope > *");
+      gsap.from(bits,{y:22,opacity:0,duration:.65,stagger:.08,
+        scrollTrigger:{trigger:sec,start:"top 86%",once:true}});
+      const cards=sec.querySelectorAll(".cards > *");
+      if(cards.length)
+        gsap.from(cards,{y:26,opacity:0,scale:.985,duration:.55,stagger:.07,
+          scrollTrigger:{trigger:sec.querySelector(".cards"),
+                         start:"top 88%",once:true}});
+      const rows=sec.querySelectorAll("table tr");
+      if(rows.length)
+        gsap.from(rows,{opacity:0,x:-10,duration:.4,stagger:.03,
+          scrollTrigger:{trigger:sec.querySelector("table"),
+                         start:"top 90%",once:true}});
+    }
+    /* --- the peek bar follows the answer down a phone --- */
+    const peek=$("peek");
+    if(peek&&matchMedia("(max-width:820px)").matches){
+      // the *answer*, not the rig: the controls are inside the rig, so a reader
+      // working the keypad has scrolled past the readout while still being
+      // inside the instrument
+      ScrollTrigger.create({trigger:".answer",start:"bottom top",
+        onEnter:()=>showPeek(true),onLeaveBack:()=>showPeek(false)});
+    }
+
+    gsap.from(".rig-note",{y:14,opacity:0,duration:.5,
+      scrollTrigger:{trigger:".rig-note",start:"top 92%",once:true}});
+    gsap.from("footer .wrap",{y:16,opacity:0,duration:.5,
+      scrollTrigger:{trigger:"footer",start:"top 95%",once:true}});
+
+    return()=>{ if(scrollRail)scrollRail.remove(); scrollRail=null; };
+  });
+
+  // the page grew while the instrument was building
+  requestAnimationFrame(()=>ScrollTrigger.refresh());
+}
+
+/* The peek bar is only ever shown by a ScrollTrigger on a small screen, and
+   only once the instrument itself has gone past. Tapping it brings the machine
+   back rather than making the reader hunt for it. */
+let peekOn=false;
+function showPeek(v){
+  const el=$("peek");
+  if(!el||v===peekOn)return;
+  peekOn=v;
+  if(typeof gsap==="undefined"||REDUCE){el.hidden=!v;return;}
+  if(v){
+    el.hidden=false;
+    gsap.fromTo(el,{y:26,opacity:0},
+      {y:0,opacity:1,duration:.42,ease:"power3.out"});
+  }else{
+    gsap.to(el,{y:26,opacity:0,duration:.26,ease:"power2.in",
+      onComplete:()=>{el.hidden=true;}});
+  }
+}
+function syncPeek(value,state,pct){
+  if(!peekOn)return;
+  $("peekVal").textContent=value;
+  $("peekState").textContent=state;
+  const w=(pct*100).toFixed(1)+"%";
+  if(typeof gsap!=="undefined"&&!REDUCE)
+    gsap.to("#peekFill",{width:w,duration:.4,ease:"power2.out",overwrite:true});
+  else $("peekFill").style.width=w;
+}
+
+/* --- responses: small, and only where something actually happened --- */
+const REDUCED=()=>REDUCE;
+function pop(el,s=1.06){
+  if(!el||REDUCED()||typeof gsap==="undefined")return;
+  gsap.fromTo(el,{scale:s},{scale:1,duration:.28,ease:"back.out(3)",
+                            clearProps:"scale"});
+}
+function flashValue(el){
+  if(!el||REDUCED()||typeof gsap==="undefined")return;
+  gsap.fromTo(el,{scale:1.14,color:"#fff"},
+    {scale:1,color:"",duration:.5,ease:"power3.out",clearProps:"scale,color"});
 }
 
 /* ---- the tick loop: this is the whole point ---- */
@@ -2649,6 +2842,7 @@ function pressButton(k){
   held.clear();
   eng.setLever(buttonIdx[k],true);
   held.set(buttonIdx[k],eng.now+(circ.hold||40));
+  pop($("op"+k),1.1);
   setPlaying(true);refreshPanel();
 }
 /* Let go of every key whose hold has expired. */
@@ -2660,6 +2854,7 @@ function releaseDue(){
 function toggleBit(pad,i){
   const p=switchIdx[pad+i];
   eng.setLever(p,!world.lit[p]);
+  pop($("b"+pad+i),1.18);
   setPlaying(true);refreshPanel();
 }
 /* Type a number, get the levers that spell it.
@@ -2900,6 +3095,7 @@ cv.addEventListener("pointercancel",e=>{ptr.delete(e.pointerId);
    guess. */
 let zoomBy=f=>{fly=null;spinAz=spinEl=0;
   cam.dist=Math.max(MIN_DIST,Math.min(MAX_DIST,cam.dist*f));invalidate();};
+const zoomPress=(el,f)=>{pop(el,1.14);zoomBy(f);};
 let nudgeSeen=false,nudgeT=0;
 function sayZoom(){
   if(nudgeSeen)return;
@@ -2915,8 +3111,12 @@ cv.addEventListener("wheel",e=>{
   e.preventDefault();
   zoomBy(1+Math.sign(e.deltaY)*0.12);
 },{passive:false});
-$("zIn").onclick=()=>zoomBy(0.8);
-$("zOut").onclick=()=>zoomBy(1.25);
+$("peek").onclick=()=>{
+  document.querySelector(".rig").scrollIntoView({behavior:REDUCE?"auto":"smooth",
+                                                block:"start"});
+};
+$("zIn").onclick=e=>zoomPress(e.currentTarget,0.8);
+$("zOut").onclick=e=>zoomPress(e.currentTarget,1.25);
 
 /* Turning a phone sideways changes the aspect ratio by a factor of five, and
    the fit distance was computed for the old one — so the machine came back
@@ -2955,8 +3155,7 @@ addEventListener("resize",()=>{
   status.textContent="";
   $("boot").hidden=true;
   loop();
-  armReveals();
-  countFacts();
+  buildMotion();
   window.__ready=true;
 })();
 </script>

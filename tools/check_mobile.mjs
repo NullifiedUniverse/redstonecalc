@@ -283,6 +283,35 @@ for (const [w, h] of [[390, 12000], [844, 9000], [1200, 20000]]) {
 }
 console.log("the view stays bounded in a viewport 20,000px tall");
 
+// --- the answer follows you down the page -----------------------------------
+// On a phone the controls sit a screen below the readout, so pressing an
+// operation sends the answer off the top of the display and the reader is left
+// working a keypad with no idea what the machine is doing. The peek bar only
+// appears once the readout has actually gone, and it takes you back.
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(400);
+const peek = await page.evaluate(async () => {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  scrollTo({ top: 0, behavior: "instant" }); await wait(500);
+  const atTop = document.querySelector("#peek").hidden;
+  document.querySelector(".transport").scrollIntoView({ block: "center" });
+  await wait(900);
+  const el = document.querySelector("#peek");
+  const shown = !el.hidden;
+  const answerGone = document.querySelector(".answer").getBoundingClientRect().bottom < 0;
+  const r = el.getBoundingClientRect();
+  el.click(); await wait(1200);
+  const back = Math.abs(document.querySelector(".rig").getBoundingClientRect().top) < 90;
+  return { atTop, shown, answerGone, back, h: Math.round(r.height) };
+});
+want(peek.atTop, "the peek bar is showing while the readout is still on screen");
+want(peek.answerGone && peek.shown,
+     "the readout scrolled away and nothing followed it down");
+want(peek.h >= 44, `the peek bar is only ${peek.h}px tall`);
+want(peek.back, "tapping the peek bar did not bring the machine back");
+console.log(`peek bar: hidden at the top, ${peek.h}px once the readout goes, ` +
+            `and it scrolls back to the machine`);
+
 // --- layout -----------------------------------------------------------------
 await page.setViewportSize({ width: 390, height: 844 });
 await page.waitForTimeout(400);
@@ -295,7 +324,11 @@ const layout = await page.evaluate(() => {
   for (const el of document.querySelectorAll("button,select,input[type=range]")) {
     const r = el.getBoundingClientRect();
     if (!r.width) continue;
-    if (r.width < 28 || r.height < 28)
+    // Depth of target, not area: ten bit switches cannot each be 44 wide on a
+    // 390px phone, but they can all be 40 tall, and for a row you sweep along
+    // the height is what your thumb is aiming at. 40 is the floor for the
+    // dimension that has room, 28 for the one that does not.
+    if (Math.max(r.width, r.height) < 40 || Math.min(r.width, r.height) < 28)
       small.push(`${el.id || el.className}=${Math.round(r.width)}×${Math.round(r.height)}`);
     if (el.closest(".rig") && (r.right > rig.right + 0.5 || r.left < rig.left - 0.5))
       clipped.push(`${el.id || el.className}`);
@@ -305,11 +338,12 @@ const layout = await page.evaluate(() => {
 });
 want(layout.overflow <= 0, `portrait overflows by ${layout.overflow}px`);
 want(!layout.tooSmall.length,
-     `tap targets under 28px: ${layout.tooSmall.slice(0, 6).join(", ")}`);
+     `tap targets too small: ${layout.tooSmall.slice(0, 6).join(", ")}`);
 want(!layout.clipped.length,
      `clipped by the rig: ${layout.clipped.slice(0, 6).join(", ")}`);
 if (layout.overflow <= 0 && !layout.tooSmall.length && !layout.clipped.length)
-  console.log("layout: nothing overflows, nothing clipped, every control ≥28px");
+  console.log("layout: nothing overflows, nothing clipped, every control at " +
+            "least 40px in the dimension that has room");
 
 // --- one more sanity pass: 375px, the narrowest phone still in use ----------
 await page.setViewportSize({ width: 375, height: 667 });

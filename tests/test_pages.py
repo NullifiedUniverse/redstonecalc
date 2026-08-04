@@ -44,6 +44,37 @@ def test_built_pages_match_their_sources():
           f"and bundles: OK")
 
 
+def test_nothing_the_page_needs_is_fetched_from_anywhere():
+    """One file, no requests. The artifact runtime enforces it; this explains it.
+
+    The published page is served under a policy that blocks every external host,
+    and a blocked `<script src>` does not fail loudly — the page arrives without
+    whatever it was, and without an error anyone will see. So the animation
+    library is inlined from `vendor/`, and the page may not contain a reference
+    to a CDN even as a fallback, because a fallback that cannot load is just a
+    slower way to be wrong.
+    """
+    import re
+    from tools.build_pages import render
+    page = render()["docs/preview.html"]
+    # what fetches, not what is merely mentioned: a vendored library's own
+    # banner comment names its home page, and that costs nobody a request
+    fetches = [
+        (r"""<(?:script|img|link|iframe|source|video|audio)\b[^>]*?"""
+         r"""\b(?:src|href)\s*=\s*["']?(?:https?:)?//""", "a tag pointing off-site"),
+        (r"@import\s+(?:url\()?['\"]?(?:https?:)?//", "a CSS @import"),
+        (r"url\(\s*['\"]?(?:https?:)?//", "a CSS url()"),
+        (r"\bfetch\s*\(\s*['\"`](?:https?:)?//", "a fetch()"),
+        (r"\bnew\s+(?:Image|Audio)\b[\s\S]{0,80}?\.src\s*=\s*['\"`](?:https?:)?//",
+         "an image or audio load"),
+    ]
+    bad = [why for pat, why in fetches if re.search(pat, page, re.I)]
+    assert not bad, f"the page reaches outside itself: {bad}"
+    assert "GSAP 3." in page, "the animation library is not in the built page"
+    assert "ScrollTrigger" in page, "ScrollTrigger is not in the built page"
+    print(f"  the built page is {len(page)//1024} KB and fetches nothing: OK")
+
+
 def test_the_preview_has_no_engine_of_its_own():
     """One copy of the redstone rules, not two.
 
