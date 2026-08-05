@@ -1,5 +1,19 @@
-"""Build and verify the Mk II preview modules, then export them for the demo."""
+"""Build and verify the Mk II preview modules, then export them for the demo.
 
+    python3 tools/build_preview.py                 # the Mk III machine
+    python3 tools/build_preview.py --delay 3       # a setting §13 says is unsafe
+    python3 tools/build_preview.py modules         # the smaller Mk II circuits
+
+This writes `out/preview.json`, which `tools/build_pages.py` embeds in
+`docs/preview.html` — so whatever delay it is given is the delay the *published
+page* runs at. It used to read `sys.argv` by hand and default that to **3**, at
+which §13 measured the machine as 5 vectors in 16 correct with three torches
+burned. The README's example passed `4` explicitly, so what shipped was right;
+anyone running the tool the obvious way would have replaced it with a machine
+that gets the answers wrong.
+"""
+
+import argparse
 import sys, os
 from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -53,9 +67,26 @@ def main():
     The Mk III machine is the page; the smaller circuits are only built when
     asked for, because each one costs a compile and the page never loads them.
     """
-    only = sys.argv[1] if len(sys.argv) > 1 else "machine"
+    from rscalc.machine import DEFAULT_DELAY
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("what", nargs="?", default="machine",
+                    choices=["machine", "modules"],
+                    help="the Mk III machine (default) or the Mk II circuits")
+    ap.add_argument("--delay", type=int, default=DEFAULT_DELAY,
+                    help=f"repeater delay for the machine "
+                         f"(default {DEFAULT_DELAY}, the verified setting)")
+    args = ap.parse_args()
+    only, delay = args.what, args.delay
+
     if only == "machine":
-        delay = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+        if delay != DEFAULT_DELAY:
+            # this bundle becomes the published page, so an unverified setting
+            # says so on the way past rather than in a bug report
+            print(f"WARNING: delay {delay} is not the verified {DEFAULT_DELAY}."
+                  f" DESIGN §13 has the table; below 4 the machine burns "
+                  f"torches and gets answers wrong.", file=sys.stderr)
         print(f"building the Mk III machine at repeater delay {delay} "
               f"(the first run computes its resting state, which is slow)...")
         cc = export_machine(delay)
@@ -136,8 +167,17 @@ def main():
 
 
 
-def export_machine(delay=3):
-    """The whole Mk III machine, with its settled state, for the live page."""
+def export_machine(delay=None):
+    """The whole Mk III machine, with its settled state, for the live page.
+
+    `delay` defaults to what the machine ships at. It used to default to 3,
+    which is not a shipping setting — it is the row in §13's table that burns
+    torches — and a bundle built at it would have put a machine that computes
+    wrong answers on the published page.
+    """
+    from rscalc.machine import DEFAULT_DELAY
+    if delay is None:
+        delay = DEFAULT_DELAY
     from rscalc.engine import Engine
     from rscalc.machine import build_machine, FLAGS
     from rscalc.alu import OPS

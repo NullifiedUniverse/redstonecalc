@@ -30,6 +30,7 @@ FAST = [
     ("test_steady.py", "the steady-state cache every measurement rests on"),
     ("test_mcbuild.py", "Minecraft build output"),
     ("test_export.py", "the blob the page loads, decoded as the page decodes it"),
+    ("test_tools.py", "the tools' arguments, defaults and --help"),
     ("test_docs.py", "the prose against the machine it describes"),
     ("test_pages.py", "the shipped pages against their templates"),
 ]

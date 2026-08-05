@@ -15,6 +15,7 @@ sit below the `__main__` guard, which meant the code behind a documented
 measurement could not be run at all without editing the file.
 """
 
+import argparse
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -284,4 +285,14 @@ def compare_bcd():
 
 
 if __name__ == "__main__":
-    compare_bcd() if "--carry" in sys.argv[1:] else main()
+    # argparse rather than scanning argv: `"--carry" in sys.argv` gave this
+    # tool no `--help` at all, so the second measurement above — the one
+    # PLAN.md's lookahead table comes from — was documented only in a docstring
+    # nobody running the file would see.
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--carry", action="store_true",
+                    help="ripple vs cross-digit lookahead, instead of the "
+                         "decoder and adder")
+    compare_bcd() if ap.parse_args().carry else main()
