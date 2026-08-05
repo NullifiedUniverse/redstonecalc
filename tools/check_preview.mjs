@@ -304,11 +304,17 @@ console.log(`announced: "${said.during}" — ${said.saidWhileSettling} write ` +
 // has two or three reachable values. Measured over a real 3,670-tick settle it
 // showed exactly two — 0% and 50%. A bar with two positions is not a bar.
 const meter = await page.evaluate(() => {
+  // Start from rest, *then* change the operands and press — in that order.
+  // Settling in between is what a probe does, not what a person does, and it
+  // pre-computes the answer: pressing an already-latched operation on operands
+  // the machine has already absorbed drains in a handful of ticks, and there is
+  // no settle left to measure. That is how this check first failed, on a meter
+  // that was working.
+  settleNow();
   for (let i = 0; i < circ.width; i++) {
     if (!!world.lit[switchIdx["A" + i]] !== !!((999 >> i) & 1)) toggleBit("A", i);
     if (!!world.lit[switchIdx["B" + i]] !== !!((24 >> i) & 1)) toggleBit("B", i);
   }
-  settleNow();
   pressButton("0");
   const seen = [];
   for (let n = 0; n < 6000 && eng.queue.length; n++) {
@@ -324,6 +330,10 @@ const meter = await page.evaluate(() => {
 if (!meter.target)
   throw new Error("the bundle carries no settle length, so the meter has " +
                   "nothing to measure against");
+if (meter.samples < 8)
+  throw new Error(`only ${meter.samples} samples — the settle was too short ` +
+                  `to say anything about the meter, so this check proved ` +
+                  `nothing rather than finding a fault`);
 if (meter.readings < 8)
   throw new Error(`the meter showed only ${meter.readings} distinct values ` +
                   `over ${meter.samples} samples of one settle`);
