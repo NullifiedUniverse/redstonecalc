@@ -17,7 +17,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rscalc.engine import Engine
-from rscalc.machine import build_machine, FLAGS
+from rscalc.machine import build_machine, DEFAULT_DELAY, FLAGS
 from rscalc.alu import OPS
 from rscalc.steady import settled_engine
 
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     ops = (list(range(len(OPS))) if args.ops == "all"
            else [OPS.index(o) for o in args.ops.split(",")])
     allok = True
-    for d in (args.delay or [4]):
+    for d in (args.delay or [DEFAULT_DELAY]):
         allok &= run(d, args.vectors, args.seed, args.one_at_a_time, ops,
                      not args.quiet, use_cache=not args.no_cache,
                      verify_state=args.verify_state)

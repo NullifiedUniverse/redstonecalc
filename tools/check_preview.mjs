@@ -175,6 +175,128 @@ if (!wheel.buttons)
 console.log(`wheel: plain scrolls the page, ⌘/ctrl zooms by ` +
             `${wheel.zoomed.toFixed(3)}, and the view says so once`);
 
+// --- the view, from the keyboard -------------------------------------------
+// Every other control on this page is a button or a field and has always been
+// reachable by tab. The machine was a picture: no way to turn it, zoom it or
+// reframe it without a pointing device. Arrows orbit, shift pans, +/− zoom,
+// 0 refits — and none of it may steal the arrow keys from the page once focus
+// has moved on, which is the way this kind of handler usually goes wrong.
+const keys = await page.evaluate(async () => {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const press = (k, shift) => cv.dispatchEvent(new KeyboardEvent("keydown",
+    { key: k, shiftKey: !!shift, bubbles: true, cancelable: true }));
+  document.querySelector("#view").scrollIntoView({ block: "center" });
+  await wait(200);
+  cv.focus();
+  const focused = document.activeElement === cv;
+  const ring = getComputedStyle(cv).boxShadow;
+
+  const az0 = cam.az, el0 = cam.el, y0 = scrollY;
+  press("ArrowRight"); const turned = cam.az - az0;
+  press("ArrowUp");    const tilted = cam.el - el0;
+  const scrolled = scrollY - y0;
+
+  const t0 = target.slice();
+  press("ArrowLeft", true);
+  const panned = target.some((v, i) => Math.abs(v - t0[i]) > 0.5);
+
+  const d0 = cam.dist;
+  press("+"); const inward = cam.dist < d0;
+  press("-"); press("-"); const outward = cam.dist > d0;
+
+  focus("disp", 0); await wait(60);
+  const near = cam.dist; cam.dist = near * 3;
+  press("0");
+  // the flight is on rAF and this container renders in software, so poll for
+  // the arrival rather than guessing a wait long enough to cover a bad frame
+  let refit = false;
+  for (let i = 0; i < 40 && !refit; i++) {
+    await wait(120);
+    refit = Math.abs(cam.dist - near) < near * 0.35;
+  }
+
+  // And once focus is elsewhere the arrows belong to the page again. Dispatched
+  // on the element that actually has focus and allowed to bubble, which is what
+  // a browser does — firing it at the canvas directly would test nothing except
+  // that the canvas has a listener, and would "fail" on a page that is right.
+  const elsewhere = document.querySelector("#bStep");
+  elsewhere.focus();
+  const az1 = cam.az, y1 = scrollY;
+  const passed = elsewhere.dispatchEvent(new KeyboardEvent("keydown",
+    { key: "ArrowDown", bubbles: true, cancelable: true }));
+  // read the camera before putting the view back: `focus` moves it, and
+  // comparing across that call is how this assertion failed on a page that was
+  // behaving perfectly well
+  const released = passed && scrollY === y1 && cam.az === az1;
+  focus("all", 0);
+  return { focused, ring, turned: +turned.toFixed(3), tilted: +tilted.toFixed(3),
+           scrolled, panned, inward, outward, refit,
+           releasedWhenBlurred: released };
+});
+if (!keys.focused) throw new Error("the canvas cannot be focused at all");
+if (keys.ring === "none")
+  throw new Error("a focused canvas shows no focus ring");
+if (!(keys.turned > 0 && keys.tilted > 0))
+  throw new Error(`arrows did not orbit (az ${keys.turned}, el ${keys.tilted})`);
+if (keys.scrolled !== 0)
+  throw new Error(`orbiting by keyboard scrolled the page ${keys.scrolled}px`);
+if (!keys.panned) throw new Error("shift + arrow did not pan");
+if (!(keys.inward && keys.outward))
+  throw new Error("+ and − did not zoom in and out");
+if (!keys.refit) throw new Error("0 did not refit the view it was last given");
+if (!keys.releasedWhenBlurred)
+  throw new Error("the canvas still eats arrow keys once focus has left it");
+console.log(`keyboard: tab to the view, arrows orbit (${keys.turned} rad) ` +
+            `without scrolling, shift pans, +/− zoom, 0 refits, and the ` +
+            `arrows go back to the page on blur`);
+
+// --- and it says out loud where it has got to ------------------------------
+// The readout is seven-segment lamps, which announce nothing, and the number
+// beside them is rewritten on every one of the ~2,300 ticks a settle takes,
+// which announces too much. The live region speaks from the transitions
+// instead: one sentence when a settle starts, one when the answer lands.
+const said = await page.evaluate(async () => {
+  const el = document.querySelector("#say");
+  const live = el && el.getAttribute("aria-live");
+  const hidden = el && getComputedStyle(el).display === "none";
+  for (let i = 0; i < circ.width; i++)
+    if (!!world.lit[switchIdx["A" + i]] !== !!((42 >> i) & 1)) toggleBit("A", i);
+  for (let i = 0; i < circ.width; i++)
+    if (!!world.lit[switchIdx["B" + i]] !== !!((7 >> i) & 1)) toggleBit("B", i);
+  settleNow();
+  // Count real mutations, not just equal strings: writing the same sentence
+  // again is still a change to a live region and a screen reader may read it.
+  // `takeRecords`, not the callback — this whole block is one task, and an
+  // observer's callback is a microtask that cannot run until the task ends, so
+  // reading a counter it increments gives 0 however many times it was written.
+  const obs = new MutationObserver(() => {});
+  obs.observe(el, { childList: true, characterData: true, subtree: true });
+  obs.takeRecords();
+  pressButton("0");
+  let ticks = 0;
+  for (; ticks < 60 && eng.queue.length; ticks++) { stepTick(); refreshPanel(); }
+  const during = el.textContent, saidWhileSettling = obs.takeRecords().length;
+  settleNow();
+  obs.disconnect();
+  return { live, hidden, during, ticks, saidWhileSettling,
+           after: el.textContent };
+});
+if (said.live !== "polite")
+  throw new Error(`the answer's live region is aria-live=${said.live}`);
+if (said.hidden)
+  throw new Error("the live region is display:none, so it is not in the " +
+                  "accessibility tree at all");
+if (said.during !== "settling")
+  throw new Error(`while settling the page announced ${said.during}`);
+if (said.saidWhileSettling !== 1)
+  throw new Error(`the live region was written ${said.saidWhileSettling} ` +
+                  `times over ${said.ticks} ticks of one settle — it should ` +
+                  `be exactly once, when the settle starts`);
+if (said.after !== "49, stable")
+  throw new Error(`after settling 42+7 the page announced ${said.after}`);
+console.log(`announced: "${said.during}" — ${said.saidWhileSettling} write ` +
+            `over ${said.ticks} ticks of settling — then "${said.after}"`);
+
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written
 // by script and the resting document is already the finished page. The failure

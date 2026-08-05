@@ -183,6 +183,42 @@ def test_and_gate():
     print("  AND gate (3 cells): OK")
 
 
+def test_a_long_collector_is_one_wired_or():
+    """`collector_len` is the feature everything else is built on, and it was
+    the one nothing exercised.
+
+    A NOR cell's collector is a wired-OR: extend it along Z and any number of
+    dust lines can merge into one gate, which is how every PLA gate in the
+    machine gathers its inputs. Every test above used the default length of
+    one, so no cell-local coordinate was ever anything but z=0 — and
+    `tools/mutate_core.py` proved what that costs by mirroring the Placer's
+    frame along Z and watching the whole suite stay green.
+
+    Two claims, then: the cells land where the frame says they do, offset and
+    all, and a torch really does NOR however many lines reach its base.
+    """
+    # the frame, at an origin that is not the origin
+    probe = World()
+    cols = nor_cell(Placer(probe, origin=(5, 1, 7)), collector_len=5)[0]
+    assert cols == [(5, 1, 7 + z) for z in (-2, -1, 0, 1, 2)], cols
+
+    # and the behaviour, driven from three points along that collector
+    w = World()
+    cols, out = nor_cell(Placer(w), collector_len=5)
+    # every other cell, so the three feed rails do not touch each other
+    levers = [drive(w, cols[i], "east") for i in (0, 2, 4)]
+    assert not w.lint(), w.lint()[:3]
+    e = Engine(w)
+    e.run_until_stable()
+    for combo in itertools.product([False, True], repeat=3):
+        for lev, v in zip(levers, combo):
+            e.set_lever(lev, v)
+        e.run_until_stable()
+        assert e.high(out) == (not any(combo)), f"NOR{combo} along a collector"
+    print("  a 5-cell collector places where the frame says and NORs all "
+          f"{2**3} ways: OK")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} cell tests\n")

@@ -274,6 +274,27 @@ would feed it anyway. Fixed in both the Python engine and the JavaScript port.
 The compiled machine happened not to depend on it — rails always put dust or a
 solid block behind a repeater — but that was luck, not design.
 
+## Would the tests notice?
+
+A green suite says the tests pass. It does not say they would go red if the code
+were wrong, and those are different claims — §22 shipped two documentation
+guards that could not fail at all until someone tried to defeat them.
+
+`python3 tools/mutate_core.py` asks the same question of every module. It breaks
+one thing at a time, semantically — a torch inverting a tick late, dust that
+never loses a level, a left shift that rotates, Minecraft's repeater convention
+left unflipped — runs the fast suite, and requires it to fail. Seventeen
+mutations across engine, netlist, logic, alu, pla, bcd, display, cells, steady
+and mcbuild; each one reverted in a `finally` whether the run passes, fails or
+is interrupted.
+
+The first run caught sixteen and left three findings behind: a rotation feature
+nothing in the repository had ever used (deleted rather than pinned), a
+steady-state cache with no test of its own (`tests/test_steady.py`, which then
+caught two mutations nothing else did), and an ALU whose only fast-suite cover
+was the *documentation* check noticing that a gate count had moved
+(`tests/test_alu_logic.py`). [§30](docs/DESIGN.md) has the table.
+
 **What is still open.** Both engines were written from the same reading of the
 same rules, so a shared misreading produces two engines that agree with each
 other and disagree with Minecraft, and every test here passes. Only the game can
@@ -358,8 +379,9 @@ place.** The remaining wins are architectural: §12's Z ratchet.
 ## Running it
 
 ```sh
-python3 tests/run_all.py           # 11 fast modules, 11 seconds
-python3 tests/run_all.py --slow    # all 15, about six minutes
+python3 tests/run_all.py           # 13 fast modules, 21 seconds
+python3 tests/run_all.py --slow    # all 17, about six minutes
+python3 tools/mutate_core.py       # break each module, require the suite to notice
 
 python3 tools/verify_logic.py                            # every operand pair, 31 s
 python3 tools/verify_full.py                             # 300 vectors, flags too

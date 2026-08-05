@@ -9,20 +9,39 @@ Three layers are compared for the same inputs:
 Whichever comparison first disagrees is where the fault is.
 """
 
-import sys, os
+import argparse
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rscalc.engine import Engine
-from rscalc.machine import build_machine, FLAGS
+from rscalc.machine import build_machine, FLAGS, DEFAULT_DELAY
 from rscalc.alu import OPS
 from rscalc.display import SEGS, lit_segments
 from rscalc.steady import settled_engine
 
-DELAY = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-
 
 def main():
-    m = build_machine(repeater_delay=DELAY)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    # It used to default to 2, which is the setting §13 measured as burning 140
+    # torches and getting one vector in sixteen right. Run bare, this tool
+    # therefore printed a wall of wrong answers and burned torches for a machine
+    # that is perfectly well — a diagnostic that manufactures the fault it is
+    # meant to locate. The default is what the machine ships at; the bad
+    # settings are still one flag away, and the header says which you asked for.
+    ap.add_argument("--delay", type=int, default=DEFAULT_DELAY,
+                    help=f"repeater delay (default {DEFAULT_DELAY}, "
+                         f"the setting the machine is verified at)")
+    args = ap.parse_args()
+
+    print(f"repeater delay {args.delay}"
+          + ("" if args.delay >= DEFAULT_DELAY else
+             f" — below the verified {DEFAULT_DELAY}, so wrong answers and "
+             f"burned torches are the expected result here, not a fault. "
+             f"DESIGN §13 has the table."))
+    m = build_machine(repeater_delay=args.delay)
     e = settled_engine(m.world, Engine)
     L = m.layout
 

@@ -345,6 +345,33 @@ if (layout.overflow <= 0 && !layout.tooSmall.length && !layout.clipped.length)
   console.log("layout: nothing overflows, nothing clipped, every control at " +
             "least 40px in the dimension that has room");
 
+// --- the writing has margins ------------------------------------------------
+// `main.wrap` set `padding: 2.4rem 0 0`, which is more specific than the
+// `.wrap` rule that carries the side padding — so the shorthand's zeros won and
+// every paragraph in the notebook ran to the very edge of the screen. Nothing
+// overflowed and nothing was clipped, so every check there was stayed green.
+// Text touching the bezel is not a layout error, it is a reading error, and
+// this is the only kind of check that sees it.
+const gutters = await page.evaluate(() => {
+  const tight = [];
+  const els = document.querySelectorAll(
+    "main section .col > p, main section .col > h2, main section .col > ul, " +
+    ".card p, footer .wrap > *");
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !el.textContent.trim()) continue;
+    const gap = Math.min(Math.round(r.left), Math.round(innerWidth - r.right));
+    if (gap < 12) tight.push(`${el.tagName.toLowerCase()} at ${gap}px`);
+  }
+  return { n: els.length, tight: [...new Set(tight)] };
+});
+want(gutters.n > 10, `only ${gutters.n} text blocks found to measure`);
+want(!gutters.tight.length,
+     `text runs into the edge of the screen: ${gutters.tight.slice(0, 4).join(", ")}`);
+if (!gutters.tight.length)
+  console.log(`gutters: all ${gutters.n} blocks of writing keep at least ` +
+              `12px from both edges`);
+
 // --- one more sanity pass: 375px, the narrowest phone still in use ----------
 await page.setViewportSize({ width: 375, height: 667 });
 await page.waitForTimeout(400);

@@ -2210,3 +2210,225 @@ the frames right after: the element's own `--dim` reads as the new value while
 its resolved `color` is still the old one. The check now detaches the root to
 force a full restyle and then waits on a canary before believing anything it
 measures.
+
+## 30. Asking whether the tests would notice — **measured**
+
+Twenty-nine sections of this document say *measured*. The measurements are
+taken by a test suite that has been green for a long time, and a green suite
+answers one question only: the tests pass. It does not answer the question the
+word *measured* is standing on, which is whether the tests would go **red if
+the code were wrong**. Those are different claims, and §22 already found the
+gap between them the hard way — two documentation guards shipped that could not
+fail at all until someone tried to defeat them on purpose.
+
+So this section asks the same question of the machine itself, module by module.
+`tools/mutate_core.py` changes one thing in one file so it is genuinely wrong —
+a redstone rule off by one, a gate that ORs where it should invert, a Minecraft
+convention left unflipped — runs the fast suite, and requires it to fail. Each
+mutation is reverted in a `finally`, so an interrupted run leaves the tree
+clean.
+
+They are semantic, not typos. Renaming a constant so the module raises
+`NameError` proves nothing: every test fails, and none of them was *watching*
+anything. And each `find` string has to appear exactly once in its file, which
+is not fussiness — the first attempt at the double-dabble mutation matched
+`>= 5` in the docstring above the code, so it rewrote a sentence, changed no
+behaviour, passed, and reported a hole that did not exist. A mutation that
+cannot fail is worse than no mutation.
+
+The tool also runs the suite **once, unmutated, before it starts anything**,
+and refuses to continue if that is not green. "Caught" means the suite went red
+while a mutation was applied, which is evidence of nothing if it was already
+red — and that is not hypothetical either. Run against a tree where the built
+pages had drifted from their template, this reported `cells.local-frame` as
+caught by `test_pages`, a check with no connection whatsoever to the module
+being broken, which was failing before the mutation was applied and would have
+failed after it too. A run that starts red cannot tell a real catch from that
+one, so it does not start.
+
+### The first run: sixteen of seventeen
+
+| broken | what it breaks | caught by |
+|---|---|---|
+| `engine.torch-delay` | a torch inverting a game tick late | mechanics, rules, cells |
+| `engine.burnout-limit` | a torch surviving four more toggles than the game allows | rules |
+| `engine.comparator-delay` | a comparator taking two redstone ticks | rules |
+| `engine.dust-decay` | dust carrying its strength forever | mechanics, rules, steady |
+| `netlist.gate-polarity` | every gate literal read at the wrong polarity | rules, logic, pla |
+| `logic.nand-term` | an AND of literals built from the wrong complements | logic, bcd, errors |
+| `alu.subtract-carry-in` | two's complement subtraction off by one | *docs* |
+| `alu.shift-wrap` | a left shift rotating instead of dropping the top bit | *docs* |
+| `pla.exit-gap` | a collector exiting on top of its own last tap | pla, bcd, errors |
+| `pla.tap-polarity` | every tap built the opposite way round | rules, pla, bcd |
+| `pla.collector-span` | a run two blocks longer than a tap's signal survives | rules, pla, bcd |
+| `bcd.add-three` | the double-dabble threshold one too high | bcd |
+| `display.segment-map` | the numeral 1 drawn with every segment of a 0 | errors, docs |
+| `mcbuild.repeater-facing` | Minecraft's output→input convention left unflipped | mcbuild |
+| `steady.digest-blind` | a cached resting state reused after the delays changed | steady |
+| `steady.lost-lock` | a restored world whose repeater locks have all let go | steady |
+| `cells.rotation` | a quarter turn going the wrong way round | **nothing** |
+
+Three of those rows are findings rather than reassurance. All seventeen are
+caught now, including the two replacements the findings themselves called for.
+
+### The rotation nothing ever asked for
+
+`cells.rotation` survived, and the reason is not a missing test. Every `Placer`
+in the repository is built at the default `rot=0`, `sub()` — which composed
+rotated frames — was called nowhere at all, and `rscalc/pla.py`, which places
+the real machine, does not use the class. A quarter-turn table, a direction
+remapper and a frame composer, none of them reachable by any code that runs.
+
+Adding a test for it would have been the wrong repair: it would pin behaviour
+nothing depends on and make the file look exercised. An untested rotation is
+not a feature, it is a mirrored build waiting for the first person who tries
+it. Deleted — `_rot`, `_rot_dir`, the `rot` parameter, `sub()`, and the three
+`wd()` calls that existed only to remap directions that were never remapped.
+
+The replacement mutation mirrors the local frame every cell really does use —
+and **it survived too**, which is the more interesting half. `nor_cell` takes a
+`collector_len`: the collector is a wired-OR, so extending it along Z is how
+every gate in the PLA gathers its inputs, and it is the reason the frame has a
+Z axis at all. Every test in `test_cells.py` used the default length of **one**,
+so no cell-local coordinate was ever anything but zero and mirroring Z was
+arithmetically a no-op. A documented feature, used by nothing, hiding the axis
+next to it.
+
+That one is worth a test rather than a delete, because the wired-OR is the
+primitive the whole machine is made of. `test_a_long_collector_is_one_wired_or`
+places a five-cell collector at an origin that is not the origin, requires the
+returned cells to be exactly where the frame says, and drives three separate
+feed rails into three points along it to check a torch really does NOR whatever
+reaches its base. With it, the mutation is caught.
+
+### The cache nothing tested
+
+`rscalc/steady.py` had no test of its own. It is also the module whose faults
+are hardest to see: it exists because relaxing half a million blocks to rest
+takes minutes, so every test, the exporter and every experiment start from a
+file it wrote. A wrong resting state is a *plausible* one — every torch lit or
+unlit, every repeater powered or not — and the machine boots, answers, and is
+wrong three layers up.
+
+`tests/test_steady.py` now checks the two claims the module makes: that the
+saved state carries **every** mutable field a block has, and that the digest
+keys on structure while ignoring state, so operating the machine does not
+invalidate its own cache. It also checks the checks — a round trip over a world
+where `locked` is False everywhere and every dust reads 0 passes whether or not
+those fields are saved at all, so the test world has to demonstrate both values
+of all six fields before the round trip is allowed to count.
+
+It earned its place immediately: the two `steady` mutations above are caught by
+nothing else.
+
+### Incidental coverage is not coverage
+
+Both ALU mutations were caught by `test_docs.py`. That is the documentation
+check — it builds a machine to compare gate counts against the prose, and an
+ALU that subtracts wrong changes the answer to a *different* question. It fails
+for the wrong reason, points at a document rather than at `alu.py`, and stops
+applying the moment someone edits a sentence.
+
+The real gap is that the fast suite had no ALU check at all: `tests/test_alu.py`
+drives real levers through the tick-accurate engine, which is the measurement
+that matters and is exactly why it is held back to `--slow`. `tests/test_alu_logic.py`
+is the missing half — the netlist evaluated directly, no blocks placed, the same
+split `tools/verify_logic.py` uses. All eight operations over all 256 operand
+pairs at four bits, **both carry designs**, result and all four flags; the two
+carry designs required to agree with each other on every vector, which catches a
+wrong one without needing to know which; and the edges of the range at 8 and 10
+bits, because a shift that wraps or a sign bit read at the wrong index lives at
+the top of the word. 1.7 seconds.
+
+### A comment that reversed itself
+
+§28 turned the depth test **on** for the emissive glow pass and wrote down why.
+It did not update the block comment above the shader two hundred lines earlier,
+which still said the pass was drawn *without* one, complete with the argument
+for it. Two comments in one file, describing the same twelve lines of GL,
+disagreeing — and the figure guards could not see it, because a stale
+*sentence* is not a stale *number*.
+
+`test_no_file_asserts_what_its_own_code_denies` closes that class. Each entry is
+a pattern that settles the question in code — `gl.enable(gl.DEPTH_TEST)` in the
+glow draw, a non-zero `GLOW_LIFT`, the `__GSAP__` placeholder — and the
+present-tense sentences that would then be untrue. Present tense is the whole
+trick: this repository is full of honest history, and *"it was not
+depth-tested, on the argument that…"* is the paragraph that explains the current
+design. Matching the assertion rather than the subject is what tells them apart.
+The tense markers §22 uses for numbers are not enough here on their own: the
+sentence that actually shipped was *"It is drawn without a depth test, which is
+the second thing that **took** a try"*, and "took" satisfies any past-tense
+marker you care to look for. That sentence is now the sixth documentation
+mutation, and it is caught.
+
+### Three tools that lied about a healthy machine
+
+`tools/debug_machine.py` defaulted to repeater delay **2**. The machine ships at
+**4**. Run with no arguments — which is how anyone runs a tool called
+`debug_machine` — it reported *"PLA disagrees with logic on 9 outputs"* and
+*"burned 17"* for a machine that is perfectly healthy, because delay 2 is a
+setting §13 measured as burning torches. A debugging tool whose no-argument
+output is a false alarm is worse than no tool: it sends the next person after a
+bug that is not there.
+
+`tools/verify_machine.py` had `4` written into the loop rather than the
+constant, and `tools/experiment_hostile_inputs.py` defaulted to 3. All three now
+default to `DEFAULT_DELAY`, and `debug_machine` prints the delay it is using in
+its header, so a run at a sub-verified setting says so.
+
+### And the page, out loud
+
+Two things on the demo were reachable only with a pointing device.
+
+The **view** was a picture: no way to turn, zoom or reframe the machine without
+a mouse or a finger, while every other control on the page has always been a
+button or a field one tab away. It is focusable now, with `role="application"`
+so a screen reader passes the keys through — arrows orbit, shift pans, `+`/`−`
+zoom, `0` refits the view it was last given. Every key moves the *camera*, which
+is the same direction the drag handler moves it in. The arrows are only claimed
+while the canvas has focus; tab past it and the page scrolls normally, which is
+checked, because that is how this kind of handler usually goes wrong.
+
+The **answer** announced nothing. The readout is seven-segment lamps — a picture
+— and the number beside them is rewritten on every one of the ~2,300 ticks a
+settle takes, so a live region on either would be useless in opposite
+directions: silence, or a stream of digits nobody can follow. The announcement
+is made from the *transitions* instead. Idle, settling, an answer, or a fault —
+only a move between them says anything, and it says one sentence. Press an
+operation and it says "settling" once; when it lands it says "49, stable". Both
+are checked in the browser, including that it does **not** rewrite itself on
+every tick.
+
+### Two more the same pass turned up
+
+**The notebook had no margins.** `.wrap` carries the page's side padding, and
+§29 taught it `env(safe-area-inset-*)` so a notched phone in landscape does not
+tuck the control wall under its own corners. Below it, `main.wrap` set
+`padding: 2.4rem 0 0` — a shorthand, which writes all four sides, and a more
+specific selector, so its zeros won. Every paragraph of the article ran to the
+very edge of the screen. Nothing overflowed and nothing was clipped, so the
+layout checks, which measure overflow and clipping, stayed green throughout. It
+is `padding-top` now, and `check_mobile` measures the *gutter* — the distance
+from each block of writing to the nearest screen edge — because text touching
+the bezel is a reading fault, not a layout one, and only a check phrased that
+way can see it.
+
+The same shorthand had bitten once already, invisibly: `.wrap`'s own
+`padding: 0 max(…left) 0 max(…right)` runs top-**right**-bottom-**left**, so
+the two insets were on the wrong edges. A second `.wrap` rule below it set them
+properly by longhand, which is why nobody noticed. One rule now, long-hand.
+
+**"No operation" while it was plainly working.** The label beside the readout
+read `!ready ? "no operation" : …`, and READY is a signal the *machine* raises
+at the end of its own settle. So for the two thousand game ticks in between it
+reads 0, and the page said "no operation" for the whole of a run the reader had
+just started — next to a meter filling up beside it. What the machine is doing
+is whether anything is still queued, so that is what both the label and the
+announcement ask now.
+
+**And a cancel that cancelled itself.** The new keyboard handler cleared `fly`
+after its switch — sensible, since orbiting or zooming should stop a flight in
+progress. `0` *starts* one, so pressing it began the refit and then threw it
+away in the next statement. Found by the browser check on its first run, which
+is the argument for writing the check at the same time as the feature.

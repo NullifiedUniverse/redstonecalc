@@ -22,7 +22,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rscalc.engine import Engine
-from rscalc.machine import build_machine
+from rscalc.machine import build_machine, DEFAULT_DELAY
 from rscalc.alu import OPS
 from rscalc.steady import settled_engine
 
@@ -42,7 +42,10 @@ def hostile_pairs(n, width, seed=11, min_moves=10):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--delay", type=int, default=3)
+    # the shipping setting, so a bare run measures what the machine
+    # actually does; §17's table is `--delay 3`, which is in the
+    # docstring above because it is the comparison, not the default
+    ap.add_argument("--delay", type=int, default=DEFAULT_DELAY)
     ap.add_argument("--vectors", type=int, default=10)
     ap.add_argument("--spacings", default="0,1,2,4")
     ap.add_argument("--seed", type=int, action="append")

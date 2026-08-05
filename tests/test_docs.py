@@ -324,6 +324,55 @@ def test_no_document_quotes_a_superseded_machine():
           f"marked as history: OK")
 
 
+#: Claims a file makes about itself, against the code that settles them.
+#:
+#: The figure checks above catch a stale *number*. They cannot catch a stale
+#: *sentence*, and one shipped: the glow shader's own header still said the pass
+#: was drawn without a depth test, two hundred lines above the draw call that
+#: enables it — and above a second comment explaining, correctly, why the
+#: reversal happened. Both were in the same file. Neither knew about the other.
+#:
+#: So each entry is a pattern that decides the question in code, and the
+#: present-tense sentences that would then be untrue. Present tense is the whole
+#: trick: this file is full of honest history — "it *was* not depth-tested, on
+#: the argument that…" is the paragraph that explains the current design — and a
+#: check that could not tell the two apart would have to be switched off. The
+#: patterns therefore match the assertion, not the subject.
+CONTRADICTIONS = [
+    (PAGE, r"gl\.depthMask\(false\);\s*gl\.enable\(gl\.DEPTH_TEST\)",
+     "the glow pass enables the depth test",
+     (r"\bis\s+drawn\s+\*?without\*?\s+a\s+depth\s+test",
+      r"\bis\s+not\s+depth[- ]tested",
+      r"\bdepth\s+test\s+is\s+off\b")),
+    (PAGE, r"const\s+GLOW_LIFT\s*=\s*0*\.[1-9]",
+     "the glow disc is lifted toward the eye by a non-zero amount",
+     (r"\blift\s+is\s+(?:set\s+to\s+)?(?:0\.0|zero)\b",
+      r"\bmultiplies?\s+by\s+zero\b")),
+    (PAGE, r"__GSAP__",
+     "the animation library is inlined at build time",
+     (r"\bloads?\s+GSAP\s+from\s+a\s+CDN",
+      r"\bis\s+fetched\s+from\s+(?:a\s+)?CDN")),
+]
+
+
+def test_no_file_asserts_what_its_own_code_denies():
+    bad = []
+    for path, decides, what, lies in CONTRADICTIONS:
+        body = read(path)
+        if not re.search(decides, body):
+            bad.append(f"{path}: the pattern that decides {what!r} is not in "
+                       f"the file any more — this check now proves nothing")
+            continue
+        for lie in lies:
+            for m in re.finditer(lie, body, re.I):
+                line = body.count("\n", 0, m.start()) + 1
+                bad.append(f"{path}:{line}: says {m.group(0)!r} in the present "
+                           f"tense, but {what}")
+    assert not bad, "a file contradicts its own code:\n  " + "\n  ".join(bad)
+    print(f"  {len(CONTRADICTIONS)} claims checked against the code that "
+          f"settles them: OK")
+
+
 #: Each entry breaks the documentation in a way that has actually happened, or
 #: that an earlier version of this file was proven to miss. `--mutate` applies
 #: them one at a time and requires the named test to fail. A guard nobody has
@@ -351,6 +400,14 @@ MUTATIONS = [
      "The machine was\n**1,825 deep** before §18 fixed this.",
      "That was the shape of it.\n**1,825 deep** is what this build measures.",
      "test_no_document_quotes_a_superseded_machine"),
+    # the sentence that actually shipped, restored. It is not caught by tense
+    # alone — "which is the second thing that took a try" would satisfy any
+    # past-tense marker in the sentence — so the check has to read the claim.
+    ("a comment describes behaviour the code below it reverses", PAGE,
+     "   It *is* depth-tested,",
+     "   It is drawn *without* a depth test, which took a try. It *is*"
+     " depth-tested,",
+     "test_no_file_asserts_what_its_own_code_denies"),
 ]
 
 

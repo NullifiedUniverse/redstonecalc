@@ -23,53 +23,33 @@ Latency: one redstone tick (2 game ticks) per cell.
 
 from __future__ import annotations
 
-from .engine import World, DIRS
-
-# --- rotation about the Y axis ---------------------------------------------
-
-def _rot(p, r):
-    x, y, z = p
-    if r == 0:
-        return (x, y, z)
-    if r == 1:
-        return (-z, y, x)
-    if r == 2:
-        return (-x, y, -z)
-    return (z, y, -x)
-
-
-def _rot_dir(d, r):
-    if d in ("up", "down"):
-        return d
-    v = DIRS[d]
-    rv = _rot(v, r)
-    for name, vec in DIRS.items():
-        if vec == rv:
-            return name
-    raise ValueError(d)
+from .engine import World
 
 
 class Placer:
-    """Places blocks in a local frame (origin + rotation) inside a World."""
+    """Places blocks in a local frame — an origin — inside a World.
 
-    def __init__(self, world: World, origin=(0, 0, 0), rot=0):
+    It used to rotate too: a quarter-turn table, a direction remapper, and a
+    `sub()` that composed frames. Nothing ever asked for a rotation. Every
+    `Placer` in the repository is built at the default `rot=0`, `sub()` was
+    called nowhere at all, and `rscalc/pla.py` — which places the real machine —
+    does not use this class. So the whole path was untestable by use, and
+    `tools/mutate_core.py` proved it: turning the quarter-turn table the wrong
+    way round left the entire suite green. An untested rotation is not a
+    feature, it is a mirrored build waiting for the first person who tries it,
+    so it is gone rather than pinned.
+    """
+
+    def __init__(self, world: World, origin=(0, 0, 0)):
         self.w = world
         self.origin = origin
-        self.rot = rot
 
     def wp(self, p):
-        r = _rot(p, self.rot)
         o = self.origin
-        return (o[0] + r[0], o[1] + r[1], o[2] + r[2])
-
-    def wd(self, d):
-        return _rot_dir(d, self.rot)
-
-    def sub(self, origin=(0, 0, 0), rot=0):
-        return Placer(self.w, self.wp(origin), (self.rot + rot) % 4)
+        return (o[0] + p[0], o[1] + p[1], o[2] + p[2])
 
     # -- guarded placement: never silently overwrite a different block --
-    def _put(self, pos, kind, **kw):
+    def _put(self, pos, kind):
         cur = self.w.get(pos)
         if cur is not None and cur.kind != kind:
             raise AssertionError(
@@ -95,18 +75,18 @@ class Placer:
     def torch(self, p, attach):
         pos = self.wp(p)
         self._put(pos, "redstone_torch")
-        self.w.torch(pos, attach=self.wd(attach))
+        self.w.torch(pos, attach=attach)
         return pos
 
     def repeater(self, p, facing, delay=1):
         pos = self.wp(p)
         self._put(pos, "repeater")
-        self.w.repeater(pos, facing=self.wd(facing), delay=delay)
+        self.w.repeater(pos, facing=facing, delay=delay)
         return pos
 
     def lever(self, p, attach="down", on=False):
         pos = self.wp(p)
-        self.w.lever(pos, attach=self.wd(attach), on=on)
+        self.w.lever(pos, attach=attach, on=on)
         return pos
 
     def lamp(self, p):

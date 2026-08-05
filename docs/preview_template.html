@@ -49,11 +49,13 @@ button,select,input,summary{touch-action:manipulation;
 body{margin:0;background:var(--basalt);color:var(--ink);font-family:var(--serif);
   font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
 /* `env()` so a notched phone does not tuck the first and last columns of the
-   control wall under its own rounded corners in landscape. */
-.wrap{max-width:1120px;margin:0 auto;
-  padding:0 max(1.15rem,env(safe-area-inset-left))
-          0 max(1.15rem,env(safe-area-inset-right))}
-.wrap{padding-left:max(1.15rem,env(safe-area-inset-left));
+   control wall under its own rounded corners in landscape. Written long-hand:
+   the shorthand runs top-right-bottom-left, so the first version of this put
+   the *left* inset on the right edge and the right inset on the left. It was
+   invisible because a second `.wrap` rule below it set both properly — two
+   rules for one thing, one of them wrong and neither of them saying so. */
+.wrap{max-width:1120px;margin:0 auto;padding:0;
+  padding-left:max(1.15rem,env(safe-area-inset-left));
   padding-right:max(1.15rem,env(safe-area-inset-right))}
 .col{max-width:66ch}
 h1,h2,h3{text-wrap:balance;font-weight:600}
@@ -104,6 +106,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;
   /* a long press on a 3D view should orbit, not raise iOS's text callout */
   -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas:active{cursor:grabbing}
+/* inset, because an outline drawn outside the canvas is clipped away by the
+   rig's own `overflow:hidden` and the keyboard user sees nothing at all */
+canvas:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--redstone)}
+/* Announced, not shown. Off-screen rather than `display:none`, which would take
+   it out of the accessibility tree along with everything it has to say. */
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 .overlay{position:absolute;display:flex;gap:.3rem;flex-wrap:wrap;
   max-width:calc(100% - 1.2rem)}
 .overlay.tl{left:.6rem;top:.6rem}
@@ -180,10 +189,9 @@ canvas:active{cursor:grabbing}
 .rail-foot span:last-child{margin-left:auto}
 /* the hint steps aside while the meter is up */
 .rail:not([hidden])~.hint{opacity:0}
-.hint{transition:opacity .2s}
 .hint{position:absolute;left:.7rem;bottom:.55rem;font-family:var(--mono);
   font-size:.6rem;color:var(--on-dark-dim);letter-spacing:.05em;
-  pointer-events:none}
+  pointer-events:none;transition:opacity .2s}
 .hint .narrow{display:none}
 .inspect{position:absolute;right:.7rem;bottom:.55rem;max-width:min(92%,32rem);
   font-family:var(--mono);font-size:.65rem;color:var(--lamp-lit);
@@ -355,7 +363,11 @@ input:focus-visible{outline:2px solid var(--redstone);outline-offset:2px}
 /* ---- the notebook ---- */
 /* the notebook is narrower than the instrument on purpose: a wide rig you
    operate, a column you read */
-main.wrap{max-width:900px;padding:2.4rem 0 0}
+/* padding-top, not `padding`: the shorthand here set left and right to 0 and,
+   being more specific than `.wrap`, took the notebook's side margins away
+   entirely — every paragraph in the article ran to the very edge of a phone.
+   Only the top is this rule's business. */
+main.wrap{max-width:900px;padding-top:2.4rem}
 section{padding:2.2rem 0;border-top:1px solid var(--seam)}
 section>.col>p:first-of-type{margin-top:.5rem}
 .mark{font-family:var(--mono);font-size:.6rem;letter-spacing:.18em;
@@ -457,9 +469,6 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
   .transport .prim{flex:1 1 100%;padding:.7rem}
   .strip{gap:.15rem 1rem;padding:.55rem .8rem}
 }
-/* A phone turned sideways has about 390px of height for everything, and 52% of
-   it is not enough canvas to see a machine in. Give the view most of the screen
-   and let the controls scroll under it. */
 /* A phone turned sideways is 750 x 340 of usable page. It is *not* a narrow
    window, so the rules above only half apply, and it was spending 226 of those
    340 pixels on a headline before showing any machine at all. Height is the
@@ -498,8 +507,11 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
    them from an offset — so a page whose script never runs, or whose animation
    library never loads, is a page that simply does not animate. That is the
    whole reason the start state is not in the CSS. */
-.key,.card,.transport button,.zoom button,.dial button,.ghost{
+.key,.transport button,.zoom button,.dial button,.ghost{
   transition:border-color .14s ease,color .14s ease,background .14s ease}
+/* a card is not a control: slower, and it lifts rather than lighting up. It
+   used to be listed above as well, where the whole declaration was then
+   overridden by this one — two rules, one of them dead. */
 .card{transition:border-color .2s ease,box-shadow .2s ease}
 .card:hover{border-color:var(--ash);
   box-shadow:0 6px 22px -12px rgba(0,0,0,.55)}
@@ -533,7 +545,12 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
 <div class="wrap">
   <div class="rig">
     <div id="view">
-      <canvas id="cv"></canvas>
+      <!-- Focusable, and it means it: arrows orbit, shift+arrows pan, +/− zoom,
+           0 refits. A WebGL canvas is a picture to anyone not holding a mouse,
+           and every other control on this page can already be reached by tab. -->
+      <canvas id="cv" tabindex="0" role="application"
+        aria-label="The machine in 3D. Arrow keys orbit, shift and arrow keys
+                    pan, plus and minus zoom, 0 refits the view."></canvas>
       <div id="boot">building the world…</div>
       <div class="overlay tl">
         <button type="button" class="ghost" id="look_all" aria-pressed="true">whole machine</button>
@@ -578,6 +595,11 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
             <span class="num" id="value">——</span>
             <span class="state" id="valstate">idle</span>
           </div>
+          <!-- The lamps are a picture and the number beside them changes on
+               every tick of a two-minute settle, so neither is announceable as
+               it stands. This says one sentence, once, when the machine
+               arrives somewhere: an answer, a fault, or a settle beginning. -->
+          <p class="sr" id="say" aria-live="polite" role="status"></p>
         </div>
         <div class="flagrow" id="flagrow"></div>
       </div>
@@ -1899,12 +1921,11 @@ function draw(){
    the surface of a cube is already at the edge of the sphere inscribed in it,
    so a cube shaded by distance from its centre draws nothing at all.
 
-   It is drawn *without* a depth test, which is the second thing that took a
-   try. Depth-tested, a flat disc gets sliced by whatever it overlaps and the
-   slice is a hard triangle of light — worse than no glow. Soft particles want a
-   depth texture this page does not have, so it does what real bloom does: apply
-   after depth, bleed over what is in front, and stay faint enough that a torch
-   behind a floor reads as a hint of one.
+   It *is* depth-tested, and that is the second thing that took a try — twice,
+   in opposite directions. The draw call below carries the whole account; the
+   short version is that an untested disc shines through every wall in front of
+   it, and the slicing it was avoiding had one cause, the block the torch stands
+   on, which `uLift` clears. Depth writes stay off.
 
    Only torches and lamps get one — about two thousand instances against two
    hundred and forty thousand — and the alpha comes from the instance's own
@@ -2411,7 +2432,9 @@ const VIEWS={
   // the control wall is a wall: look at its face, not down on it
   ctrl: ms=>frameOn(inputPoints(),1.15,null,1.35,0.22,ms),
 };
+let lastFocus="all";                 // what "0" on the keyboard goes back to
 function focus(which,ms){
+  lastFocus=which;
   for(const k in VIEWS)
     $("look_"+k).setAttribute("aria-pressed",k===which?"true":"false");
   VIEWS[which](ms);
@@ -2493,9 +2516,13 @@ function readValue(){
    linear CSS transition turns those into a stutter; an eased tween reads as one
    thing making progress. The sheen only sweeps while there is a backlog, so a
    meter that is moving looks different from one that has stalled. */
+/* Whether the machine is still working, in one place. The meter, the label
+   beside the readout and what a screen reader is told all have to agree about
+   this, and they each had their own copy of it until they did not. */
+function isBusy(){return eng.queue.length>0||held.size>0;}
 let peakQ=0,meterShown=false,meterPct=0,sheenTween=null;
-function setMeter(q){
-  const busy=q>0||held.size>0;
+function setMeter(){
+  const q=eng.queue.length,busy=isBusy();
   if(q>peakQ)peakQ=q;
   if(busy!==meterShown){
     meterShown=busy;
@@ -2530,6 +2557,33 @@ function setMeter(q){
            meterPct);
 }
 
+/* ---- what a screen reader is told ----
+   Nothing on this page announces itself. The readout is seven-segment lamps —
+   a picture — and the number beside them is rewritten on every one of the two
+   thousand ticks a settle takes, so a live region on either would be unusable:
+   silence, or a stream of digits nobody can follow.
+
+   So the announcement is made from the *transitions*, not from the state. The
+   machine is idle, settling, holding an answer, or faulted; only a move between
+   those says anything, and it says one sentence. A reader working the keypad
+   hears "settling" once when they press an operation and "999, stable" once
+   when it arrives, which is exactly what the sighted reader sees. */
+function announce(){
+  const el=$("say");
+  if(!el)return;
+  const v=readValue(),burned=eng.burned.size;
+  const ready=readyIdx>=0&&world.power[readyIdx]>0;
+  const say=
+    burned?`fault: ${burned} torch${burned>1?"es":""} burned out`
+    :isBusy()?"settling"
+    :(ready&&v!==null?`${v}, stable`:"no operation latched");
+  // compare the sentence, not the state behind it. Writing the same string
+  // again is still a mutation of a live region, and a screen reader is
+  // entitled to read it out — so "settling" is written once, not on each of
+  // the two thousand ticks during which it stays true.
+  if(el.textContent!==say)el.textContent=say;
+}
+
 /* ---- controls ---- */
 function bitsOf(pad){
   let v=0;
@@ -2545,8 +2599,13 @@ function refreshPanel(){
     $("value").textContent=shown;
     if(v!==null)flashValue($("value"));
   }
+  // Busy first, and that ordering is the point. READY is a signal the machine
+  // raises at the *end* of its own settle, so for the two thousand ticks in
+  // between it reads 0 — and this label said "no operation" for the whole of a
+  // run the reader had just started, next to a meter filling up beside it.
+  // What the machine is doing is whether anything is still queued.
   $("valstate").textContent=
-    !ready?"no operation":(v===null?"settling":"stable");
+    isBusy()?"settling":(!ready?"no operation":(v===null?"settling":"stable"));
 
   // Which operation is *selected* is a fact about the machine's latches, not
   // about which button was clicked last. Read it off the one-hot rails, so the
@@ -2581,13 +2640,8 @@ function refreshPanel(){
     ? `${lastFired} switched, ${lastChanged} dust`
     : (lastChanged ? `${lastChanged} dust` : "quiet");
   $("tQueue").textContent=eng.queue.length.toLocaleString();
-  // How far through a settle we are. There is no total to divide by — the queue
-  // is not a countdown — so the bar tracks the *peak* depth this run reached,
-  // which is monotone enough to read as progress and honest about being an
-  // estimate. It disappears the moment the machine is quiet.
-  const q=eng.queue.length;
-  if(q>peakQ)peakQ=q;
-  setMeter(q);
+  setMeter();                          // the meter owns its own bookkeeping
+  announce();
   $("tBurn").textContent=eng.burned.size?eng.burned.size+" — a fault":"none";
   $("tBurn").classList.toggle("bad",eng.burned.size>0);
 }
@@ -3111,6 +3165,45 @@ cv.addEventListener("wheel",e=>{
   e.preventDefault();
   zoomBy(1+Math.sign(e.deltaY)*0.12);
 },{passive:false});
+/* The view, from the keyboard.
+
+   Everything else on this page is a button or a field and has always been
+   reachable by tab; the machine itself was a picture. Arrows orbit, shift makes
+   them pan, plus and minus zoom, 0 refits — and the arrows are only claimed
+   while the canvas has focus, so tabbing past it leaves the page scrolling
+   normally. A held key repeats at the operating system's rate, which is a
+   perfectly good way to turn something.
+
+   Every key moves the *camera*, not the machine: left goes anticlockwise round
+   it, up climbs above it, shift-left slides the viewpoint left so more of the
+   left-hand side comes into frame. That is the same direction the drag handler
+   moves the camera in, which is why `az` decreases when you drag to the right. */
+const KEYSTEP=0.09;
+cv.addEventListener("keydown",e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const pan=e.shiftKey?34:0;
+  // `0` starts a flight; everything else cancels one. Cancelling unconditionally
+  // after the switch is the obvious way to write this and it is wrong — the
+  // refit sets `fly`, then the line below cleared it and nothing moved.
+  let took=true,flies=false;
+  switch(e.key){
+    case "ArrowLeft":  pan?panBy(pan,0):cam.az-=KEYSTEP; break;
+    case "ArrowRight": pan?panBy(-pan,0):cam.az+=KEYSTEP; break;
+    case "ArrowUp":    pan?panBy(0,pan)
+                          :cam.el=Math.min(1.5,cam.el+KEYSTEP*.7); break;
+    case "ArrowDown":  pan?panBy(0,-pan)
+                          :cam.el=Math.max(0.05,cam.el-KEYSTEP*.7); break;
+    case "+": case "=": zoomBy(0.86); break;
+    case "-": case "_": zoomBy(1.16); break;
+    case "0":          flies=true;focus(lastFocus,REDUCE?0:420); break;
+    default: took=false;
+  }
+  if(!took)return;
+  e.preventDefault();
+  spinAz=spinEl=0;
+  if(!flies)fly=null;
+  invalidate();
+});
 $("peek").onclick=()=>{
   document.querySelector(".rig").scrollIntoView({behavior:REDUCE?"auto":"smooth",
                                                 block:"start"});
