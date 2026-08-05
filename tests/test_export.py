@@ -33,7 +33,8 @@ from rscalc.export import (DIRS6, KIND_ID, KINDS, encode_world, export_circuit,
                            write_bundle)
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-DEMO = os.path.join(ROOT, "docs/demo_template.html")
+#: the engine is one file now, injected into both pages at build time
+ENGINE_JS = os.path.join(ROOT, "docs/engine.js")
 
 
 def build():
@@ -180,17 +181,17 @@ def test_python_and_the_browser_agree_on_the_tables():
     """A kind byte means nothing on its own — it is an index into a list that
     lives in the other language. Insert one entry in the middle of either and
     every block in the machine is drawn as the wrong material, silently."""
-    with open(DEMO, encoding="utf-8") as f:
+    with open(ENGINE_JS, encoding="utf-8") as f:
         src = f.read()
     m = re.search(r"const KINDS=\[(.*?)\];", src, re.S)
-    assert m, "the demo page no longer declares KINDS where this can find it"
+    assert m, "docs/engine.js no longer declares KINDS where this can find it"
     js_kinds = re.findall(r'"([a-z_]+)"', m.group(1))
     assert js_kinds == KINDS, (f"kind tables disagree:\n  py {KINDS}\n  js "
                                f"{js_kinds}")
 
     # the direction table is written as vectors there, so compare the vectors
     m = re.search(r"const DIRV=\[(.*?)\];", src, re.S)
-    assert m, "the demo page no longer declares DIRV"
+    assert m, "docs/engine.js no longer declares DIRV"
     js_dirs = [tuple(int(v) for v in t.split(","))
                for t in re.findall(r"\[(-?\d+,-?\d+,-?\d+)\]", m.group(1))]
     from rscalc.engine import DIRS
@@ -202,11 +203,11 @@ def test_python_and_the_browser_agree_on_the_tables():
              "K_LAMP", "K_RBLOCK", "K_GLASS"]
     for want, name in enumerate(names):
         m = re.search(rf"\b{name}=(\d+)", src)
-        assert m, f"the demo page no longer defines {name}"
+        assert m, f"docs/engine.js no longer defines {name}"
         assert int(m.group(1)) == want, \
-            f"{name} is {m.group(1)} in the page, {want} in KINDS"
+            f"{name} is {m.group(1)} in the engine, {want} in KINDS"
     print(f"  {len(KINDS)} kinds and {len(DIRS6)} directions identical in "
-          f"Python and in the page, and all {len(names)} constants agree: OK")
+          f"Python and in the engine, and all {len(names)} constants agree: OK")
 
 
 def test_a_world_too_big_to_encode_says_so():

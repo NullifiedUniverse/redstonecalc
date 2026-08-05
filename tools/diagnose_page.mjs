@@ -13,21 +13,34 @@ import { chromium, devices } from "playwright";
 import path from "path";
 
 const out = {};
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+// Print whatever was gathered even if a later profile fails: the first run of
+// this lost a complete set of desktop numbers because the phone page, opened
+// second in the same browser, never fired `load`.
+process.on("exit", () => console.log(JSON.stringify(out, null, 2)));
 
+// One browser per profile. Sharing one meant the phone profile inherited a GPU
+// process the desktop pass had just spent a second saturating with a software
+// renderer, and `load` never arrived.
 async function open(profile, label) {
+  const browser = await chromium.launch(
+    { executablePath: "/opt/pw-browsers/chromium" });
   const page = await browser.newPage(profile);
   const t0 = Date.now();
-  page.setDefaultNavigationTimeout(180000);
-  await page.goto("file://" + path.resolve("docs/preview.html"));
+  // `commit`, not `load`: readiness here is `window.__ready`, which the page
+  // sets when the machine is built. Waiting for `load` as well waits for a
+  // quarter of a million instances to paint in software, which is this
+  // container rather than the page.
+  await page.goto("file://" + path.resolve("docs/preview.html"),
+                  { waitUntil: "commit", timeout: 120000 });
   await page.waitForFunction("window.__ready === true", null,
                              { timeout: 300000, polling: 250 });
   out[label] = { bootSeconds: +((Date.now() - t0) / 1000).toFixed(1) };
-  return page;
+  return { page, browser };
 }
 
 // --- desktop -------------------------------------------------------------
-const page = await open({ viewport: { width: 1400, height: 900 } }, "desktop");
+const { page, browser } = await open(
+  { viewport: { width: 1400, height: 900 } }, "desktop");
 const d = out.desktop;
 
 // What is on the first screen before anyone scrolls?
@@ -110,10 +123,11 @@ Object.assign(d, await page.evaluate(() => {
            tables: document.querySelectorAll("main table").length,
            controls: document.querySelectorAll(".rig button,.rig input,.rig select").length };
 }));
-await page.close();
+await browser.close();
 
 // --- phone ---------------------------------------------------------------
-const m = await open({ ...devices["iPhone 13"] }, "phone");
+const { page: m, browser: mb } = await open(
+  { ...devices["iPhone 13"] }, "phone");
 Object.assign(out.phone, await m.evaluate(() => {
   const vh = innerHeight;
   const view = document.querySelector("#view");
@@ -130,7 +144,4 @@ Object.assign(out.phone, await m.evaluate(() => {
     screensOfPage: +(document.body.scrollHeight / vh).toFixed(1),
   };
 }));
-await m.close();
-
-console.log(JSON.stringify(out, null, 2));
-await browser.close();
+await mb.close();

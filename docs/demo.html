@@ -1,4 +1,11 @@
 <title>Redstone Calculator — Voxel Simulator</title>
+<!-- Without this a phone lays the page out at a 980px viewport and scales the
+     result down, so `@media (max-width:860px)` never matches and every mobile
+     rule below it is dead: the 352px sidebar stays, the canvas keeps the
+     desktop shell, and the whole thing arrives zoomed out and unreadable. This
+     page has had a mobile breakpoint and no way to reach it. Measured with a
+     phone profile: innerWidth 980, not 390. -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{
   --void:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --line:#252b34;
@@ -30,8 +37,10 @@
   --stone:#6d747d; --pass:#15803d; --fail:#be123c; --viewport:#dbdfe5;
 }
 *{box-sizing:border-box}
+/* dvh as well as vh: mobile browser chrome slides away and `vh` does not
+   notice, so the shell was always a chrome-bar too tall. */
 body{margin:0;background:var(--void);color:var(--ink);font-family:var(--sans);
-  height:100vh;overflow:hidden;display:flex;flex-direction:column}
+  height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
 header{display:flex;align-items:baseline;gap:1.25rem;padding:.7rem 1.1rem;
   border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
 h1{margin:0;font-size:1.05rem;font-weight:800;letter-spacing:-.02em}
@@ -110,8 +119,18 @@ button:focus-visible,select:focus-visible,input:focus-visible,
 @media (max-width:860px){
   body{overflow:auto;height:auto}
   main{flex-direction:column}
-  #view{height:56vh;flex:none}
-  aside{width:100%;border-left:none;border-top:1px solid var(--line)}
+  /* Capped in pixels as well as in viewport units. This page can be embedded
+     in a frame sized from its own content, and there a height in `vh` is
+     circular: the canvas grows, the document grows, the frame grows, and the
+     canvas is a percentage of the frame. The preview page measured that
+     runaway at 5,598px and then 7,707px before it was capped — see DESIGN §27.
+     `dvh` for the chrome that slides away, `max-height` as the backstop. */
+  #view{height:min(56vh,460px);height:min(56dvh,460px);
+    min-height:280px;max-height:480px;flex:none}
+  aside{width:100%;border-left:none;border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom)}
+  /* a thumb, not a mouse */
+  aside button,aside select,aside input{min-height:40px}
 }
 </style>
 
@@ -196,6 +215,20 @@ const BUNDLE = {"circuits":[{"n":770,"origin":[-2,-1,0],"dims":[25,18,53],"data"
    per block, torch inversion at 2 game ticks with burnout, repeater diodes at
    2/4/6/8 game ticks with side locking. Dust propagation is instantaneous and
    resolved to a fixed point within the tick, as in the game.                */
+
+/* The redstone engine, in JavaScript.
+
+   One copy, injected into both pages by `tools/build_pages.py`. It used to live
+   inside `docs/demo_template.html`, and the preview page was built by slicing it
+   back out with `index()` and `rindex()` on two marker strings — which meant the
+   older Mk I demo page was also a *source file* for the newer one, and could not
+   be edited without risk of silently changing what the Mk III page runs on.
+
+   The rules here are the same rules `rscalc/engine.py` implements, and
+   `tests/test_minecraft_rules.py` runs the two side by side, every block at
+   every tick. `tests/test_export.py` checks that the tables below still agree
+   with the Python ones, because a kind byte is only an index into this list.
+*/
 
 /* The kind table: the exported blob's own ordering, written out in full. The
    code indexes blocks with the K_* constants below, so this looks unused —
@@ -1012,16 +1045,78 @@ document.getElementById("bVerify").onclick=verify;
 document.getElementById("ly").oninput=e=>{yMax=+e.target.value;
   document.getElementById("lyVal").textContent=yMax; updateVisibleCount();};
 
-let drag=null;
-cv.addEventListener("pointerdown",e=>{drag={x:e.clientX,y:e.clientY,s:e.shiftKey};
-  cv.setPointerCapture(e.pointerId);});
+/* Pointers, plural, and a thumb that can still read the page.
+
+   This handler was the version the preview page started from, and it kept every
+   fault that one was rewritten to fix. It held a single `drag` record, so a
+   second finger overwrote the first and a pinch came out as a lurching orbit —
+   and there was no pinch at all, only `wheel`, which a phone does not have. The
+   canvas is `touch-action:none`, so below 860px, where this page becomes a
+   scrolling document with the view taking 56% of the height, a thumb landing on
+   the machine could neither zoom it nor scroll past it.
+
+   The rules are the preview page's, which are measured in DESIGN §26 and §28:
+   one finger orbits, two pinch and pan, and a one-finger touch says nothing for
+   its first `INTENT_PX` — then the direction it committed to decides whether it
+   was a reader scrolling or a hand turning the machine. `VERT_BIAS` of 3.2
+   means a swipe has to be within about 17° of vertical to be taken as a scroll,
+   which leaves tilting the machine to the machine.
+
+   The wheel keeps zooming here, and that is not an oversight. On a wide screen
+   this page is an app shell — `body{overflow:hidden}` — so there is no page to
+   scroll and nothing to take the wheel away from. Where the page *does* scroll
+   it is narrow, and a narrow screen is a touch screen. */
+const ptr=new Map();
+let pinch=null,swipe=null;
+const ORBIT_X=0.008,ORBIT_Y=0.006,INTENT_PX=11,VERT_BIAS=3.2;
+const scrolls=()=>getComputedStyle(document.body).overflowY!=="hidden";
+cv.addEventListener("pointerdown",e=>{
+  ptr.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,
+                       s:e.shiftKey});
+  // throws if the pointer has already gone, which touch emulation does do
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  swipe=(ptr.size===1&&e.pointerType==="touch"&&scrolls())?{mode:0}:null;
+  if(ptr.size===2){
+    const[a,b]=[...ptr.values()];
+    pinch={d0:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),dist0:cam.dist};
+  }
+});
 cv.addEventListener("pointermove",e=>{
-  if(!drag)return;
-  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
-  if(drag.s){cam.tx-=dx*world.dims[0]*0.002;cam.ty+=dy*world.dims[1]*0.006;}
-  else{cam.az-=dx*0.008;cam.el=Math.max(-1.5,Math.min(1.5,cam.el+dy*0.006));}
-  drag.x=e.clientX;drag.y=e.clientY;});
-cv.addEventListener("pointerup",()=>drag=null);
+  const q=ptr.get(e.pointerId);
+  if(!q)return;
+  const dx=e.clientX-q.x,dy=e.clientY-q.y;
+  q.x=e.clientX;q.y=e.clientY;
+  if(ptr.size===2&&pinch){
+    const[a,b]=[...ptr.values()];
+    const d=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
+    cam.dist=Math.max(0.12,Math.min(4,pinch.dist0*pinch.d0/d));
+    return;
+  }
+  if(ptr.size!==1)return;
+  if(swipe&&swipe.mode===0){
+    const tx=e.clientX-q.x0,ty=e.clientY-q.y0;
+    if(Math.hypot(tx,ty)<INTENT_PX)return;         // too early to tell
+    swipe.mode=Math.abs(ty)>VERT_BIAS*Math.abs(tx)?2:1;
+    if(swipe.mode===1){                            // orbit, lead-in included
+      cam.az-=tx*ORBIT_X;
+      cam.el=Math.max(-1.5,Math.min(1.5,cam.el+ty*ORBIT_Y));
+      return;
+    }
+    scrollBy(0,-(e.clientY-q.y0));
+    return;
+  }
+  if(swipe&&swipe.mode===2){scrollBy(0,-dy);return;}
+  if(q.s){cam.tx-=dx*world.dims[0]*0.002;cam.ty+=dy*world.dims[1]*0.006;}
+  else{cam.az-=dx*ORBIT_X;
+       cam.el=Math.max(-1.5,Math.min(1.5,cam.el+dy*ORBIT_Y));}
+});
+function liftPointer(e){
+  ptr.delete(e.pointerId);
+  if(ptr.size<2)pinch=null;
+  if(!ptr.size)swipe=null;
+}
+cv.addEventListener("pointerup",liftPointer);
+cv.addEventListener("pointercancel",liftPointer);
 cv.addEventListener("wheel",e=>{e.preventDefault();
   cam.dist=Math.max(0.12,Math.min(4,cam.dist*(1+Math.sign(e.deltaY)*0.12)));},{passive:false});
 

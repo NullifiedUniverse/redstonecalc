@@ -179,7 +179,7 @@ def export_machine(delay=None):
     if delay is None:
         delay = DEFAULT_DELAY
     from rscalc.engine import Engine
-    from rscalc.machine import build_machine, FLAGS
+    from rscalc.machine import build_machine, FLAGS, SETTLE_GT
     from rscalc.alu import OPS
     from rscalc.steady import settled_engine
     from rscalc.export import encode_world
@@ -202,6 +202,14 @@ def export_machine(delay=None):
         "gates": m.stats["gates"],
         "depth": m.stats["depth"],
         "delay": delay,
+        # How long a settle takes, so the page's progress meter has a target.
+        # It used to estimate progress from how far the event queue had drained
+        # from its deepest, which sounds reasonable and is not: this engine's
+        # queue holds a handful of events at a time whatever the machine is
+        # doing, so over a 3,670-tick settle the bar showed exactly two values,
+        # 0% and 50%. Ticks against a known length is an estimate too, but a
+        # monotone one that means something.
+        "settle": SETTLE_GT,
         "ops": OPS,
         "flags": FLAGS,
         "digits": [str(k) for k in reversed(range(m.ndigits))],

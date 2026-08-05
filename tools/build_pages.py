@@ -16,16 +16,21 @@ def read(path):
         return f.read()
 
 
-def engine_source(demo_src):
-    """The demo's redstone engine, lifted verbatim so the two cannot drift.
+def engine_source():
+    """The redstone engine, from the one file that holds it.
 
-    The preview page has no engine of its own: it is handed this one at build
-    time. Two copies of the redstone rules in one repository would be two
+    Neither page has an engine of its own; both are handed this at build time,
+    because two copies of the redstone rules in one repository would be two
     chances to be wrong differently.
+
+    It used to live *inside* `docs/demo_template.html`, and this function cut it
+    back out with `index()` and `rindex()` over two marker strings. That made the
+    older Mk I demo page a source file for the newer Mk III one: editing the demo
+    risked silently changing what the published page runs on, the slice depended
+    on a comment above it staying put, and the demo page carried a note asking
+    people not to move its first line. One file, read whole, ends all of that.
     """
-    start = demo_src.index('const KINDS=["solid"')
-    end = demo_src.rindex("/*", start, demo_src.index("--- renderer */", start))
-    return demo_src[start:end].rstrip()
+    return read("docs/engine.js").rstrip()
 
 
 def motion_source():
@@ -43,13 +48,15 @@ def motion_source():
 
 def render():
     """Both pages as strings, without writing anything."""
-    demo_src = read("docs/demo_template.html")
-    out = {"docs/demo.html": demo_src.replace("__CIRCUIT_DATA__",
-                                              read("out/circuits.json"))}
+    engine = engine_source()
+    out = {"docs/demo.html": (
+        read("docs/demo_template.html")
+        .replace("__ENGINE__", engine)
+        .replace("__CIRCUIT_DATA__", read("out/circuits.json")))}
     out["docs/preview.html"] = (
         read("docs/preview_template.html")
         .replace("__GSAP__", motion_source())
-        .replace("__ENGINE__", engine_source(demo_src))
+        .replace("__ENGINE__", engine)
         .replace("__CIRCUIT_DATA__", read("out/preview.json")))
     return out
 

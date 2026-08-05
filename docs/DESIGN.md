@@ -2499,3 +2499,99 @@ beside each slow, placed-blocks one costs milliseconds and is what the sweep can
 actually reach.
 
 With those two, all **23 of 23** are caught.
+
+## 31. The generator that could publish a broken machine, and a demo that was a source file — **measured**
+
+§30 graded the tests. This looks at everything the tests were never pointed at:
+the fourteen scripts in `tools/`, and the older demo page. Both turned out to
+hold something worse than an untested behaviour.
+
+### A default that would have published a machine that gets answers wrong
+
+`tools/build_preview.py` writes `out/preview.json`. `tools/build_pages.py`
+embeds that in `docs/preview.html`. So the repeater delay handed to the first
+is the delay the **published page runs at** — and it read `sys.argv` by hand and
+defaulted that to **3**.
+
+Delay 3 is not a shipping setting. It is the middle row of §13's table:
+**5 vectors in 16 correct, 3 torches burned**. The README's example passes `4`
+explicitly, so the bundle on the page is verified and always has been. But the
+obvious way to run a tool is to run it, and doing that would have replaced the
+machine on the page with one that burns out and computes wrong answers — with
+nothing in the page able to notice, because the page has no way to know what
+delay its bundle was built at.
+
+It takes `argparse` now, defaults to `DEFAULT_DELAY`, and prints a warning
+naming §13 if asked for anything else. That is the **fourth** instance of one
+mistake — `debug_machine` defaulted to 2, `verify_machine` had 4 written into
+the loop rather than the constant, `experiment_hostile_inputs` defaulted to 3 —
+and all four were found by a person reading the file, because nothing in the
+suite had ever touched `tools/` at all.
+
+`tests/test_tools.py` is the check that finds the fifth: every tool opens with a
+docstring, none picks its arguments out of `sys.argv`, `--help` answers within
+fifteen seconds and means it — a parser built *after* the machine is compiled is
+a `--help` that takes four minutes — every tool that stands up the Mk III
+defaults its delay to `DEFAULT_DELAY` or `None`, and the shipped bundle is
+checked to have been built at it.
+
+The first version of that delay rule demanded `DEFAULT_DELAY` **everywhere** and
+fired on six correct lines. `compile_netlist` defaults to 1 because the Mk II
+circuits are stable there; a `Block`'s own `delay=1` is a repeater's 1-to-4
+setting, a different quantity that happens to share a name. It is scoped to
+tools that actually build the machine now — the same lesson as the table rule in
+§22's superseded-figure scan, learned again: a check that cries wolf is a check
+people switch off.
+
+It caught one more on its first run. `tools/prototype_decimal.py` picked
+`--carry` out of `sys.argv`, so it had no `--help` at all, and the measurement
+PLAN's cross-digit lookahead table comes from was documented only in a docstring
+nobody running the file would see.
+
+### The old demo page was also a source file
+
+`docs/demo_template.html` is the Mk I/II demo — the older artifact, kept because
+it still works. It was also **37% redstone engine**, and `tools/build_pages.py`
+built the *preview* page by cutting that engine back out of it with `index()`
+and `rindex()` over two marker strings. The demo page carried a comment asking
+people not to move its first line.
+
+So the older page was a dependency of the newer one in the least visible way
+possible: a change to the demo could alter what the published Mk III page runs
+on, and the only thing saying so was a comment inside the thing being sliced.
+Nobody was going to redesign that page while it was load-bearing, which is
+exactly why it had not been touched.
+
+`docs/engine.js` is that engine, once, injected into both pages. The rendered
+output is byte-identical apart from the banner comment the new file carries, and
+`tests/test_pages.py` now asserts that **neither** template contains an engine
+and that `engine.js` does.
+
+### And then the demo page could be fixed
+
+Free of that, the demo's input handling turns out to be the version the preview
+page started from, with every fault it was rewritten to fix still in place:
+
+| | the demo, before | the preview, since §26/§28 |
+|---|---|---|
+| pointers tracked | one `drag` record | a `Map`, so two fingers pinch |
+| pinch | **none at all** | pinch to zoom, midpoint pans |
+| a thumb on the canvas | `touch-action:none`, no way past | intent at 11px, 3.2 vertical bias |
+| view height | `56vh` | `min(56dvh, 460px)`, capped again at 480 |
+| `setPointerCapture` | unguarded | in a `try` — it throws under touch |
+| `pointercancel` | not handled | releases the gesture |
+
+Below 860px this page becomes a scrolling document with the canvas taking 56% of
+the height, so a thumb landing on the machine could neither zoom it nor scroll
+past it — more than half a screen of dead zone. It has the preview's rules now.
+
+The wheel deliberately still zooms here, which is the one place the two pages
+disagree on purpose. On a wide screen the demo is an app shell —
+`body{overflow:hidden}` — so there is no page scroll for the wheel to be stolen
+from, and where the page *does* scroll it is narrow, and a narrow screen is a
+touch screen.
+
+`tests/browser_check.js` covers the phone now as well as the desktop: a sideways
+drag turns the machine without moving the page, a swipe up the canvas reads on
+without tilting the camera, two fingers zoom both ways, and the view is bounded
+in pixels.

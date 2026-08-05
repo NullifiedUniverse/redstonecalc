@@ -75,23 +75,33 @@ def test_nothing_the_page_needs_is_fetched_from_anywhere():
     print(f"  the built page is {len(page)//1024} KB and fetches nothing: OK")
 
 
-def test_the_preview_has_no_engine_of_its_own():
-    """One copy of the redstone rules, not two.
+def test_neither_page_has_an_engine_of_its_own():
+    """One copy of the redstone rules, in a file of its own.
 
-    The preview template carries a `__ENGINE__` placeholder rather than an
-    engine. If someone ever pastes one in, this fails — a second implementation
-    of dust decay and torch burnout is a second chance to be wrong, and the
-    browser check would happily verify the wrong one.
+    Both templates carry an `__ENGINE__` placeholder; `docs/engine.js` holds the
+    only implementation. A second copy of dust decay and torch burnout is a
+    second chance to be wrong, and the browser checks would happily verify
+    whichever one their page happened to get.
+
+    This used to check only the preview, because the engine lived *inside* the
+    demo page and the preview was built by slicing it back out. That made the
+    older Mk I demo a source file for the newer Mk III one — so a change to the
+    demo could alter what the published page runs on, and nothing said so.
     """
-    with open(os.path.join(ROOT, "docs/preview_template.html"),
-              encoding="utf-8") as f:
-        tpl = f.read()
-    assert tpl.count("__ENGINE__") == 1, \
-        "the preview template must take the demo's engine, exactly once"
-    assert 'const KINDS=["solid"' not in tpl, \
-        "the preview template has grown a redstone engine of its own"
-    print("  the preview still borrows the demo's engine rather than "
-          "carrying one: OK")
+    pages = ["docs/preview_template.html", "docs/demo_template.html"]
+    for rel in pages:
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+            tpl = f.read()
+        assert tpl.count("__ENGINE__") == 1, \
+            f"{rel} must take the engine, exactly once"
+        assert 'const KINDS=["solid"' not in tpl, \
+            f"{rel} has grown a redstone engine of its own"
+    with open(os.path.join(ROOT, "docs/engine.js"), encoding="utf-8") as f:
+        eng = f.read()
+    assert 'const KINDS=["solid"' in eng and "class Engine" in eng, \
+        "docs/engine.js is not the engine any more"
+    print(f"  {len(pages)} pages, 0 engines between them, and one "
+          f"docs/engine.js: OK")
 
 
 if __name__ == "__main__":

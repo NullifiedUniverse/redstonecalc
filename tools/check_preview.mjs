@@ -297,6 +297,43 @@ if (said.after !== "49, stable")
 console.log(`announced: "${said.during}" — ${said.saidWhileSettling} write ` +
             `over ${said.ticks} ticks of settling — then "${said.after}"`);
 
+// --- the settle meter has to actually sweep ---------------------------------
+// It used to estimate progress from how far the event queue had drained from
+// its deepest, which sounds reasonable and is not: this engine's queue holds a
+// handful of events at a time whatever the machine is doing, so `1 - q/peak`
+// has two or three reachable values. Measured over a real 3,670-tick settle it
+// showed exactly two — 0% and 50%. A bar with two positions is not a bar.
+const meter = await page.evaluate(() => {
+  for (let i = 0; i < circ.width; i++) {
+    if (!!world.lit[switchIdx["A" + i]] !== !!((999 >> i) & 1)) toggleBit("A", i);
+    if (!!world.lit[switchIdx["B" + i]] !== !!((24 >> i) & 1)) toggleBit("B", i);
+  }
+  settleNow();
+  pressButton("0");
+  const seen = [];
+  for (let n = 0; n < 6000 && eng.queue.length; n++) {
+    stepTick();
+    if (n % 100 === 0) { refreshPanel(); seen.push(railPct.textContent); }
+  }
+  const foot = document.getElementById("railTick").textContent;
+  const monotone = seen.every((v, i) => i === 0 || parseInt(v) >= parseInt(seen[i - 1]));
+  settleNow();
+  return { readings: new Set(seen).size, samples: seen.length, monotone, foot,
+           target: circ.settle };
+});
+if (!meter.target)
+  throw new Error("the bundle carries no settle length, so the meter has " +
+                  "nothing to measure against");
+if (meter.readings < 8)
+  throw new Error(`the meter showed only ${meter.readings} distinct values ` +
+                  `over ${meter.samples} samples of one settle`);
+if (!meter.monotone) throw new Error("the meter went backwards");
+if (!/of ~/.test(meter.foot))
+  throw new Error(`the meter's foot does not say what it is counting towards: ` +
+                  `"${meter.foot}"`);
+console.log(`meter: ${meter.readings} distinct readings over one settle, ` +
+            `monotone, counting towards ${meter.target.toLocaleString()} ticks`);
+
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written
 // by script and the resting document is already the finished page. The failure
