@@ -2432,3 +2432,70 @@ after its switch — sensible, since orbiting or zooming should stop a flight in
 progress. `0` *starts* one, so pressing it began the refit and then threw it
 away in the next statement. Found by the browser check on its first run, which
 is the argument for writing the check at the same time as the feature.
+
+### A second round, over the six modules the first one missed
+
+Seventeen mutations covered ten modules. Six had none at all — `machine`,
+`harness`, `panel`, `keypad`, `console` and `export` — which means the first
+sweep's headline said nothing whatsoever about them. Adding one break each took
+it to 23, and **21 were caught**. The two that were not are the same shape as
+each other: behaviour reachable only from the slow suite.
+
+**`rscalc/export.py` had no test of any kind.** Its only caller is
+`tools/build_preview.py`, and the only thing that had ever checked its output
+was the browser check — which needs a browser and which a Python mutation sweep
+cannot reach. That is a bad place for a hole, because the file is a **contract
+between two languages**: Python writes a kind byte and the page indexes `KINDS`
+with it, so inserting a block type into the middle of either list draws every
+block in the machine as the wrong material, with no error anywhere.
+
+`tests/test_export.py` decodes the blob the way the page's own `World`
+constructor does — offsets, widths and byte order written out literally, since a
+decoder that shares helpers with the encoder proves only that the two halves of
+one function agree — and checks every position and meta field, the (y, z, x)
+ordering the renderer's run-merging depends on, that a world too wide for 16-bit
+coordinates fails loudly rather than wrapping a block round to the far side, and
+that a circuit's levers and outputs land on real blocks in the blob's own frame.
+It parses `KINDS`, `DIRV` and the nine `K_*` constants out of
+`docs/demo_template.html` and requires them to equal the Python tables.
+
+The subtler half is the **state translation**. The two engines keep the same
+facts under different names — a comparator's output is `out` here and `power`
+there, a repeater's is `powered` and `lit`, a lever's is `on` and `lit` — and
+getting one wrong ships a page that boots into a resting state that is *almost*
+right, which is worse than one that is obviously broken. That is checked field
+by field, and the check refuses to count unless the test world carried state in
+every kind that has any.
+
+### The two survivors, and what they had in common
+
+**The digits were read in a method that needs half a million blocks to call.**
+`Machine.read_value` assembled `total += d * (10 ** k)` inline, so the only
+thing that could exercise the place values was `test_machine.py` — slow, held
+back, and not what the sweep runs. Reversing them there left the fast suite
+green, and a reversal is not a subtle fault: every answer comes back mirrored,
+so 999 still reads 999 and 723 reads 327. It is `value_of(digits)` now, one line
+and a docstring, pinned by `tests/test_display.py` in milliseconds. Extracting a
+function purely so that it can be tested is usually a smell; here it is the
+whole point, because the alternative was a convention four separate places agree
+on with nothing checking any of them.
+
+**The Mk II console had no fast test at all.** `tests/test_console.py` drives it
+through real keypads in the tick-accurate engine — the measurement that matters,
+and exactly why it is `--slow`. So building the decimal adder's *propagate* term
+as an AND instead of an OR, which is the classic carry-lookahead mistake and
+wrong on every carry, passed the fast suite without a murmur.
+`tests/test_console_logic.py` is the cheap half, the same split the ALU got:
+every one of the 100 key pairs a player can press, evaluated on the netlist and
+read at the far end — the fourteen segment lines that drive the lamps, not the
+adder's internal carries — so it checks what the display will actually show. It
+also pins the two things the console's own comments claim: that the tens digit is
+blank rather than a leading zero, and that the three undriven spacer rails
+between the keypads move nothing.
+
+Both holes were the same fault in the suite's shape rather than in the code:
+**the only test of a thing was one too slow to run.** A fast, logic-only check
+beside each slow, placed-blocks one costs milliseconds and is what the sweep can
+actually reach.
+
+With those two, all **23 of 23** are caught.

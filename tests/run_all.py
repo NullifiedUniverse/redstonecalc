@@ -22,6 +22,7 @@ FAST = [
     ("test_cells.py", "gate cells on placed blocks"),
     ("test_logic.py", "netlist helpers, against truth tables"),
     ("test_alu_logic.py", "the ALU's logic, exhaustive at 4 bits"),
+    ("test_console_logic.py", "the Mk II console's logic, all 100 key pairs"),
     ("test_pla.py", "place and route"),
     ("test_bcd.py", "binary to BCD"),
     ("test_display.py", "seven-segment display and the torch-free latch"),

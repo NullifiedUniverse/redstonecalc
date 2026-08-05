@@ -97,6 +97,35 @@ def test_repeater_lock_latch():
           f"reproduced: OK")
 
 
+def test_lamp_groups_are_read_least_significant_first():
+    """Group "0" is the units. Reverse it and 723 reads 327.
+
+    The convention is shared by the placer, the exporter, the page and
+    `Machine.read_value`, and it is the sort of thing four places agree on until
+    one of them stops. It was untestable while it lived inside a method that
+    needs half a million placed blocks to call — `tools/mutate_core.py` reversed
+    the place values there and the whole fast suite stayed green — so it is a
+    function of its own now, and this is it.
+    """
+    from rscalc.machine import value_of
+    assert value_of([]) == 0
+    assert value_of([7]) == 7
+    assert value_of([3, 2, 7]) == 723, "group 0 must be the units digit"
+    assert value_of([0, 0, 0, 1]) == 1000
+    assert value_of([9, 9, 9, 0]) == 999
+    # a palindrome cannot tell the two directions apart, which is why the
+    # cases above are not 0, 999 and 1111
+    for n in (0, 5, 42, 407, 1023, 9999):
+        digits, m = [], n
+        while True:
+            digits.append(m % 10)
+            m //= 10
+            if not m:
+                break
+        assert value_of(digits) == n, f"{n} did not round trip: {digits}"
+    print("  lamp group 0 is the units digit, and 723 does not read 327: OK")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} display/memory tests\n")

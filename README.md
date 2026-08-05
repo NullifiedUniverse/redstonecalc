@@ -283,17 +283,19 @@ guards that could not fail at all until someone tried to defeat them.
 `python3 tools/mutate_core.py` asks the same question of every module. It breaks
 one thing at a time, semantically — a torch inverting a tick late, dust that
 never loses a level, a left shift that rotates, Minecraft's repeater convention
-left unflipped — runs the fast suite, and requires it to fail. Seventeen
-mutations across engine, netlist, logic, alu, pla, bcd, display, cells, steady
-and mcbuild; each one reverted in a `finally` whether the run passes, fails or
-is interrupted.
+left unflipped — runs the fast suite, and requires it to fail. Twenty-three
+mutations across every module in `rscalc/`; each one reverted in a `finally`
+whether the run passes, fails or is interrupted, and the suite run once
+unmutated first so that "caught" means something.
 
-The first run caught sixteen and left three findings behind: a rotation feature
-nothing in the repository had ever used (deleted rather than pinned), a
-steady-state cache with no test of its own (`tests/test_steady.py`, which then
-caught two mutations nothing else did), and an ALU whose only fast-suite cover
-was the *documentation* check noticing that a gate count had moved
-(`tests/test_alu_logic.py`). [§30](docs/DESIGN.md) has the table.
+It found five holes. A rotation feature nothing in the repository had ever used
+(deleted rather than pinned); a steady-state cache with no test of its own
+(`tests/test_steady.py`, which then caught two mutations nothing else did); the
+exporter that writes the blob the page loads, which had no test at all and is a
+contract between two languages (`tests/test_export.py`); and two things whose
+only cover was a test too slow to run — the ALU and the Mk II console, which now
+have logic-only checks beside their placed-blocks ones. All 23 are caught now.
+[§30](docs/DESIGN.md) has the table.
 
 **What is still open.** Both engines were written from the same reading of the
 same rules, so a shared misreading produces two engines that agree with each
@@ -379,8 +381,8 @@ place.** The remaining wins are architectural: §12's Z ratchet.
 ## Running it
 
 ```sh
-python3 tests/run_all.py           # 13 fast modules, 21 seconds
-python3 tests/run_all.py --slow    # all 17, about six minutes
+python3 tests/run_all.py           # 15 fast modules, 19 seconds
+python3 tests/run_all.py --slow    # all 19, about ten minutes
 python3 tools/mutate_core.py       # break each module, require the suite to notice
 
 python3 tools/verify_logic.py                            # every operand pair, 31 s

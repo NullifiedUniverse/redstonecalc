@@ -67,6 +67,20 @@ PANEL_SPAN = 8
 SWITCH_SPACING = 2
 
 
+def value_of(digits):
+    """Assemble a decimal number from lamp groups, **least significant first**.
+
+    Lamp group `"0"` is the units, `"1"` the tens, and so on, and that ordering
+    is a convention shared by the placer, the exporter, this reader and the
+    page — reverse it and every answer comes back with its digits mirrored, so
+    999 still reads 999 and 723 reads 327. It is a one-line function so that it
+    can be tested without standing up half a million blocks first: it lived
+    inside `Machine.read_value`, and `tools/mutate_core.py` reversed it there
+    with the whole fast suite still green.
+    """
+    return sum(d * 10 ** k for k, d in enumerate(digits))
+
+
 def build_netlist(width=WIDTH, carry="cla"):
     """Levers and keys in, segment lines and flags out."""
     nl = Netlist()
@@ -286,7 +300,7 @@ class Machine:
     # -- reading it, off the lamps --
     def read_value(self, engine):
         """The number on the digits, or None if any digit is not a numeral."""
-        total = 0
+        digits = []
         for k in range(self.ndigits):
             d = read_digit(engine, self.lamps[str(k)])
             if d is None:
@@ -294,8 +308,8 @@ class Machine:
                 if lit_segments(engine, self.lamps[str(k)]) != "":
                     return None
                 d = 0
-            total += d * (10 ** k)
-        return total
+            digits.append(d)
+        return value_of(digits)
 
     def read_flags(self, engine):
         return {f: 1 if engine.read(self.lamps["F"][f]) > 0 else 0
