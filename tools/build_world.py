@@ -46,7 +46,24 @@ repository and verified in a tick-accurate simulator before export.
    {entry}
    ```
 
-It runs {commands:,} commands in {files} batches. Give it a moment.
+It runs {commands:,} commands, **one batch per game tick over {ticks} ticks**
+(about {seconds:.1f} seconds). It is paced rather than run in one go for two
+reasons: a single tick holding all of it freezes the server, and dropping half a
+million redstone blocks into the world in the same instant is the worst possible
+starting transient for a machine this deep — see DESIGN §13 for what coincident
+transitions do to torches.
+
+Placement follows a marker entity summoned where you ran the command, because a
+`schedule`d function forgets where it was called from and would otherwise build
+the machine at world origin.
+
+### Taking it back out
+
+```
+{clear}
+```
+
+from the same corner. It clears one Y layer per tick over {clear_ticks} ticks.
 
 ## Option 2 — structure files
 
@@ -196,6 +213,8 @@ def main():
             dv=mcbuild.DATA_VERSION, solid=args.solid,
             entry="/" + pack["entry"], commands=pack["commands"],
             files=pack["files"], pieces=len(man["pieces"]),
+            clear="/" + pack["clear"], ticks=pack["ticks"],
+            clear_ticks=pack["clear_ticks"], seconds=pack["ticks"] / 20,
             delay=args.delay,
             controls=stats.get("controls", ""),
             settle=args.settle or stats.get("settle", 0),

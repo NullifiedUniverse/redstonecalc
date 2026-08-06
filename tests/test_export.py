@@ -267,6 +267,57 @@ def test_the_bundle_is_one_line_of_json():
     print(f"  the bundle is {size:,} bytes of single-line JSON: OK")
 
 
+def test_the_page_gets_its_minecraft_table_from_the_exporter():
+    """The page writes a datapack. It must not know how to.
+
+    Every orientation convention in this project is stated once, in
+    `mcbuild.block_state` — a repeater's facing flips on the way out, a wall
+    torch points away from its support — and each of them fails *silently* when
+    wrong: the build looks perfect and computes nothing. So the bundle carries
+    a (kind, meta) -> block state table computed from that function, and the
+    page looks answers up rather than deriving them. This checks the shipped
+    table against `mcbuild` directly, because a table that has drifted is a
+    second opinion about a convention with nobody to referee it.
+    """
+    import json
+    from rscalc import mcbuild
+    path = os.path.join(ROOT, "out/preview.json")
+    if not os.path.exists(path):
+        print("  (no bundle built yet — skipped)")
+        return
+    circ = json.load(open(path))["circuits"][0]
+    mc = circ.get("mc")
+    assert mc, "the bundle carries no Minecraft table, so the page cannot " \
+               "write a datapack without inventing one"
+    assert mc["pack_format"] == mcbuild.PACK_FORMAT_DEFAULT
+
+    w = build()
+    checked = 0
+    for b in w.blocks.values():
+        meta = 0
+        if b.kind == "repeater":
+            meta = DIRS6.index(b.facing) | ((b.delay - 1) << 3)
+        elif b.kind == "comparator":
+            meta = DIRS6.index(b.facing) | ((1 if b.mode == "subtract" else 0) << 3)
+        elif b.kind == "redstone_torch":
+            meta = DIRS6.index(b.attach)
+        elif b.kind == "lever":
+            meta = DIRS6.index(b.attach) | ((1 if b.on else 0) << 3)
+        key = f"{KIND_ID[b.kind]}:{meta}"
+        if key not in mc["map"]:
+            continue                      # this combination is not in the Mk III
+        name, props = mcbuild.block_state(b)
+        want = name + ("" if not props else
+                       "[" + ",".join(f"{k}={v}" for k, v in sorted(props.items()))
+                       + "]")
+        got = mc["palette"][mc["map"][key]]
+        assert got == want, f"{b.kind}/{meta}: page says {got}, mcbuild says {want}"
+        checked += 1
+    assert checked >= 5, f"only {checked} kinds were comparable"
+    print(f"  the page's {len(mc['palette'])}-entry Minecraft table agrees with "
+          f"mcbuild on every one of {checked} kinds checked: OK")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} export tests\n")

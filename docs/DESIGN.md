@@ -2595,3 +2595,97 @@ touch screen.
 drag turns the machine without moving the page, a swipe up the canvas reads on
 without tilting the camera, two fingers zoom both ways, and the view is bounded
 in pixels.
+
+## 32. Groundwork for putting it in a world — **measured**
+
+The export has always produced two vanilla routes, structure files and a
+datapack. Neither had been looked at as something a person actually runs.
+
+### 71,768 commands in one game tick
+
+`build.mcfunction` called each of its nine parts in a row. That is every
+command inside a single tick: a server executes all of it before the tick ends,
+and every block of a half-million-block redstone machine appears in the same
+instant — the most hostile possible starting transient for the thing §13 spends
+a table on.
+
+The parts run one per tick now, driven by a `schedule` chain, and at 2,000
+commands a part rather than 8,000 that is **36 parts over 36 ticks**, under two
+seconds. There is a trap in doing it that way which is not obvious: **a
+scheduled function does not remember where it was called from.** It executes at
+the world origin with no executor, and every command in this pack is relative,
+so the machine would appear at 0, 0, 0 instead of at the player. A `marker`
+entity summoned where the build was started, with each part run `as` it `at` its
+position, is what carries the origin through the chain.
+
+There is a way back out now too — `clear` walks a marker up one Y layer per
+tick, slicing each layer into Z strips that fit under `fill`'s 32,768-block cap.
+A half-million-block machine in the wrong place is not something anyone should
+dig out by hand.
+
+### Two functions from other machines, inside a distributed pack
+
+The exporter never cleaned its output directory, so `partNNNN` files from
+earlier, differently-chunked runs stayed. The shipped pack held **part0009 and
+part0010 from two different builds on two different days** — 512 KB of another
+machine's commands, uncalled but distributed with it.
+
+`tests/test_mcbuild.py` now walks the call graph: every function on disk has to
+be reachable from an entry point the exporter *declares*, so a file can only be
+excused by being advertised to the player. It also interprets the pacing chain —
+the counter, the dispatch table and the self-rescheduling tick — and requires
+every part to run exactly once, in order, before `done`.
+
+### Somebody else's NBT reader
+
+`test_structure_roundtrip` parsed the `.nbt` files back with a reader written
+here, beside the writer. That is the same author checking their own reading of
+the NBT spec twice, which is the gap §14 opened for the redstone rules and then
+closed with a second engine.
+
+`nbtlib` is somebody else's implementation. It reads every structure file back
+and is required to agree with the local reader on the size, the data version,
+the palette and every block's position and state. It does — and if it ever
+stops, one of us is wrong about the *format*, which is a different and much
+more useful thing to learn than that this file disagrees with itself.
+
+### The page writes the datapack itself
+
+The machine is already in the browser, block for block. The only thing between
+it and a Minecraft world is the orientation conventions — and those fail
+silently when wrong, so the page must not hold an opinion about them.
+
+So `tools/build_preview.py` walks the world once, asks `mcbuild.block_state`
+for each distinct (kind, meta) combination, and ships the answers as a
+14-entry palette and a lookup table. The page never derives a facing; it looks
+one up. `tests/test_export.py` checks that shipped table against `mcbuild`
+directly.
+
+Given that, the page can assemble a datapack from the blocks it is already
+simulating, zip it with **fflate** — vendored for the same reason GSAP is, and
+about a third the size of the obvious alternative — and hand it over. Measured
+in the browser:
+
+| | |
+|---|---|
+| commands | **71,768** in 36 parts |
+| identical to the Python exporter's count | yes |
+| blocks rebuilt by replaying them | **456,558 of 456,558**, none mismatched |
+| fills varying on more than one axis | 0 |
+| zip | 409 KB, 46 entries |
+| time in the page | 366 ms |
+
+Getting to that number took a second pass. Merging runs along X alone gave
+318,998 commands and 160 parts — a pack four times larger, and four times as
+many ticks to place — because the Python exporter merges along X **and then
+along Z**. Only single-block X runs can extend along Z without becoming a box,
+which is the rule `test_mcbuild` already enforced on the exporter, so it is the
+rule here too. With it the two agree exactly, which is the strongest evidence
+available that the page and the exporter are doing the same thing.
+
+The check that says so does not count spans: it reconstructs every position the
+commands touch and compares each against the block the page is simulating. The
+first version *did* count spans, on one axis, and so undercounted every fill
+that ran along the other — reporting fewer than half the blocks placed. That was
+a failure invented entirely by the measurement, on a generator that was already
+right.

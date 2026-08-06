@@ -72,6 +72,7 @@ def test_nothing_the_page_needs_is_fetched_from_anywhere():
     assert not bad, f"the page reaches outside itself: {bad}"
     assert "GSAP 3." in page, "the animation library is not in the built page"
     assert "ScrollTrigger" in page, "ScrollTrigger is not in the built page"
+    assert "fflate" in page, "the zip library is not in the built page"
     print(f"  the built page is {len(page)//1024} KB and fetches nothing: OK")
 
 

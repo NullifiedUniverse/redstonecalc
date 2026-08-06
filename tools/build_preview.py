@@ -167,6 +167,43 @@ def main():
 
 
 
+def _mc_table(world):
+    """(kind, meta) -> Minecraft block state, as a palette and an index map.
+
+    The bundle already carries every block's kind and meta byte. This is the
+    small lookup that turns those into `minecraft:repeater[facing=west,...]`,
+    built by walking the world once and asking `mcbuild` for each distinct
+    combination — so the page cannot disagree with the exporter about a
+    convention, because it never forms an opinion about one.
+    """
+    from rscalc import mcbuild
+    from rscalc.export import DIR_ID, KIND_ID
+    palette, index, table = [], {}, {}
+    for b in world.blocks.values():
+        meta = 0
+        if b.kind == "repeater":
+            meta = DIR_ID[b.facing] | ((b.delay - 1) << 3)
+        elif b.kind == "comparator":
+            meta = DIR_ID[b.facing] | ((1 if b.mode == "subtract" else 0) << 3)
+        elif b.kind == "redstone_torch":
+            meta = DIR_ID[b.attach]
+        elif b.kind == "lever":
+            meta = DIR_ID[b.attach] | ((1 if b.on else 0) << 3)
+        key = f"{KIND_ID[b.kind]}:{meta}"
+        if key in table:
+            continue
+        name, props = mcbuild.block_state(b)
+        state = name + ("" if not props else
+                        "[" + ",".join(f"{k}={v}" for k, v in sorted(props.items()))
+                        + "]")
+        if state not in index:
+            index[state] = len(palette)
+            palette.append(state)
+        table[key] = index[state]
+    return {"palette": palette, "map": table,
+            "pack_format": mcbuild.PACK_FORMAT_DEFAULT}
+
+
 def export_machine(delay=None):
     """The whole Mk III machine, with its settled state, for the live page.
 
@@ -210,6 +247,13 @@ def export_machine(delay=None):
         # 0% and 50%. Ticks against a known length is an estimate too, but a
         # monotone one that means something.
         "settle": SETTLE_GT,
+        # Everything the page needs to write this machine as Minecraft
+        # commands, computed *here* so there is exactly one statement of the
+        # orientation conventions. `mcbuild.block_state` is the only place that
+        # knows a repeater's facing flips on the way out; the page looks the
+        # answer up by (kind, meta) rather than deriving it a second time, and
+        # `tests/test_export.py` checks the table against mcbuild directly.
+        "mc": _mc_table(m.world),
         "ops": OPS,
         "flags": FLAGS,
         "digits": [str(k) for k in reversed(range(m.ndigits))],

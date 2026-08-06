@@ -50,6 +50,14 @@ redstone — classic mechanics apply.
   ScrollTrigger**, both *inlined* rather than fetched — the artifact runtime
   blocks external hosts, and a blocked CDN tag fails silently — and on a phone a
   peek bar follows the answer down while you work the keypad. See DESIGN §29.
+- **A datapack you can take away, written by the page itself.** The machine is
+  already in the browser block for block, so the page assembles a vanilla
+  datapack from it and zips it with **fflate** (vendored, like GSAP). It emits
+  **71,768 commands in 36 parts — exactly the count the Python exporter
+  produces** — and the browser check replays every one of them and requires all
+  456,558 blocks back, in the right state. The orientation conventions are not
+  duplicated in JavaScript: `rscalc/mcbuild.py` computes a (kind, meta) → block
+  state table at build time and the page looks answers up. See DESIGN §32.
 
 ## Mk I results — where the architecture came from
 
@@ -237,6 +245,15 @@ A caution rather than a caveat: half a million redstone components in one world
 is far past what a Minecraft server ticks comfortably. This is a build that is
 honest about being a simulation artefact first.
 
+The datapack is **paced**: it places one batch per game tick over 36 ticks
+rather than running 71,768 commands inside one, which freezes a server and drops
+half a million redstone blocks into the world in the same instant — the worst
+possible starting transient for a machine this deep. Placement follows a marker
+entity, because a `schedule`d function forgets where it was called from and
+would otherwise build at world origin. There is a `clear` function to take it
+back out, and `tests/test_mcbuild.py` interprets the whole chain to prove every
+part runs exactly once, in order, with no function in the pack unreachable.
+
 One convention matters more than anything else, because getting it wrong fails
 *silently* — the build looks perfect and computes nothing. Minecraft's repeater
 `facing` runs from the **output** side to the **input** side, the opposite of
@@ -244,7 +261,10 @@ this simulator's; comparators match repeaters; and a wall torch's `facing`
 points *away* from its support. All three are flipped on the way out, and
 `tests/test_mcbuild.py` asserts each one, parses the structure files back with
 an independent NBT reader, and replays the datapack into a fresh world to
-compare block for block.
+compare block for block. **`nbtlib` — somebody else's implementation — reads
+every structure file back too**, and has to agree with the reader here on the
+size, the data version, the palette and every block: a reader written beside its
+writer is one author checking their own understanding of the format twice.
 
 ## Is the simulator right?
 
@@ -381,7 +401,7 @@ place.** The remaining wins are architectural: §12's Z ratchet.
 ## Running it
 
 ```sh
-python3 tests/run_all.py           # 15 fast modules, 19 seconds
+python3 tests/run_all.py           # 16 fast modules, 19 seconds
 python3 tests/run_all.py --slow    # all 19, about ten minutes
 python3 tools/mutate_core.py       # break each module, require the suite to notice
 
@@ -389,6 +409,7 @@ python3 tools/verify_logic.py                            # every operand pair, 3
 python3 tools/verify_full.py                             # 300 vectors, flags too
 python3 tools/verify_machine.py --delay 4 --vectors 40   # a quicker sweep
 python3 tools/build_world.py                             # export for Minecraft
+pip install -r requirements-dev.txt                      # nbtlib, for the NBT check
 python3 tools/build_preview.py machine 4                 # rebuild the bundle
 python3 tools/build_pages.py                             # inject into docs/
 node tools/check_preview.mjs                             # the page, in a browser

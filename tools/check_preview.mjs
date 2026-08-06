@@ -344,6 +344,79 @@ if (!/of ~/.test(meter.foot))
 console.log(`meter: ${meter.readings} distinct readings over one settle, ` +
             `monotone, counting towards ${meter.target.toLocaleString()} ticks`);
 
+// --- the machine, as a datapack the reader can take away --------------------
+// The page assembles a Minecraft datapack from the same block data it is
+// simulating, using the (kind, meta) -> block state table `rscalc/mcbuild.py`
+// ships in the bundle. The claim worth checking is not that a zip comes out —
+// it is that replaying the commands rebuilds *this machine*, block for block,
+// with every orientation intact.
+const pack = await page.evaluate(() => {
+  const mc = circ.mc;
+  const t0 = performance.now();
+  const { files, commands, parts, ns } = datapackFiles();
+  const ms = performance.now() - t0;
+  const setb = /^setblock ~(-?\d+) ~(-?\d+) ~(-?\d+) (.+) replace$/;
+  const fill = /^fill ~(-?\d+) ~(-?\d+) ~(-?\d+) ~(-?\d+) ~(-?\d+) ~(-?\d+) (.+) replace$/;
+  // rebuild every position the commands touch, the way the game would, and
+  // compare against the machine itself — counting spans on one axis silently
+  // undercounts the moment fills can vary on another
+  const world_map = new Map(), kinds = new Set();
+  let bad = 0, boxes = 0;
+  for (const k in files) {
+    if (!/part\d+\.mcfunction$/.test(k)) continue;
+    for (const line of files[k].split("\n")) {
+      if (!line) continue;
+      let m = setb.exec(line);
+      if (m) { world_map.set(`${m[1]},${m[2]},${m[3]}`, m[4]); kinds.add(m[4]); continue; }
+      m = fill.exec(line);
+      if (!m) { bad++; continue; }
+      const a = [+m[1], +m[2], +m[3]], c = [+m[4], +m[5], +m[6]];
+      const vary = [0,1,2].filter(i => a[i] !== c[i]);
+      if (vary.length > 1) { boxes++; continue; }
+      kinds.add(m[7]);
+      if (!vary.length) { world_map.set(a.join(","), m[7]); continue; }
+      const ax = vary[0];
+      for (let v = Math.min(a[ax], c[ax]); v <= Math.max(a[ax], c[ax]); v++) {
+        const q = a.slice(); q[ax] = v; world_map.set(q.join(","), m[7]);
+      }
+    }
+  }
+  // and every one has to be the block the page is simulating
+  let mismatched = 0;
+  for (let i = 0; i < world.n; i++) {
+    const want = mc.palette[mc.map[world.kind[i] + ":" + world.meta[i]]];
+    const got = world_map.get(`${world.bx[i]},${world.by[i]},${world.bz[i]}`);
+    if (got !== want) mismatched++;
+  }
+  const placed = world_map.size;
+  const enc = new TextEncoder(), zin = {};
+  for (const k in files) zin[k] = enc.encode(files[k]);
+  const zip = fflate.zipSync(zin, { level: 6 });
+  const back = fflate.unzipSync(zip);
+  return { commands, parts, ms: Math.round(ms), placed, bad, boxes, mismatched,
+           blocks: world.n,
+           kinds: kinds.size, zipKB: Math.round(zip.length / 1024),
+           entries: Object.keys(back).length,
+           mcmeta: new TextDecoder().decode(back["pack.mcmeta"]).replace(/\s+/g, " ") };
+});
+if (pack.bad) throw new Error(`${pack.bad} commands the game could not parse`);
+if (pack.boxes)
+  throw new Error(`${pack.boxes} fills vary on more than one axis — the ` +
+                  `exporter's own replay test forbids boxes`);
+if (pack.placed !== pack.blocks)
+  throw new Error(`the datapack places ${pack.placed} blocks, the machine has ` +
+                  `${pack.blocks}`);
+if (pack.mismatched)
+  throw new Error(`${pack.mismatched} blocks come back as a different block ` +
+                  `state than the page is simulating`);
+if (pack.entries < 10 || !/pack_format/.test(pack.mcmeta))
+  throw new Error(`the zip does not reopen as a datapack: ${pack.entries} ` +
+                  `entries, mcmeta ${pack.mcmeta}`);
+console.log(`datapack: ${pack.commands.toLocaleString()} commands in ` +
+            `${pack.parts} parts rebuild all ${pack.placed.toLocaleString()} ` +
+            `blocks exactly (${pack.kinds} block states, ${pack.zipKB} KB zip, ` +
+            `${pack.ms}ms in the page)`);
+
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written
 // by script and the resting document is already the finished page. The failure

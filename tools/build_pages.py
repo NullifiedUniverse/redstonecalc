@@ -46,6 +46,19 @@ def motion_source():
                      for f in ("gsap.min.js", "ScrollTrigger.min.js"))
 
 
+def zip_source():
+    """fflate, inlined, for the same reason GSAP is.
+
+    The page builds a Minecraft datapack in the browser so a reader can take the
+    machine they have been operating and put it in their own world. A datapack
+    is a zip, and writing a correct one by hand is a CRC table and three header
+    formats — a real library is the right answer. fflate is about a third the
+    size of the obvious alternative, and vendored because the artifact runtime
+    blocks every external host.
+    """
+    return read("vendor/fflate/fflate.umd.js")
+
+
 def render():
     """Both pages as strings, without writing anything."""
     engine = engine_source()
@@ -56,6 +69,7 @@ def render():
     out["docs/preview.html"] = (
         read("docs/preview_template.html")
         .replace("__GSAP__", motion_source())
+        .replace("__FFLATE__", zip_source())
         .replace("__ENGINE__", engine)
         .replace("__CIRCUIT_DATA__", read("out/preview.json")))
     return out

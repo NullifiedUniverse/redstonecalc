@@ -364,6 +364,27 @@ input:focus-visible{outline:2px solid var(--redstone);outline-offset:2px}
   .peek-up{font-size:.9rem;color:var(--ash);line-height:1}
 }
 
+/* ---- taking it away ---- */
+.takeaway{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;
+  margin:.9rem 0 0;padding:.8rem .95rem;border:1px solid var(--seam);
+  border-radius:var(--r);background:var(--slate)}
+.takeaway-txt{display:flex;flex-direction:column;gap:.15rem;flex:1 1 16rem;
+  min-width:0}
+.takeaway-txt b{font-family:var(--mono);font-size:.66rem;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink)}
+.takeaway-txt span{font-size:.85rem;color:var(--ash);line-height:1.5}
+.takeaway-txt span b{font-family:var(--mono);font-size:inherit;
+  letter-spacing:0;text-transform:none;color:var(--ink)}
+#bPack{flex:0 0 auto}
+.takeaway-note{font-family:var(--mono);font-size:.62rem;color:var(--dim);
+  flex:0 0 auto;min-width:9rem}
+.takeaway-note.bad{color:var(--redstone)}
+@media (max-width:820px){
+  .takeaway{gap:.6rem}
+  #bPack{flex:1 1 100%;padding:.7rem;min-height:44px}
+  .takeaway-note{flex:1 1 100%;min-width:0}
+}
+
 /* ---- the notebook ---- */
 /* the notebook is narrower than the instrument on purpose: a wide rig you
    operate, a column you read */
@@ -652,6 +673,20 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
     <div><b id="hDepth">—</b><span>stages deep</span></div>
     <div><b>2,352</b><span>ticks to the answer</span></div>
     <div><b>0</b><span>torches burned</span></div>
+  </div>
+  <!-- The machine is right here in the page, block for block. The only thing
+       between it and a Minecraft world is the orientation conventions, and
+       those are already computed by the exporter and carried in the bundle —
+       so the page can write the datapack itself rather than sending anyone to
+       a repository to run a script. -->
+  <div class="takeaway">
+    <div class="takeaway-txt">
+      <b>Put it in your own world</b>
+      <span>A vanilla datapack — no mods. Stand at a corner, run one command,
+        and it places itself over <b id="dpTicks">36</b> game ticks.</span>
+    </div>
+    <button type="button" id="bPack" class="prim">get the datapack</button>
+    <span class="takeaway-note" id="dpNote"></span>
   </div>
   <p class="small col rig-note" style="margin-top:.8rem">Signal level is height as well as
     colour. Dust carries a strength from 15 down to 0, losing one per block, so a
@@ -1109,6 +1144,9 @@ the 8 operation levers ──▶ one-hot latches ──▶ 3-bit opcode
      runtime blocks every external host — a blocked script does not fail loudly,
      it just arrives with no animation and no error anyone will see. -->
 <script>__GSAP__</script>
+<!-- fflate, inlined by tools/build_pages.py from vendor/fflate. The page
+     assembles a Minecraft datapack client-side; a datapack is a zip. -->
+<script>__FFLATE__</script>
 
 <script>
 const BUNDLE = __CIRCUIT_DATA__;
@@ -2847,6 +2885,181 @@ function flashValue(el){
     {scale:1,color:"",duration:.5,ease:"power3.out",clearProps:"scale,color"});
 }
 
+/* ---- the machine, as a Minecraft datapack ----------------------------------
+
+   Everything needed is already here: the bundle carries every block's position,
+   kind and meta byte, and `circ.mc` carries the lookup from (kind, meta) to a
+   Minecraft block state. That table is computed by `rscalc/mcbuild.py` at build
+   time and shipped as data, which is the whole point — the orientation
+   conventions are stated once, in the exporter, and this file never forms an
+   opinion about them. A repeater's facing flips on the way out of the simulator
+   and the page does not know that, because it never has to.
+
+   Runs of identical states along X collapse into one `fill`, the same way the
+   Python exporter does it: most of this machine is the floor under the dust, so
+   the collapse is what takes the whole machine down to something a datapack
+   can carry. The parts are then driven one per tick by a marker and a schedule
+   chain, because a scheduled function forgets where it was called from — see
+   `mcbuild.write_paced_entry`, whose output this mirrors. */
+const PACK_PER_FILE=2000;
+function datapackFiles(){
+  const mc=circ.mc;
+  if(!mc)throw new Error("this bundle carries no Minecraft table");
+  const [dx,dy,dz]=world.dims;
+  const ns=(circ.name||"rscalc")+"_mk3";
+  const lines=[],files=[],runs=[];
+  let run=null;
+  const flushRun=()=>{ if(run){runs.push(run);run=null;} };
+  // the blocks arrive sorted by (y, z, x), which is exactly the order a run
+  // along X needs — the same ordering `tests/test_export.py` pins
+  for(let i=0;i<world.n;i++){
+    const key=world.kind[i]+":"+world.meta[i];
+    const st=mc.map[key];
+    if(st===undefined)continue;
+    const x=world.bx[i],y=world.by[i],z=world.bz[i];
+    if(run&&run.state===st&&run.y===y&&run.z===z&&x===run.x1+1){run.x1=x;continue;}
+    flushRun();
+    run={state:st,y,z,x0:x,x1:x};
+  }
+  flushRun();
+
+  /* A second pass, along Z, because the first pass alone is not enough: the
+     Python exporter merges X *and then* Z and gets 6.4 blocks a command, where
+     X alone gets 1.4 — a datapack four times larger and four times as many
+     ticks to place. Only single-block X runs can extend along Z without
+     becoming a box, and `tests/test_mcbuild.py` requires every fill to vary on
+     exactly one axis, so that is the rule here too. */
+  const single=new Map(),kept=[];
+  for(const r of runs){
+    if(r.x0!==r.x1){kept.push(r);continue;}
+    const k=r.state+"|"+r.y+"|"+r.x0;
+    const prev=single.get(k);
+    if(prev&&prev.z1===r.z-1){prev.z1=r.z;continue;}
+    const cell={state:r.state,y:r.y,x:r.x0,z0:r.z,z1:r.z};
+    single.set(k,cell);kept.push(cell);
+  }
+  for(const r of kept){
+    const st=mc.palette[r.state];
+    if(r.x0!==undefined)
+      lines.push(`fill ~${r.x0} ~${r.y} ~${r.z} ~${r.x1} ~${r.y} ~${r.z} ${st} replace`);
+    else if(r.z0===r.z1)
+      lines.push(`setblock ~${r.x} ~${r.y} ~${r.z0} ${st} replace`);
+    else
+      lines.push(`fill ~${r.x} ~${r.y} ~${r.z0} ~${r.x} ~${r.y} ~${r.z1} ${st} replace`);
+  }
+
+  const parts=[];
+  for(let i=0;i<lines.length;i+=PACK_PER_FILE)
+    parts.push(lines.slice(i,i+PACK_PER_FILE));
+  const name=n=>`part${String(n).padStart(4,"0")}`;
+  const obj=ns+"_step",tag=ns+"_origin";
+  const out={};
+  parts.forEach((p,i)=>{out[`data/${ns}/function/${name(i)}.mcfunction`]=p.join("\n")+"\n";});
+
+  out[`data/${ns}/function/build.mcfunction`]=[
+    `# ${lines.length} commands in ${parts.length} parts, one part per tick.`,
+    `# Stand at the machine's -X -Y -Z corner and run this.`,
+    `scoreboard objectives add ${obj} dummy`,
+    `kill @e[type=marker,tag=${tag}]`,
+    `summon marker ~ ~ ~ {Tags:["${tag}"]}`,
+    `scoreboard players set #build ${obj} 0`,
+    `tellraw @a {"text":"${ns}: ${lines.length} commands over ${parts.length} ticks...","color":"gray"}`,
+    `function ${ns}:tick`,
+  ].join("\n")+"\n";
+  out[`data/${ns}/function/tick.mcfunction`]=[
+    `execute as @e[type=marker,tag=${tag},limit=1] at @s run function ${ns}:dispatch`,
+    `scoreboard players add #build ${obj} 1`,
+    `execute if score #build ${obj} matches ..${parts.length-1} run schedule function ${ns}:tick 1t replace`,
+    `execute if score #build ${obj} matches ${parts.length}.. run function ${ns}:done`,
+  ].join("\n")+"\n";
+  out[`data/${ns}/function/dispatch.mcfunction`]=
+    parts.map((_,i)=>`execute if score #build ${obj} matches ${i} run function ${ns}:${name(i)}`).join("\n")+"\n";
+  out[`data/${ns}/function/done.mcfunction`]=[
+    `kill @e[type=marker,tag=${tag}]`,
+    `scoreboard objectives remove ${obj}`,
+    `tellraw @a {"text":"${ns} placed. The control wall is at the -X end.","color":"green"}`,
+  ].join("\n")+"\n";
+
+  const zstep=Math.max(1,Math.floor(32768/Math.max(1,dx)));
+  const strips=[];
+  for(let z=0;z<dz;z+=zstep)
+    strips.push(`fill ~ ~ ~${z} ~${dx-1} ~ ~${Math.min(dz-1,z+zstep-1)} minecraft:air replace`);
+  out[`data/${ns}/function/clear.mcfunction`]=[
+    `# Run from the same corner build was run from.`,
+    `scoreboard objectives add ${obj}c dummy`,
+    `kill @e[type=marker,tag=${tag}c]`,
+    `summon marker ~ ~ ~ {Tags:["${tag}c"]}`,
+    `scoreboard players set #clear ${obj}c 0`,
+    `function ${ns}:clear_tick`,
+  ].join("\n")+"\n";
+  out[`data/${ns}/function/clear_tick.mcfunction`]=[
+    `execute as @e[type=marker,tag=${tag}c,limit=1] at @s run function ${ns}:clear_slice`,
+    `execute as @e[type=marker,tag=${tag}c,limit=1] at @s run tp @s ~ ~1 ~`,
+    `scoreboard players add #clear ${obj}c 1`,
+    `execute if score #clear ${obj}c matches ..${dy-1} run schedule function ${ns}:clear_tick 1t replace`,
+    `execute if score #clear ${obj}c matches ${dy}.. run function ${ns}:clear_done`,
+  ].join("\n")+"\n";
+  out[`data/${ns}/function/clear_slice.mcfunction`]=strips.join("\n")+"\n";
+  out[`data/${ns}/function/clear_done.mcfunction`]=[
+    `kill @e[type=marker,tag=${tag}c]`,
+    `scoreboard objectives remove ${obj}c`,
+    `tellraw @a {"text":"${ns} removed.","color":"gray"}`,
+  ].join("\n")+"\n";
+
+  out["pack.mcmeta"]=JSON.stringify({pack:{pack_format:mc.pack_format,
+    description:`${ns} — a ${circ.width}-bit calculator made of redstone`}},null,1);
+  out["README.txt"]=
+`${circ.title}
+
+${world.n.toLocaleString()} blocks, ${dx} x ${dy} x ${dz}, repeater delay ${circ.delay}.
+Generated in the browser from the same block data the page is simulating.
+
+  1. Put this folder (or zip) in <world>/datapacks/
+  2. /reload
+  3. Stand at the machine's -X -Y -Z corner, facing +X, and run:
+       /function ${ns}:build
+     It places itself over ${parts.length} game ticks.
+
+  To remove it, from the same corner:
+       /function ${ns}:clear
+
+The control wall is at the -X end: ${circ.width} bits of A, ${circ.width} of B,
+and ${(circ.ops||[]).length} operation keys. Flip levers, press a key, read the lamps.
+`;
+  return {files:out, commands:lines.length, parts:parts.length, ns};
+}
+
+function downloadPack(){
+  const note=$("dpNote"),btn=$("bPack");
+  if(typeof fflate==="undefined"){
+    note.textContent="the zip library did not load";note.className="takeaway-note bad";return;
+  }
+  btn.disabled=true;note.className="takeaway-note";
+  note.textContent="writing commands…";
+  // one frame, so the label paints before the main thread goes away for a
+  // second: this walks every block in the machine with no worker to put it on
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    try{
+      const t0=performance.now();
+      const {files,commands,parts,ns}=datapackFiles();
+      const enc=new TextEncoder();
+      const zipIn={};
+      for(const k in files)zipIn[k]=enc.encode(files[k]);
+      const zipped=fflate.zipSync(zipIn,{level:6});
+      const blob=new Blob([zipped],{type:"application/zip"});
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download=ns+"_datapack.zip";
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+      note.textContent=`${commands.toLocaleString()} commands, ${parts} parts, `
+        +`${(zipped.length/1024).toFixed(0)} KB (${((performance.now()-t0)/1000).toFixed(1)}s)`;
+    }catch(err){
+      note.textContent=String(err.message||err);note.className="takeaway-note bad";
+    }finally{btn.disabled=false;}
+  }));
+}
+
 /* ---- the tick loop: this is the whole point ---- */
 let playing=false,speed=20,acc=0,last=0;
 /* every key currently held down, and the tick it should pop back out on.
@@ -3009,6 +3222,7 @@ $("cut").oninput=e=>{
 $("bPlay").onclick=()=>setPlaying(!playing);
 $("bStep").onclick=()=>{setPlaying(false);stepTick();refreshPanel();};
 $("bSettle").onclick=()=>settleNow();
+$("bPack").onclick=downloadPack;
 $("speed").onchange=e=>{speed=+e.target.value;};
 /* Hiding the structure is a clarity control before it is a speed one: what is
    left is exactly the circuit — dust, torches, repeaters, lamps and levers. */

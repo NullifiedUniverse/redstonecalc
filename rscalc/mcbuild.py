@@ -40,6 +40,9 @@ import struct
 DATA_VERSION = 3953
 STRUCTURE_MAX = 48          # a structure block's limit, per side
 DEFAULT_SOLID = "minecraft:light_gray_concrete"
+#: 1.21's datapack format, in one place so the page and the
+#: exporter cannot disagree about it
+PACK_FORMAT_DEFAULT = 48
 
 OPPOSITE = {"north": "south", "south": "north",
             "east": "west", "west": "east",
@@ -283,7 +286,7 @@ def _command(name, props, a, b):
 
 
 def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
-                    per_file=8000, pack_format=48):
+                    per_file=2000, pack_format=PACK_FORMAT_DEFAULT):
     """A datapack whose functions rebuild the machine relative to the player.
 
     Commands are relative (``~``), so running the entry function places the
@@ -293,6 +296,14 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
     """
     ns = name.lower()
     fdir = os.path.join(outdir, "data", ns, "function")
+    # Clear it first. Without this an export inherits every `partNNNN` a
+    # previous, differently-chunked run left behind: the shipped pack held
+    # part0009 and part0010 from two earlier builds, 512 KB of another
+    # machine's commands, uncalled but distributed.
+    if os.path.isdir(fdir):
+        for stale in os.listdir(fdir):
+            if stale.endswith(".mcfunction"):
+                os.remove(os.path.join(fdir, stale))
     os.makedirs(fdir, exist_ok=True)
     (x0, y0, z0), _ = world.bounds()
     palette, state_of = palette_of(world, solid)
@@ -318,14 +329,117 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
             flush()
     flush()
 
-    with open(os.path.join(fdir, "build.mcfunction"), "w") as f:
-        f.write(f"say Building {name}: {count} commands in {len(files)} parts.\n")
-        for fn in files:
-            f.write(f"function {ns}:{fn}\n")
-        f.write(f"say {name} placed.\n")
+    (bx0, by0, bz0), (bx1, by1, bz1) = world.bounds()
+    paced = write_paced_entry(fdir, ns, name, files, count,
+                              (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1))
     with open(os.path.join(outdir, "pack.mcmeta"), "w") as f:
         json.dump({"pack": {"pack_format": pack_format,
                             "description": f"{name} — a redstone calculator"}},
                   f, indent=1)
-    return {"commands": count, "files": len(files) + 1,
-            "entry": f"function {ns}:build"}
+    return {"commands": count, "files": len(os.listdir(fdir)), **paced}
+
+
+def _write(path, lines):
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def write_paced_entry(fdir, ns, name, files, count, dims):
+    """The entry point, spread over ticks instead of run in one.
+
+    The obvious entry function calls every part in a row, and that is what this
+    wrote first: 71,768 commands in a single game tick. A server executes all of
+    it before the tick ends, and every block of a half-million-block redstone
+    machine appears in the same instant — the most hostile possible starting
+    transient for the thing §13 spends a table on.
+
+    So the parts run one per tick, driven by a `schedule` chain. That has a trap
+    in it which is not obvious: **a scheduled function does not remember where
+    it was called from.** It executes at the world origin with no executor, so
+    every `~` in the commands — all of them, because the build is relative —
+    would place the machine at 0, 0, 0 instead of at the player.
+
+    The fix is the standard one: drop a `marker` where the build was started and
+    run each part `as` that marker `at` its position, so the origin rides
+    through the chain. A scoreboard holds which part is next, which keeps the
+    parts themselves pure command lists — that is what lets the replay test read
+    them without interpreting any control flow.
+    """
+    obj, tag = f"{ns}_step", f"{ns}_origin"
+    dx, dy, dz = dims
+
+    _write(os.path.join(fdir, "build.mcfunction"), [
+        f"# {count:,} commands in {len(files)} parts, one part per tick.",
+        f"# Stand at the machine's -X -Y -Z corner and run this.",
+        f"scoreboard objectives add {obj} dummy",
+        f"kill @e[type=marker,tag={tag}]",
+        f'summon marker ~ ~ ~ {{Tags:["{tag}"]}}',
+        f"scoreboard players set #build {obj} 0",
+        f'tellraw @a {{"text":"{name}: {count} commands over {len(files)} '
+        f'ticks...","color":"gray"}}',
+        f"function {ns}:tick",
+    ])
+
+    _write(os.path.join(fdir, "tick.mcfunction"), [
+        f"execute as @e[type=marker,tag={tag},limit=1] at @s "
+        f"run function {ns}:dispatch",
+        f"scoreboard players add #build {obj} 1",
+        f"execute if score #build {obj} matches ..{len(files) - 1} run "
+        f"schedule function {ns}:tick 1t replace",
+        f"execute if score #build {obj} matches {len(files)}.. run "
+        f"function {ns}:done",
+    ])
+
+    # `execute if score` rather than a macro, so this runs on any 1.21 build
+    _write(os.path.join(fdir, "dispatch.mcfunction"),
+           [f"execute if score #build {obj} matches {i} run function {ns}:{fn}"
+            for i, fn in enumerate(files)])
+
+    _write(os.path.join(fdir, "done.mcfunction"), [
+        f"kill @e[type=marker,tag={tag}]",
+        f"scoreboard objectives remove {obj}",
+        f'tellraw @a {{"text":"{name} placed. The control wall is at the '
+        f'-X end.","color":"green"}}',
+    ])
+
+    # --- and a way back out ---------------------------------------------
+    # A half-million-block machine in the wrong place is not something anyone
+    # should dig out by hand. `fill` caps at 32,768 blocks a command, and one Y
+    # layer here is 555 x 973, so the layer is cut into Z strips that fit; the
+    # marker climbs one layer per tick, which paces the removal exactly the way
+    # the build is paced.
+    zstep = max(1, 32768 // max(1, dx))
+    strips = [f"fill ~ ~ ~{z} ~{dx - 1} ~ ~{min(dz - 1, z + zstep - 1)} "
+              f"minecraft:air replace"
+              for z in range(0, dz, zstep)]
+
+    _write(os.path.join(fdir, "clear.mcfunction"), [
+        f"# Run from the same corner `build` was run from.",
+        f"scoreboard objectives add {obj}c dummy",
+        f"kill @e[type=marker,tag={tag}c]",
+        f'summon marker ~ ~ ~ {{Tags:["{tag}c"]}}',
+        f"scoreboard players set #clear {obj}c 0",
+        f'tellraw @a {{"text":"{name}: clearing {dy} layers...",'
+        f'"color":"gray"}}',
+        f"function {ns}:clear_tick",
+    ])
+    _write(os.path.join(fdir, "clear_tick.mcfunction"), [
+        f"execute as @e[type=marker,tag={tag}c,limit=1] at @s "
+        f"run function {ns}:clear_slice",
+        f"execute as @e[type=marker,tag={tag}c,limit=1] at @s "
+        f"run tp @s ~ ~1 ~",
+        f"scoreboard players add #clear {obj}c 1",
+        f"execute if score #clear {obj}c matches ..{dy - 1} run "
+        f"schedule function {ns}:clear_tick 1t replace",
+        f"execute if score #clear {obj}c matches {dy}.. run "
+        f"function {ns}:clear_done",
+    ])
+    _write(os.path.join(fdir, "clear_slice.mcfunction"), strips)
+    _write(os.path.join(fdir, "clear_done.mcfunction"), [
+        f"kill @e[type=marker,tag={tag}c]",
+        f"scoreboard objectives remove {obj}c",
+        f'tellraw @a {{"text":"{name} removed.","color":"gray"}}',
+    ])
+    return {"entry": f"function {ns}:build", "clear": f"function {ns}:clear",
+            "ticks": len(files), "clear_ticks": dy,
+            "fills_per_layer": len(strips)}

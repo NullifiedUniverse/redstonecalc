@@ -233,6 +233,160 @@ def test_every_block_kind_has_a_mapping():
           f"unknown kinds raise: OK")
 
 
+def _chain(fdir, ns):
+    """Follow build -> tick -> dispatch the way the game would.
+
+    A tiny interpreter for the four commands this pack's control flow uses:
+    `scoreboard players set/add`, `execute if score ... matches ... run
+    function`, and `schedule function`. It exists because the pacing is real
+    logic — a counter, a dispatch table and a self-rescheduling tick — and
+    nothing else here reads it.
+    """
+    import re as _re
+    def load(fn):
+        return [l.strip() for l in
+                open(os.path.join(fdir, fn + ".mcfunction")) if l.strip()
+                and not l.startswith("#")]
+
+    score, ran, ticks, guard = {}, [], 0, 0
+    pending = "tick"
+    setre = _re.compile(r"scoreboard players set (\S+) (\S+) (-?\d+)")
+    addre = _re.compile(r"scoreboard players add (\S+) (\S+) (-?\d+)")
+    ifre = _re.compile(r"execute if score (\S+) (\S+) matches "
+                       r"(\.\.-?\d+|-?\d+\.\.|-?\d+) run (.+)")
+
+    for line in load("build"):
+        m = setre.match(line)
+        if m:
+            score[(m.group(1), m.group(2))] = int(m.group(3))
+
+    def matches(spec, v):
+        if spec.startswith(".."):
+            return v <= int(spec[2:])
+        if spec.endswith(".."):
+            return v >= int(spec[:-2])
+        return v == int(spec)
+
+    while pending and guard < 5000:
+        guard += 1
+        fn, pending = pending, None
+        ticks += 1
+        for line in load(fn):
+            m = ifre.match(line)
+            if m:
+                key = (m.group(1), m.group(2))
+                if not matches(m.group(3), score.get(key, 0)):
+                    continue
+                rest = m.group(4)
+            else:
+                rest = line
+            if rest.startswith("execute as @e") and "run function" in rest:
+                rest = "function " + rest.split("run function ", 1)[1]
+            if rest.startswith("function "):
+                target = rest.split()[1].split(":")[1]
+                if target == "dispatch":
+                    for d in load("dispatch"):
+                        md = ifre.match(d)
+                        if md and matches(md.group(3),
+                                          score.get((md.group(1), md.group(2)), 0)):
+                            ran.append(md.group(4).split()[1].split(":")[1])
+                elif target == "done":
+                    ran.append("done")
+                elif target == "tick":
+                    pending = "tick"
+            elif rest.startswith("schedule function "):
+                pending = rest.split()[2].split(":")[1]
+            m = addre.match(rest)
+            if m:
+                key = (m.group(1), m.group(2))
+                score[key] = score.get(key, 0) + int(m.group(3))
+    return ran, ticks
+
+
+def test_the_build_is_paced_over_ticks_and_not_run_in_one():
+    """Every part exactly once, in order, one per tick, then `done`.
+
+    The first version of this entry function called all nine parts in a row:
+    71,768 commands inside a single game tick, and every block of a
+    half-million-block redstone machine appearing in the same instant.
+    """
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        fdir = os.path.join(d, "data", "t", "function")
+        parts = sorted(f[:-11] for f in os.listdir(fdir) if f.startswith("part"))
+        ran, ticks = _chain(fdir, "t")
+
+        assert ran[-1] == "done", f"the chain never finished: {ran[-3:]}"
+        placed = [r for r in ran if r != "done"]
+        assert placed == parts, (f"the chain runs {placed}, the pack holds "
+                                 f"{parts}")
+        assert ticks >= len(parts), \
+            f"{len(parts)} parts placed in {ticks} ticks — that is not paced"
+        print(f"  the build runs {len(parts)} parts over {ticks} ticks, each "
+              f"exactly once, then reports done: OK")
+
+
+def test_no_function_in_the_pack_is_unreachable():
+    """The exporter used to leave `partNNNN` files from earlier, differently
+    chunked runs in the directory — the shipped pack carried two of them, from
+    two different machines, uncalled but distributed."""
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        fdir = os.path.join(d, "data", "t", "function")
+        on_disk = {f[:-11] for f in os.listdir(fdir)}
+        # seeded from what the exporter *declares* as entry points, so a
+        # function can only be excused by being advertised to the player
+        called = {info[k].split(":")[1] for k in ("entry", "clear")}
+        for fn in list(on_disk):
+            for line in open(os.path.join(fdir, fn + ".mcfunction")):
+                for token in line.split():
+                    if ":" in token and token.split(":")[0] == "t":
+                        called.add(token.split(":")[1])
+        orphans = on_disk - called
+        assert not orphans, (f"functions nothing calls and nothing advertises: "
+                             f"{sorted(orphans)}")
+        print(f"  all {len(on_disk)} functions are reachable from the "
+              f"{len(({info['entry'], info['clear']}))} advertised entry "
+              f"points: OK")
+
+
+def test_a_third_party_reader_agrees_about_the_structures():
+    """The reader above was written here, beside the writer.
+
+    That is the same author checking their own understanding of the NBT spec
+    twice, which is exactly the gap §14 opened for the redstone rules. `nbtlib`
+    is somebody else's implementation; if it disagrees, one of us is wrong about
+    the format rather than about this file.
+    """
+    try:
+        import nbtlib
+    except ImportError:
+        print("  (nbtlib not installed — see requirements-dev.txt; skipped)")
+        return
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        man = mcbuild.export_structures(w, d, name="t", chunk=8)
+        checked = 0
+        for piece in man["pieces"]:
+            f = nbtlib.load(os.path.join(d, piece["file"]))
+            root = f if "size" in f else f[""]
+            assert [int(v) for v in root["size"]] == piece["size"], piece["file"]
+            assert int(root["DataVersion"]) == mcbuild.DATA_VERSION
+            mine = _read_nbt(os.path.join(d, piece["file"]))
+            assert len(root["blocks"]) == len(mine["blocks"]), piece["file"]
+            assert [str(p["Name"]) for p in root["palette"]] == \
+                   [p["Name"] for p in mine["palette"]], piece["file"]
+            for a, b in zip(root["blocks"], mine["blocks"]):
+                assert [int(v) for v in a["pos"]] == b["pos"], piece["file"]
+                assert int(a["state"]) == b["state"], piece["file"]
+            checked += len(root["blocks"])
+        print(f"  nbtlib reads back {checked} blocks over "
+              f"{len(man['pieces'])} files and agrees with the reader here "
+              f"on every one: OK")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} build-output tests\n")
