@@ -2689,3 +2689,101 @@ first version *did* count spans, on one axis, and so undercounted every fill
 that ran along the other — reporting fewer than half the blocks placed. That was
 a failure invented entirely by the measurement, on a generator that was already
 right.
+
+## 33. What the game does that the simulator does not — **measured**
+
+Two things this section is about: a flicker that had been "fixed" twice and was
+still there, and the question of whether the export would work in an actual
+world, which nobody had asked in the terms the game answers it in.
+
+### The flicker was a unit error
+
+§28 stopped the whole structure blinking out for a frame — a real fault, an
+undrawn buffer, correctly fixed. The flicker that remained was a different
+thing wearing the same clothes, and it is not a rendering bug at all.
+
+A dust highlight lasted `FADE = 6` **game ticks** and a component's flash
+`FIRE_FADE = 10`. But what a viewer sees is **frames**, and the page runs 200
+game ticks a second by default:
+
+| speed | ticks per 60fps frame | dust flash | switch flash |
+|---|---|---|---|
+| 1x (20 gt/s) | 0.33 | 18 frames | 30 frames |
+| **10x (200, the default)** | 3.3 | **1.8 frames** | 3 frames |
+| 50x (1000 gt/s) | 16.7 | **0.36 of a frame** | 0.6 of a frame |
+
+At the default a flash lived under two frames; at 50x it lived less than one.
+Whether any given block's flash was visible came down to where the frame
+boundary happened to fall — decided independently for each of thousands of
+blocks, every frame. That is not a wavefront moving through a machine, it is
+the whole structure flickering, and it got *worse* the faster you ran it, which
+is exactly when someone is most likely to be watching.
+
+The windows are held in **seconds** now and converted at the current speed, so
+a flash is the same length on screen however fast the simulation runs: six
+frames of dust and eleven of a component, measured at every speed the menu
+offers. `check_preview` fails if that spread ever exceeds one frame.
+
+Two other things fell out of measuring it. The light volume was the obvious
+suspect — it is re-baked up to eleven times a second and swapped wholesale, so
+it *should* pulse — and it does not: over a full settle the worst change
+between consecutive bakes is **1.12%**, with none above 2%. Hypothesis
+rejected, which is the useful outcome of measuring it rather than assuming.
+And `speed` was initialised to `20` while the menu shipped with **10x
+selected**, so the page ran at a tenth of what the control claimed, and the
+control never looked wrong.
+
+### The machine spans 2,135 chunks, and redstone does not tick in most of them
+
+This is the one that decides whether any of this works, and nothing in the
+repository had said it.
+
+**Redstone only updates in chunks the game is simulating.** The Mk III is
+555 x 973 blocks — **35 x 61 = 2,135 chunks**. Java's default simulation
+distance of 10 gives a player a 21 x 21 square:
+
+| simulation distance | chunks held | of this machine |
+|---|---|---|
+| 4 | 81 | 4% |
+| **10 (default)** | 441 | **21%** |
+| 12 | 625 | 29% |
+| 32 (maximum) | 4,225 | all of it |
+
+So on default settings you could stand at the control wall, throw a lever, and
+four fifths of the machine would be frozen. No error, no sign, the answer
+simply never arrives — and the natural conclusion would be that the *build* is
+wrong.
+
+The datapack force-loads its own footprint now: `load` covers it with **12
+`/forceload` commands** (one takes at most 256 chunks), `build` runs it before
+placing anything, and `unload` releases them. `tests/test_mcbuild.py` requires
+every chunk of the footprint to fall inside some tile, no tile to exceed the
+cap, and `unload` to undo exactly what `load` does.
+
+### The rest of what the game imposes
+
+| limit | value | how this build sits with it |
+|---|---|---|
+| world height | Y −64..319 | 195 tall, so start at or below **Y=125** — the README says so now |
+| `/fill` volume | 32,768 blocks | the clear function slices each layer into 17 strips of 32,745 |
+| structure block | 48 a side | 373 `.nbt` chunks |
+| `/forceload` per command | 256 chunks | 12 commands |
+| `/function` | permission level 2 | cheats on, in single player — now stated |
+| commands per tick | 2,000 by this pack | far under `maxCommandChainLength` (65,536) |
+
+### And the three rules that were claimed but not checked
+
+`tests/refsim.py` states thirteen rules. The README and §14 both said each one
+gets its own minimal circuit. **Ten did.** R2 (every source hands dust a full
+15), R5 (what dust connects to, and that a repeater's *side* is not a
+connection) and R13 (one pending update per component, which is why a pulse
+shorter than a repeater's delay vanishes rather than arriving late) were
+covered only by the engine-vs-engine comparison — real coverage, but not the
+thing three documents claimed.
+
+They have their own circuits now, so the claim is true rather than corrected.
+Writing them found nothing wrong with the engine and two things wrong with the
+tests: the first R5 circuit put the dust at the repeater's *back* and called it
+a side, and the second put the probe diagonally beside the run so it read 11
+through ordinary dust. Both would have passed as "the engine is broken" if the
+number had come out differently.

@@ -377,6 +377,8 @@ def write_paced_entry(fdir, ns, name, files, count, dims):
         f"scoreboard players set #build {obj} 0",
         f'tellraw @a {{"text":"{name}: {count} commands over {len(files)} '
         f'ticks...","color":"gray"}}',
+        # load it before placing it, so the chunks it lands in are ticking
+        f"function {ns}:load",
         f"function {ns}:tick",
     ])
 
@@ -440,6 +442,41 @@ def write_paced_entry(fdir, ns, name, files, count, dims):
         f"scoreboard objectives remove {obj}c",
         f'tellraw @a {{"text":"{name} removed.","color":"gray"}}',
     ])
+    # --- keeping it loaded ------------------------------------------------
+    # The single most important thing about running a machine this size in a
+    # real world, and the one nothing here said: **redstone only ticks in
+    # chunks the game is simulating.** This build is 35 x 61 = 2,135 chunks.
+    # At Java's default simulation distance of 10 a player sees a 21 x 21
+    # square — 441 chunks, about a fifth of it — so somebody standing at the
+    # control wall would throw a lever and the far end of the machine would
+    # simply be frozen. The answer never arrives, nothing looks broken, and
+    # there is no error anywhere.
+    #
+    # `/forceload` fixes it: force-loaded chunks are held at the ticket level
+    # that grants block ticking, which is what redstone runs on. One command
+    # covers at most 256 chunks, so the footprint is tiled 256 blocks a side.
+    tiles = []
+    for x in range(0, dx, 256):
+        for z in range(0, dz, 256):
+            tiles.append(f"forceload add ~{x} ~{z} "
+                         f"~{min(dx - 1, x + 255)} ~{min(dz - 1, z + 255)}")
+    _write(os.path.join(fdir, "load.mcfunction"), [
+        f"# Redstone only ticks in simulated chunks, and this is "
+        f"{-(-dx // 16)} x {-(-dz // 16)} = {(-(-dx // 16)) * (-(-dz // 16))} "
+        f"of them.",
+        f"# Run from the same corner as `build`, or the machine's far end "
+        f"never moves.",
+    ] + tiles + [
+        f'tellraw @a {{"text":"{name}: '
+        f'{(-(-dx // 16)) * (-(-dz // 16))} chunks force-loaded.",'
+        f'"color":"green"}}',
+    ])
+    _write(os.path.join(fdir, "unload.mcfunction"),
+           [t.replace("forceload add", "forceload remove") for t in tiles] +
+           [f'tellraw @a {{"text":"{name}: chunks released.","color":"gray"}}'])
+
     return {"entry": f"function {ns}:build", "clear": f"function {ns}:clear",
+            "load": f"function {ns}:load", "unload": f"function {ns}:unload",
             "ticks": len(files), "clear_ticks": dy,
-            "fills_per_layer": len(strips)}
+            "fills_per_layer": len(strips), "forceload_commands": len(tiles),
+            "chunks": (-(-dx // 16)) * (-(-dz // 16))}

@@ -120,6 +120,7 @@ ANCHORS = [
     (README, r"\(([\d,]+) either way\)", "torch"),
     (README, r"less — ([\d,]+) repeaters against", "repeater"),
     (README, r"\*\*([\d,]+) blocks become [\d,]+ commands\*\*", "blocks"),
+    (README, r"requires all\s+([\d,]+) blocks back", "blocks"),
     # ---- DESIGN -------------------------------------------------------
     (DESIGN, r"is ([\d,]+) blocks: an 8-operation ALU", "blocks"),
     (DESIGN, r"the torch count did not move at all, it is ([\d,]+)", "torch"),
@@ -141,6 +142,9 @@ ANCHORS = [
     (DESIGN, r"at\s+(\d+) × (\d+) × (\d+) that lands on", "x", "y", "z"),
     (DESIGN, r"dust: ([\d,]+) wires", "dust"),
     (DESIGN, r"a (\d+) × (\d+) × (\d+) slab", "x", "y", "z"),
+    # §33: the chunk footprint, which is the figure that decides whether the
+    # machine ticks at all in a real world
+    (DESIGN, r"The Mk III is\s+(\d+) x (\d+) blocks", "x", "z"),
     (DESIGN, r"A settle is ([\d,]+) game ticks", "settle"),
     # §22 quotes figures while explaining why quoting figures needs a guard,
     # so it is anchored by its own rule

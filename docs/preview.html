@@ -2116,8 +2116,28 @@ let target=[0,0,0];
 const $=id=>document.getElementById(id);
 
 /* ---- colour ---- */
-const FADE=6;                 // ticks a dust level change stays highlighted
-const FIRE_FADE=10;           // a component firing is held longer: it is the event
+/* How long a highlight lasts — in *seconds of watching*, not in game ticks.
+
+   Ticks were the obvious unit and they are the wrong one, because what a
+   viewer sees is frames. At the default speed the page runs 200 game ticks a
+   second, so a six-tick dust flash lived 1.8 frames at 60fps, and at the 50x
+   setting a ten-tick component flash lived **0.6 of a frame** — whether any
+   given block's flash was visible at all came down to where the frame boundary
+   happened to fall. With thousands of blocks flashing at once and each one
+   deciding independently, that is not a wavefront travelling through a machine,
+   it is the whole structure flickering. It got worse the faster you ran it,
+   which is exactly when a reader is most likely to be watching.
+
+   Held in seconds and converted at the current speed, a flash is the same
+   length on screen however fast the simulation is: about six frames for dust
+   and eleven for a component that switched. */
+const FADE_SECONDS=0.10, FIRE_FADE_SECONDS=0.18;
+let FADE=6, FIRE_FADE=10;
+function setFadeWindows(){
+  // at least a couple of ticks, so stepping one tick at a time still shows
+  FADE=Math.max(2,Math.round(FADE_SECONDS*speed));
+  FIRE_FADE=Math.max(3,Math.round(FIRE_FADE_SECONDS*speed));
+}
 let recent=new Map();         // instance -> tick its dust level last changed
 let fires=new Map();          // instance -> tick a component last switched
 function baseColour(w,i,out){
@@ -3536,7 +3556,11 @@ function downloadPack(){
 }
 
 /* ---- the tick loop: this is the whole point ---- */
-let playing=false,speed=20,acc=0,last=0;
+/* `speed` is read off the menu at boot rather than written here twice. The
+   markup has 10x selected and this line said 20 — one game tick a frame at
+   1x — so the page ran at a tenth of what the control claimed until somebody
+   changed it, and the control never looked wrong. */
+let playing=false,speed=200,acc=0,last=0;
 /* every key currently held down, and the tick it should pop back out on.
    A Map rather than one record: see pressButton. */
 const held=new Map();
@@ -3698,7 +3722,7 @@ $("bPlay").onclick=()=>setPlaying(!playing);
 $("bStep").onclick=()=>{setPlaying(false);stepTick();refreshPanel();};
 $("bSettle").onclick=()=>settleNow();
 $("bPack").onclick=downloadPack;
-$("speed").onchange=e=>{speed=+e.target.value;};
+$("speed").onchange=e=>{speed=+e.target.value;setFadeWindows();};
 /* Hiding the structure is a clarity control before it is a speed one: what is
    left is exactly the circuit — dust, torches, repeaters, lamps and levers. */
 $("bStruct").onclick=e=>{
@@ -3952,6 +3976,7 @@ addEventListener("resize",()=>{
     hBlocks:circ.n.toLocaleString(),hGates:circ.gates,hDepth:circ.depth,
     hWidth:circ.width+"-bit",hDelay:"delay "+circ.delay}))
     if($(k))$(k).textContent=v;
+  speed=+$("speed").value||speed;setFadeWindows();
   focus("all",0);refreshPanel();
   status.textContent="";
   $("boot").hidden=true;

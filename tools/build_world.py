@@ -34,6 +34,9 @@ repository and verified in a tick-accurate simulator before export.
   stable at. Lower settings are faster and burn torches out — see DESIGN §13.
 * Targets Java Edition data version {dv} — a newer world upgrades it on load.
 * Solid blocks are `{solid}`; change `--solid` to build it out of something else.
+* It grows **+X, +Y, +Z** from where you stand, so start at or below **Y={maxy}**
+  — above that it runs out of world at Y=319.
+* `/function` needs permission level 2. In single player that means cheats on.
 
 ## Option 1 — the datapack (no mods, no structure blocks)
 
@@ -56,6 +59,21 @@ transitions do to torches.
 Placement follows a marker entity summoned where you ran the command, because a
 `schedule`d function forgets where it was called from and would otherwise build
 the machine at world origin.
+
+### It will not run unless you force-load it — **read this one**
+
+Redstone only ticks in chunks the game is *simulating*. This build is
+{chunks} chunks. At Java's default simulation distance of 10 a player holds a
+21 x 21 square — 441 chunks, about a fifth of it — so you can stand at the
+control wall, throw a lever, and the far end of the machine simply never moves.
+Nothing errors. The answer just never arrives.
+
+`{load}` covers the whole footprint with {forceload_commands} `/forceload`
+commands (one command takes at most 256 chunks). `build` runs it for you before
+placing anything. `{unload}` releases them again.
+
+Force-loading {chunks} chunks is not free — that is a permanent load on the
+server for as long as it is set.
 
 ### Taking it back out
 
@@ -214,6 +232,10 @@ def main():
             entry="/" + pack["entry"], commands=pack["commands"],
             files=pack["files"], pieces=len(man["pieces"]),
             clear="/" + pack["clear"], ticks=pack["ticks"],
+            load="/" + pack["load"], unload="/" + pack["unload"],
+            chunks=f"{pack['chunks']:,}",
+            forceload_commands=pack["forceload_commands"],
+            maxy=319 - (y1 - y0),
             clear_ticks=pack["clear_ticks"], seconds=pack["ticks"] / 20,
             delay=args.delay,
             controls=stats.get("controls", ""),

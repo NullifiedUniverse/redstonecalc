@@ -338,7 +338,8 @@ def test_no_function_in_the_pack_is_unreachable():
         on_disk = {f[:-11] for f in os.listdir(fdir)}
         # seeded from what the exporter *declares* as entry points, so a
         # function can only be excused by being advertised to the player
-        called = {info[k].split(":")[1] for k in ("entry", "clear")}
+        called = {v.split(":")[1] for k, v in info.items()
+                  if isinstance(v, str) and v.startswith("function ")}
         for fn in list(on_disk):
             for line in open(os.path.join(fdir, fn + ".mcfunction")):
                 for token in line.split():
@@ -347,9 +348,60 @@ def test_no_function_in_the_pack_is_unreachable():
         orphans = on_disk - called
         assert not orphans, (f"functions nothing calls and nothing advertises: "
                              f"{sorted(orphans)}")
+        entries = {v for v in info.values()
+                   if isinstance(v, str) and v.startswith("function ")}
         print(f"  all {len(on_disk)} functions are reachable from the "
-              f"{len(({info['entry'], info['clear']}))} advertised entry "
-              f"points: OK")
+              f"{len(entries)} advertised entry points: OK")
+
+
+def test_the_whole_footprint_is_force_loaded():
+    """Redstone only ticks in chunks the game is simulating.
+
+    This is the limitation that decides whether the machine works in a real
+    world at all, and it is invisible: at Java's default simulation distance a
+    player sees a 21 x 21 square of chunks, and the Mk III is 35 x 61 of them.
+    Throw a lever at the control wall and the far end is frozen — no error, no
+    sign, the answer just never arrives.
+
+    `/forceload add` takes at most 256 chunks a command, so the cover has to be
+    tiled. Both halves matter: every chunk of the footprint inside some tile,
+    and no tile over the limit.
+    """
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        fdir = os.path.join(d, "data", "t", "function")
+        (x0, y0, z0), (x1, y1, z1) = w.bounds()
+        dx, dz = x1 - x0 + 1, z1 - z0 + 1
+
+        got = set()
+        for line in open(os.path.join(fdir, "load.mcfunction")):
+            m = re.match(r"forceload add ~(-?\d+) ~(-?\d+) ~(-?\d+) ~(-?\d+)",
+                         line.strip())
+            if not m:
+                continue
+            a, b, c, e = (int(m.group(i)) for i in (1, 2, 3, 4))
+            chunks = ((c // 16) - (a // 16) + 1) * ((e // 16) - (b // 16) + 1)
+            assert chunks <= 256, f"one forceload covers {chunks} chunks, max 256"
+            for cx in range(a // 16, c // 16 + 1):
+                for cz in range(b // 16, e // 16 + 1):
+                    got.add((cx, cz))
+        want = {(cx, cz)
+                for cx in range((dx - 1) // 16 + 1)
+                for cz in range((dz - 1) // 16 + 1)}
+        assert want <= got, f"{len(want - got)} chunks of the machine are " \
+                            f"never force-loaded, e.g. {sorted(want - got)[:3]}"
+
+        # and every one is released again
+        rem = {l.strip().replace("remove", "add")
+               for l in open(os.path.join(fdir, "unload.mcfunction"))
+               if l.startswith("forceload remove")}
+        add = {l.strip() for l in open(os.path.join(fdir, "load.mcfunction"))
+               if l.startswith("forceload add")}
+        assert rem == add, "unload does not undo exactly what load does"
+        print(f"  {len(want)} chunks of footprint covered by "
+              f"{info['forceload_commands']} forceload commands, none over "
+              f"256, and unload undoes each one: OK")
 
 
 def test_a_third_party_reader_agrees_about_the_structures():

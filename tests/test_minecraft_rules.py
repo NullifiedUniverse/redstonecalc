@@ -2,7 +2,7 @@
 
 Two independent kinds of check:
 
-**Rule by rule.** Each of the twelve rules in `tests/refsim.py` gets its own
+**Rule by rule.** Each of the thirteen rules in `tests/refsim.py` gets its own
 tiny placed circuit with one thing in it, so a reader who wants to confirm a
 rule against the game can build exactly that circuit and look. Each test says
 what the rule is and what the game does, then asserts it.
@@ -477,6 +477,148 @@ def test_the_machine_matches_the_reference_engine():
                 f"{name} wrong for {vals}")
     print(f"  a compiled gate array agrees between engines over {ticks} ticks, "
           f"and computes the right answer: OK")
+
+
+def test_r2_every_source_hands_dust_a_full_fifteen():
+    """R2. A lever that is on, a block of redstone, a lit torch and the front of
+    a powered repeater are all sources at full strength — not merely "on".
+
+    The distinction is the whole reason a rail can be 15 blocks long: a source
+    that handed over 14 would cost a repeater every fourteenth block instead of
+    every fifteenth, and the machine is built out of that number.
+    """
+    for label, place in (
+            ("lever", lambda w: w.lever((0, 0, 0), attach="down", on=True)),
+            ("redstone block", lambda w: w.redstone_block((0, 0, 0))),
+            ("torch", lambda w: w.torch((0, 0, 0), attach="down"))):
+        w = World()
+        floor(w, -1, 4, -1, 0, 0)
+        place(w)
+        for x in range(1, 4):
+            w.wire((x, 0, 0))
+        e = Engine(w)
+        e.initialize_steady()
+        assert e.read((1, 0, 0)) == 15, f"{label} gave {e.read((1, 0, 0))}"
+        assert e.read((2, 0, 0)) == 14, label
+    # and a powered repeater's front, which is a source of its own
+    w = World()
+    floor(w, -3, 4, -1, 0, 0)
+    w.lever((-3, 0, 0), attach="down", on=True)
+    w.wire((-2, 0, 0)); w.wire((-1, 0, 0))
+    w.repeater((0, 0, 0), facing="east", delay=1)
+    for x in range(1, 4):
+        w.wire((x, 0, 0))
+    e = Engine(w)
+    e.initialize_steady()
+    assert e.read((1, 0, 0)) == 15, e.read((1, 0, 0))
+    print("  R2 lever, redstone block, torch and repeater front all hand dust "
+          "a full 15: OK")
+
+
+def test_r5_what_dust_connects_to_and_what_it_does_not():
+    """R5. Dust connects to dust, to a repeater or comparator *only along that
+    component's own axis*, and climbs to dust on top of an adjacent full block
+    unless a block sits directly above it.
+
+    The axis rule is what lets a rail run past the side of a repeater without
+    feeding it, which is how the collectors cross the gate array at all.
+    """
+    # A repeater's side is not a connection. The repeater faces +X, so its
+    # back is at (-1,0,1) and its front at (1,0,1); the powered run along z=0
+    # touches its *side* at (0,0,0) and must not feed it.
+    def probe(back_powered):
+        w = World()
+        floor(w, -3, 2, -1, -1, 2)
+        w.lever((-3, 0, 0), attach="down", on=True)
+        # the run stops at x=0, clear of the probe: extended to x=1 it sat
+        # diagonally beside the probe's own neighbour and fed it as ordinary
+        # dust, which read 11 and looked like the side rule failing
+        for x in range(-2, 1):
+            w.wire((x, 0, 0))                     # the run, past the side
+        w.repeater((0, 0, 1), facing="east", delay=1)
+        w.wire((1, 0, 1))                         # its front
+        if back_powered:                          # ...and its back, for contrast
+            w.wire((-1, 0, 1))
+        e = Engine(w)
+        e.initialize_steady()
+        return e.read((1, 0, 1))
+
+    assert probe(False) == 0, \
+        f"dust running past a repeater's side fed it anyway ({probe(False)})"
+    # the same repeater, fed from behind, does pass — so the check above is
+    # about the side and not about a repeater that was never going to fire
+    assert probe(True) == 15, \
+        f"the repeater does not work from its back either ({probe(True)}), so " \
+        f"the side test proves nothing"
+
+    # and the staircase: dust climbs onto dust atop an adjacent full block
+    w = World()
+    floor(w, -2, 0, -1, 0, 0)
+    w.lever((-2, 0, 0), attach="down", on=True)
+    w.wire((-1, 0, 0))
+    w.solid((0, 0, 0))
+    w.wire((0, 1, 0))
+    e = Engine(w)
+    e.initialize_steady()
+    assert e.read((0, 1, 0)) > 0, "dust did not climb the staircase"
+    climbed = e.read((0, 1, 0))
+
+    # ...unless a full block caps the lower dust, which is the case the
+    # compiler has to leave clear above every collector
+    w2 = World()
+    floor(w2, -2, 0, -1, 0, 0)
+    w2.lever((-2, 0, 0), attach="down", on=True)
+    w2.wire((-1, 0, 0))
+    w2.solid((-1, 1, 0))                      # cap over the lower dust
+    w2.solid((0, 0, 0))
+    w2.wire((0, 1, 0))
+    e2 = Engine(w2)
+    e2.initialize_steady()
+    assert e2.read((0, 1, 0)) == 0, (
+        f"dust climbed past a cap ({e2.read((0, 1, 0))}) — that clearance is "
+        f"what every collector in the compiler relies on")
+    print(f"  R5 a repeater's side is not a connection, dust climbs a "
+          f"staircase to {climbed} and not past a cap: OK")
+
+
+def test_r13_a_component_has_at_most_one_pending_update():
+    """R13. This is the scheduling rule, and it is why a pulse shorter than a
+    repeater's delay disappears entirely rather than arriving late.
+
+    A repeater whose input goes up and back down inside its own delay never
+    fires: the one pending update re-reads the input when it comes due, finds it
+    low again, and there is nothing to pass on. The whole machine leans on this
+    — it is what stops a hazard glitch on a rail from propagating as a real
+    pulse.
+    """
+    w = World()
+    floor(w, -2, 4, -1, 0, 0)
+    w.lever((-2, 0, 0), attach="down", on=False)
+    w.wire((-1, 0, 0))
+    w.repeater((0, 0, 0), facing="east", delay=4)     # 8 game ticks
+    w.wire((1, 0, 0))
+    e = Engine(w)
+    e.initialize_steady()
+    assert e.read((1, 0, 0)) == 0
+
+    # up and down again well inside the delay
+    e.set_lever((-2, 0, 0), True)
+    e.run(2)
+    e.set_lever((-2, 0, 0), False)
+    seen = 0
+    for _ in range(40):
+        e.tick()
+        if e.read((1, 0, 0)) > 0:
+            seen += 1
+    assert seen == 0, f"a 2-tick pulse got through a delay-4 repeater on " \
+                      f"{seen} ticks"
+
+    # and the same repeater does pass a pulse longer than its delay
+    e.set_lever((-2, 0, 0), True)
+    e.run(12)
+    assert e.read((1, 0, 0)) == 15, "the repeater never passed a long pulse"
+    print("  R13 a pulse shorter than a repeater's delay is swallowed whole, "
+          "and a longer one is not: OK")
 
 
 if __name__ == "__main__":

@@ -344,6 +344,39 @@ if (!/of ~/.test(meter.foot))
 console.log(`meter: ${meter.readings} distinct readings over one settle, ` +
             `monotone, counting towards ${meter.target.toLocaleString()} ticks`);
 
+// --- a highlight has to last long enough to be seen -------------------------
+// The flash windows were counted in game ticks, and what a viewer sees is
+// frames. At the default 200 gt/s a six-tick dust flash lived 1.8 frames, and
+// at the 50x setting a component flash lived 0.6 of a frame — visible or not
+// depending on where the frame boundary fell, independently for every one of
+// thousands of blocks. That is the whole structure flickering, and it got worse
+// the faster you ran it.
+const fade = await page.evaluate(() => {
+  const out = { boot: speed, menu: +document.getElementById("speed").value, at: {} };
+  const was = speed;
+  for (const v of [20, 60, 200, 1000]) {
+    speed = v; setFadeWindows();
+    out.at[v] = { dust: +(FADE / (v / 60)).toFixed(2),
+                  fire: +(FIRE_FADE / (v / 60)).toFixed(2) };
+  }
+  speed = was; setFadeWindows();
+  return out;
+});
+if (fade.boot !== fade.menu)
+  throw new Error(`the page boots at ${fade.boot} gt/s while the speed menu ` +
+                  `reads ${fade.menu}`);
+for (const [v, w] of Object.entries(fade.at)) {
+  if (w.dust < 3) throw new Error(`at ${v} gt/s a dust flash lasts ${w.dust} frames`);
+  if (w.fire < 5) throw new Error(`at ${v} gt/s a component flash lasts ${w.fire} frames`);
+}
+const dusts = Object.values(fade.at).map(w => w.dust);
+if (Math.max(...dusts) - Math.min(...dusts) > 1)
+  throw new Error(`a flash lasts ${Math.min(...dusts)}-${Math.max(...dusts)} ` +
+                  `frames depending on speed — it should not depend on speed`);
+console.log(`flash: ${dusts[0]} frames of dust and ` +
+            `${Object.values(fade.at)[0].fire} of a switch at every speed from ` +
+            `${Object.keys(fade.at)[0]} to ${Object.keys(fade.at).pop()} gt/s`);
+
 // --- the machine, as a datapack the reader can take away --------------------
 // The page assembles a Minecraft datapack from the same block data it is
 // simulating, using the (kind, meta) -> block state table `rscalc/mcbuild.py`
