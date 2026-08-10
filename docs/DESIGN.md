@@ -2787,3 +2787,136 @@ tests: the first R5 circuit put the dust at the repeater's *back* and called it
 a side, and the second put the probe diagonally beside the run so it read 11
 through ordinary dust. Both would have passed as "the engine is broken" if the
 number had come out differently.
+
+## 34. Two generators of one datapack, and a download that lied — **measured**
+
+§32 gave the page its own datapack generator so a reader could take the machine
+away without cloning anything. That decision has a cost nobody priced: there are
+now **two** implementations of the same output, one in `rscalc/mcbuild.py` and
+one in `docs/preview_template.html`, and they drift silently because neither
+compares itself to the other.
+
+They had already drifted three ways.
+
+| what | the exporter wrote | the page wrote | consequence |
+|---|---|---|---|
+| namespace | `rscalc_mk3_10bit` | `machine_mk3` | the pack's own README told the reader to run a `/function` the pack does not answer to |
+| `load` / `unload` | 12 `forceload` commands | **nothing** | §33's failure exactly: redstone ticks in a fifth of the machine, no error, no answer |
+| `clear`'s notice | `tellraw` on start | missing | cosmetic, and the only one of the three that is |
+
+The middle row is the one worth dwelling on, because I caused it. §33 identified
+force-loading as the single limitation that decides whether this works in a real
+world, added it to the exporter, and left the page's generator behind — so the
+one route a reader actually takes shipped the broken pack while the repository
+kept the fixed one.
+
+### The fix is to stop having two opinions
+
+Everything the two generators must agree on now travels in the bundle, computed
+once by the exporter:
+
+| field | why the page cannot be trusted to derive it |
+|---|---|
+| `mc.namespace` | it composed one from the circuit's name; the export name is `build_world.pack_name` |
+| `mc.functions` | the list of control functions, so a missing one is a failure rather than a difference |
+| `mc.commands`, `mc.parts` | see below — the page printed a tick count nobody measured |
+
+Three guards, at three distances. The page's generator refuses to return a pack
+whose control-function set differs from `mc.functions`. `tools/check_preview.mjs`
+expands every `forceload` in the generated `load.mcfunction` and fails if a
+single chunk of the footprint is uncovered, and checks the namespace, the `build`
+→ `load` call and the README's command. `tests/test_mcbuild.py` checks that
+`CONTROL_FUNCTIONS` is exactly what the exporter writes — a declared list that
+has drifted from its own generator would hand the page a wrong answer with
+complete confidence.
+
+Then the comparison that had never been made: generate both packs and diff them.
+
+| | result |
+|---|---|
+| control functions | 10 in each, **byte-identical** ignoring comments |
+| blocks reconstructed from the `part` files | identical sets, 0 in one and not the other |
+| block states at those positions | 0 disagreements |
+
+### The download reported a success it had not observed
+
+`(Also ensure the datapack can be downloaded correctly)` — it could not, in the
+place most readers meet this page. The button generated the zip, clicked an
+`<a download>`, and printed the byte count. In an iframe whose `sandbox`
+attribute omits `allow-downloads`, that click does nothing at all: no exception,
+no event, no file. The page said `410 KB (0.6s)` either way.
+
+Nothing in the platform reports this, so it was measured:
+
+| context | anchor | file delivered |
+|---|---|---|
+| standalone tab | detached | yes |
+| standalone tab | attached | yes |
+| sandbox without `allow-downloads` | detached | **no** |
+| sandbox without `allow-downloads` | attached | **no** |
+| sandbox without `allow-downloads` | opened first | **no** |
+| sandbox with `allow-downloads` | detached | yes |
+
+So the anchor being detached was never the cause — but attaching it is right
+anyway (Firefox requires it), and the sandbox is not something a page can read.
+What a page *can* read is whether it is framed, which is the only case where a
+sandbox exists at all. Framed, it now says what it built, says plainly that the
+frame may have discarded it, and leaves a live link on the page instead of
+claiming victory. Re-measured over four contexts afterwards, driving the real
+button on the real page:
+
+| context | file delivered | what the page says |
+|---|---|---|
+| standalone tab | yes | the size and the time, nothing else |
+| iframe, sandbox without `allow-downloads` | **no** | "built … if no file arrived, this page is in a frame that blocks downloads", plus a link |
+| iframe, sandbox with `allow-downloads` | yes | same hedge — it cannot tell, and says so |
+| iframe, no sandbox at all | yes | same hedge |
+
+The last two are an honest overreach rather than a mistake: being framed is the
+only thing a page can observe, and hedging when it did work costs a sentence,
+where not hedging when it did not costs the reader their download.
+
+### Three numbers on the page that nobody measured
+
+Every figure in the masthead is read from the bundle — except the three that
+were not, which had been typed into the markup and were quietly free to be
+wrong:
+
+| slot | was | now |
+|---|---|---|
+| "ticks to the answer" | a literal in the markup | `circ.settle` |
+| "torches burned" | a literal `0` | `eng.burned.size`, live, red when it is not 0 |
+| "places itself over N game ticks" | a literal `36` | `mc.parts`, counted by the exporter merging the runs |
+
+The settle meter had the same shape of bug one level down — `circ.settle||2352`,
+a fallback that would have kept the bar moving smoothly and wrongly. There is no
+fallback now; the page refuses to boot from a bundle missing any field it plans
+to quote, which is the difference between a fault and a lie.
+
+`tools/mutate_core.py` gained two mutations for the new code — a `forceload`
+tile dropped, and the declared function list missing an entry the exporter
+writes. Both caught, 25 of 25.
+
+### And one bug the fix introduced, which is the point of the fix
+
+Reading the tick count off the bundle was written as one line beside the
+button's `onclick`:
+
+```js
+$("dpTicks").textContent=circ.mc.parts;
+```
+
+`circ` is declared empty at the top of the script and filled by the `async`
+boot function at the bottom. Every top-level statement runs first, so that line
+threw a TypeError before the machine existed, the boot never reached
+`window.__ready`, and the page sat on its loading line — silently, because
+nobody is reading the console. It cost two 300-second browser timeouts to find,
+and the browser check threw the timeout away with the page's own error message
+still sitting unprinted in an array it had been collecting all along.
+
+Both halves are fixed. `tools/check_preview.mjs` prints what the page said and
+where the boot stalled before it rethrows. And `tests/test_pages.py` now reads
+both templates and fails on any top-level statement that dereferences `circ`,
+`world` or `eng` — anything past the line's first `=>` or `function` is a body
+that runs later, so `bStep.onclick = () => eng.tick()` stays legal. It finds the
+line in a tenth of a second, and it was checked by putting the bug back.

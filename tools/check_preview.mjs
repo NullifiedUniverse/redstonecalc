@@ -18,8 +18,19 @@ const t0 = Date.now();
 await page.goto("file://" + path.resolve("docs/preview.html"));
 // poll on a timer, not on animation frames: drawing half a million
 // instances can starve rAF, and the wait would never get a slot
-await page.waitForFunction("window.__ready === true", null,
-                           { timeout: 300000, polling: 250 });
+try {
+  await page.waitForFunction("window.__ready === true", null,
+                             { timeout: 300000, polling: 250 });
+} catch (e) {
+  // The whole point of collecting page errors is to explain a boot that never
+  // finishes, and this used to throw the timeout with the collected errors
+  // still sitting in the array — a diagnostic that discarded its diagnosis.
+  console.error("the page never became ready. What it said on the way:");
+  console.error(errs.length ? errs.join("\n") : "  (nothing — it is still working)");
+  console.error(await page.evaluate(() =>
+    "  boot line: " + (document.getElementById("boot")?.textContent || "(gone)")));
+  throw e;
+}
 console.log(`boot: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
 const info = await page.evaluate(() => ({
@@ -28,6 +39,28 @@ const info = await page.evaluate(() => ({
   digits: circ.digits, flags: circ.flags,
 }));
 console.log("loaded:", info);
+
+// --- the masthead says what the bundle says --------------------------------
+// Five figures under the headline. Three were filled from the bundle and two
+// were typed into the markup — a settle of 2,352 and a burned-torch count of 0
+// that would have gone on saying 0 while the machine burned. They are all read
+// now, which means they can all be *unread*: an element left at its placeholder
+// is the failure this catches.
+const mast = await page.evaluate(() => {
+  const t = id => (document.getElementById(id) || {}).textContent;
+  return { hBlocks: t("hBlocks"), hGates: t("hGates"), hDepth: t("hDepth"),
+           hSettle: t("hSettle"), hBurn: t("hBurn"), dpTicks: t("dpTicks"),
+           want: { hBlocks: circ.n.toLocaleString(), hGates: String(circ.gates),
+                   hDepth: String(circ.depth),
+                   hSettle: circ.settle.toLocaleString(), hBurn: "0",
+                   dpTicks: String(circ.mc.parts) } };
+});
+for (const k of Object.keys(mast.want))
+  if (mast[k] !== mast.want[k])
+    throw new Error(`the page's ${k} reads ${JSON.stringify(mast[k])}, the ` +
+                    `bundle says ${JSON.stringify(mast.want[k])}`);
+console.log(`masthead: all ${Object.keys(mast.want).length} printed figures ` +
+            `come from the bundle and match it`);
 
 // --- the tick animation itself -------------------------------------------
 const anim = await page.evaluate(async () => {
@@ -422,12 +455,43 @@ const pack = await page.evaluate(() => {
     if (got !== want) mismatched++;
   }
   const placed = world_map.size;
+
+  // The control functions, which are a separate claim from the blocks: the
+  // exporter ships the list it writes, and this generator has to write the
+  // same one. It did not — force-loading went into `rscalc/mcbuild.py` alone,
+  // and the pack a reader downloaded from the page had no `load`, so its
+  // redstone would have stopped ticking a few hundred blocks from the player.
+  const ctrl = Object.keys(files)
+    .filter(k => k.endsWith(".mcfunction") && !/\/part\d+\./.test(k))
+    .map(k => k.replace(/^.*\/|\.mcfunction$/g, "")).sort();
+  // and `load` has to actually cover the machine: one `forceload add` reaches
+  // 256 chunks, so the footprint is tiled — miss a tile and the far corner is
+  // frozen with nothing to see
+  const covered = new Set();
+  for (const line of (files[`data/${ns}/function/load.mcfunction`] || "").split("\n")) {
+    const m = /^forceload add ~(\d+) ~(\d+) ~(\d+) ~(\d+)$/.exec(line);
+    if (!m) continue;
+    for (let x = +m[1]; x <= +m[3]; x += 16)
+      for (let z = +m[2]; z <= +m[4]; z += 16) covered.add((x >> 4) + "," + (z >> 4));
+  }
+  const [dx, , dz] = world.dims;
+  let uncovered = 0;
+  for (let cx = 0; cx < Math.ceil(dx / 16); cx++)
+    for (let cz = 0; cz < Math.ceil(dz / 16); cz++)
+      if (!covered.has(cx + "," + cz)) uncovered++;
+
   const enc = new TextEncoder(), zin = {};
   for (const k in files) zin[k] = enc.encode(files[k]);
   const zip = fflate.zipSync(zin, { level: 6 });
   const back = fflate.unzipSync(zip);
   return { commands, parts, ms: Math.round(ms), placed, bad, boxes, mismatched,
-           blocks: world.n,
+           blocks: world.n, ns, ctrl, want: (mc.functions || []).slice().sort(),
+           namespace: mc.namespace, uncovered, chunks: covered.size,
+           shipped: mc.commands, shippedParts: mc.parts,
+           shown: document.getElementById("dpTicks").textContent.trim(),
+           buildLoads: /\bfunction \S+:load\b/
+             .test(files[`data/${ns}/function/build.mcfunction`] || ""),
+           readme: files["README.txt"] || "",
            kinds: kinds.size, zipKB: Math.round(zip.length / 1024),
            entries: Object.keys(back).length,
            mcmeta: new TextDecoder().decode(back["pack.mcmeta"]).replace(/\s+/g, " ") };
@@ -445,10 +509,35 @@ if (pack.mismatched)
 if (pack.entries < 10 || !/pack_format/.test(pack.mcmeta))
   throw new Error(`the zip does not reopen as a datapack: ${pack.entries} ` +
                   `entries, mcmeta ${pack.mcmeta}`);
+if (pack.ns !== pack.namespace)
+  throw new Error(`the page names the pack ${pack.ns}, the exporter names it ` +
+                  `${pack.namespace} — the README's /function would not exist`);
+if (pack.ctrl.join(",") !== pack.want.join(","))
+  throw new Error(`control functions differ from the exporter: ` +
+                  `[${pack.ctrl}] vs [${pack.want}]`);
+if (!pack.buildLoads)
+  throw new Error(`build never calls load, so the machine is placed into ` +
+                  `chunks the server is not simulating`);
+if (pack.uncovered)
+  throw new Error(`${pack.uncovered} chunks of the footprint are not ` +
+                  `force-loaded — redstone does not tick there`);
+if (!pack.readme.includes(`/function ${pack.ns}:build`))
+  throw new Error(`the README does not tell the reader the command that works`);
+// the page prints the tick count in prose; the exporter counted it independently
+if (pack.shipped !== pack.commands || pack.shippedParts !== pack.parts)
+  throw new Error(`the exporter counted ${pack.shipped} commands in ` +
+                  `${pack.shippedParts} parts, the page generated ` +
+                  `${pack.commands} in ${pack.parts}`);
+if (pack.shown !== String(pack.parts))
+  throw new Error(`the page's prose says the pack takes ${pack.shown} ticks, ` +
+                  `it takes ${pack.parts}`);
 console.log(`datapack: ${pack.commands.toLocaleString()} commands in ` +
             `${pack.parts} parts rebuild all ${pack.placed.toLocaleString()} ` +
             `blocks exactly (${pack.kinds} block states, ${pack.zipKB} KB zip, ` +
             `${pack.ms}ms in the page)`);
+console.log(`  ${pack.ns}: ${pack.ctrl.length} control functions match the ` +
+            `exporter, ${pack.chunks.toLocaleString()} chunks force-loaded, ` +
+            `none of the footprint left out`);
 
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written

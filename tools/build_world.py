@@ -115,11 +115,23 @@ silently — the build looks perfect and computes nothing:
 VERIFIED_DELAY = {"machine": None, "console": 2, "alu": 2}
 
 
+def pack_name(width):
+    """The Mk III's export name, which `mcbuild` lowercases into its namespace.
+
+    Written once because two places need it: this tool, which exports the pack,
+    and `tools/build_preview.py`, which tells the page what namespace to put in
+    the pack *it* generates in the browser. The page used to compose its own
+    (`machine_mk3`), so a reader following the site's instructions typed a
+    `/function` the downloaded pack did not answer to.
+    """
+    return f"rscalc_mk3_{width}bit"
+
+
 def target(what, width, delay):
     if what == "machine":
         from rscalc.machine import build_machine, SETTLE_GT
         m = build_machine(width=width or 10, repeater_delay=delay)
-        return f"rscalc_mk3_{m.width}bit", m.world, dict(
+        return pack_name(m.width), m.world, dict(
             m.stats, settle=SETTLE_GT, controls=controls_note(m))
     if what == "console":
         from rscalc.console import build_console

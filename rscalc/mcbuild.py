@@ -43,6 +43,21 @@ DEFAULT_SOLID = "minecraft:light_gray_concrete"
 #: 1.21's datapack format, in one place so the page and the
 #: exporter cannot disagree about it
 PACK_FORMAT_DEFAULT = 48
+#: Commands per `partNNNN` function, which is also what sets how many game ticks
+#: the paced build takes. Named because the page prints the tick count in its
+#: prose and has to arrive at the same one.
+PER_FILE_DEFAULT = 2000
+
+#: Every function a pack carries besides the numbered `partNNNN` batches.
+#: Named here rather than left implicit because there are now **two**
+#: generators — this file and the one in `docs/preview_template.html` — and the
+#: first thing that went wrong with having two was that force-loading was added
+#: to one of them. A reader downloading from the page would have got a pack
+#: whose machine ticks in a fifth of its own chunks, which is the failure §33
+#: describes as the one that decides whether any of this works.
+CONTROL_FUNCTIONS = ("build", "tick", "dispatch", "done",
+                     "clear", "clear_tick", "clear_slice", "clear_done",
+                     "load", "unload")
 
 OPPOSITE = {"north": "south", "south": "north",
             "east": "west", "west": "east",
@@ -286,7 +301,7 @@ def _command(name, props, a, b):
 
 
 def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
-                    per_file=2000, pack_format=PACK_FORMAT_DEFAULT):
+                    per_file=PER_FILE_DEFAULT, pack_format=PACK_FORMAT_DEFAULT):
     """A datapack whose functions rebuild the machine relative to the player.
 
     Commands are relative (``~``), so running the entry function places the
@@ -477,6 +492,7 @@ def write_paced_entry(fdir, ns, name, files, count, dims):
 
     return {"entry": f"function {ns}:build", "clear": f"function {ns}:clear",
             "load": f"function {ns}:load", "unload": f"function {ns}:unload",
+            "control_functions": sorted(CONTROL_FUNCTIONS),
             "ticks": len(files), "clear_ticks": dy,
             "fills_per_layer": len(strips), "forceload_commands": len(tiles),
             "chunks": (-(-dx // 16)) * (-(-dz // 16))}

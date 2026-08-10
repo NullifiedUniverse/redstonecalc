@@ -157,7 +157,12 @@ ANCHORS = [
              r"([\d,]+) \+ ([\d,]+) \+ ([\d,]+) \+ ([\d,]+)",
              "solid", "dust", "repeater", "torch", "lamp", "glass", "lever"),
     # ---- the page -----------------------------------------------------
-    (PAGE, r"<b>([\d,]+)</b><span>ticks to the answer</span>", "settle"),
+    # The masthead's settle and burned-torch figures were typed into the markup
+    # and anchored here. They are read off the bundle and off the running engine
+    # now, so there is nothing left to anchor — what this checks instead is that
+    # nobody types one back in.
+    (PAGE, r'<b id="hSettle">(.*?)</b><span>ticks to the answer</span>', "=—"),
+    (PAGE, r'<b id="hBurn">(.*?)</b><span>torches burned</span>', "=—"),
     (PAGE, r"did not move — ([\d,]+) either way", "torch"),
     (PAGE, r"not less: ([\d,]+) repeaters against", "repeater"),
     (PAGE, r"([\d,]+) plain structure blocks collapse into stretched\s+"
@@ -205,7 +210,15 @@ def test_headline_figures_match_the_machine():
         for m in hits:
             covered[path].append(m.span())
             for got, key in zip(m.groups(), keys):
-                if got != fig[key]:
+                # a key of "=x" wants the literal x rather than a measured
+                # figure: the way to pin a slot that must stay *empty* because
+                # the page fills it from the bundle at run time
+                if key.startswith("="):
+                    if got != key[1:]:
+                        bad.append(f"{path}:{line_of(text[path], m.start())}: "
+                                   f"reads {got!r}; this slot is filled from "
+                                   f"the bundle and must ship as {key[1:]!r}")
+                elif got != fig[key]:
                     bad.append(f"{path}:{line_of(text[path], m.start())}: "
                                f"{key} reads {got!r}, the build measures "
                                f"{fig[key]!r}")

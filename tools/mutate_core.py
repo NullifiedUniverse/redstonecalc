@@ -90,6 +90,12 @@ MUTATIONS = [
      '"facing": OPPOSITE[b.facing], "delay": str(b.delay),',
      '"facing": b.facing, "delay": str(b.delay),',
      "Minecraft's output->input repeater convention left unflipped"),
+    ("mcbuild.forceload-gap", "rscalc/mcbuild.py",
+     "    ] + tiles + [", "    ] + tiles[1:] + [",
+     "part of the footprint never force-loaded, so its redstone never ticks"),
+    ("mcbuild.control-list", "rscalc/mcbuild.py",
+     '                     "load", "unload")', '                     "load")',
+     "the declared function list missing one the exporter really writes"),
     # this used to mutate the quarter-turn table, and it survived: nothing in
     # the repository ever built a rotated `Placer`, so the whole path was dead.
     # It is gone, and what is left is the frame that every cell really uses.

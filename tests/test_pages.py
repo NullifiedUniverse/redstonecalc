@@ -105,6 +105,46 @@ def test_neither_page_has_an_engine_of_its_own():
           f"docs/engine.js: OK")
 
 
+def test_nothing_at_the_top_level_touches_the_machine():
+    """`circ`, `world` and `eng` do not exist until the boot function runs.
+
+    They are declared empty and filled by an `async` IIFE at the end of the
+    page: unpack the blob, build the world, wire the engine. Every statement at
+    the top level of the script runs *before* that finishes, so one that reads
+    `circ.mc` throws a TypeError — and the boot never reaches `__ready`, the
+    page shows its loading line forever, and nothing in the console says why
+    unless somebody is watching it.
+
+    That is not hypothetical. Reading the datapack's tick count off the bundle
+    was written as a top-level line beside the button's `onclick`, and it took
+    two 300-second browser timeouts to find. This is the same check, statically,
+    in the time it takes to read the file.
+    """
+    import re
+    bad = []
+    for rel in ["docs/preview_template.html", "docs/demo_template.html"]:
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+            lines = f.read().split("\n")
+        depth = 0
+        for n, line in enumerate(lines, 1):
+            s = line.rstrip()
+            # a statement is top-level if no brace is open above it; comments,
+            # declarations and function bodies are all fine
+            # only what is evaluated *now*: anything past the line's first `=>`
+            # or `function` is a body that runs later, and `bStep.onclick =
+            # () => eng.tick()` is exactly right
+            now = s.split("=>")[0].split("function")[0]
+            if (depth == 0 and re.match(r"^[^\s/*}]", s)
+                    and re.search(r"\b(circ|world|eng)\s*\.", now)
+                    and not s.startswith(("function", "const ", "let ", "var ",
+                                          "class ", "//", "/*", "*"))):
+                bad.append(f"{rel}:{n}: {s[:70]}")
+            depth += s.count("{") - s.count("}")
+    assert not bad, ("these run before the machine exists, so the page would "
+                     "never finish booting:\n  " + "\n  ".join(bad))
+    print("  no top-level statement reads the machine before boot fills it: OK")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} page build tests\n")

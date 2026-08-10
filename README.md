@@ -254,6 +254,18 @@ would otherwise build at world origin. There is a `clear` function to take it
 back out, and `tests/test_mcbuild.py` interprets the whole chain to prove every
 part runs exactly once, in order, with no function in the pack unreachable.
 
+The pack also **force-loads its own footprint**, which is the difference between
+a machine that answers and one that does not. Redstone only ticks in chunks the
+server is simulating, and this build covers 35 × 61 = 2,135 chunks; at Java's
+default simulation distance a player standing at the control wall has about a
+fifth of it live, so a lever throw would propagate a few hundred blocks and
+stop, with no error anywhere. `build` calls `load` before it places anything —
+12 `/forceload add` commands, since one covers at most 256 chunks — and `unload`
+gives the chunks back. The page's in-browser generator writes the same ten
+control functions; `tools/check_preview.mjs` compares its function list against
+the exporter's and expands every `forceload` to prove no chunk of the footprint
+is left out.
+
 One convention matters more than anything else, because getting it wrong fails
 *silently* — the build looks perfect and computes nothing. Minecraft's repeater
 `facing` runs from the **output** side to the **input** side, the opposite of

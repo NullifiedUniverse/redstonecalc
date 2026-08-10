@@ -354,6 +354,27 @@ def test_no_function_in_the_pack_is_unreachable():
               f"{len(entries)} advertised entry points: OK")
 
 
+def test_the_declared_control_functions_are_the_ones_written():
+    """`CONTROL_FUNCTIONS` is what the page is told to generate.
+
+    It is shipped in the bundle so the browser's copy of this generator can be
+    checked against it — which is only worth anything if the list matches what
+    *this* file actually writes. A constant that has drifted from its own
+    exporter would hand the page a wrong answer with full confidence.
+    """
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        mcbuild.export_datapack(w, d, name="t", per_file=40)
+        fdir = os.path.join(d, "data", "t", "function")
+        written = {f[:-11] for f in os.listdir(fdir)
+                   if f.endswith(".mcfunction") and not f.startswith("part")}
+        assert written == set(mcbuild.CONTROL_FUNCTIONS), (
+            f"declared {sorted(mcbuild.CONTROL_FUNCTIONS)}, "
+            f"wrote {sorted(written)}")
+        print(f"  all {len(written)} declared control functions are written, "
+              f"and nothing else is: OK")
+
+
 def test_the_whole_footprint_is_force_loaded():
     """Redstone only ticks in chunks the game is simulating.
 

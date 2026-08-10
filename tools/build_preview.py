@@ -24,6 +24,7 @@ from rscalc.pla import compile_netlist
 from rscalc.export import export_circuit, write_bundle
 from rscalc.display import build_digit, DIGIT_SEGMENTS, SEGS
 from tools.prototype_decimal import seven_seg
+from tools.build_world import pack_name
 
 LANE_LEN = 6              # how far the feed lanes reach out to -X
 DIGIT_PITCH = 14          # X spacing between digits; feed lanes need the room
@@ -167,7 +168,7 @@ def main():
 
 
 
-def _mc_table(world):
+def _mc_table(world, namespace):
     """(kind, meta) -> Minecraft block state, as a palette and an index map.
 
     The bundle already carries every block's kind and meta byte. This is the
@@ -200,8 +201,24 @@ def _mc_table(world):
             index[state] = len(palette)
             palette.append(state)
         table[key] = index[state]
+    # How many commands the pack comes to, and so how many game ticks it takes
+    # to place itself. The page prints that number in its own prose, and it was
+    # written there by hand as "36" with nothing to keep it true — the one
+    # figure on the page that was asserted rather than measured. It costs about
+    # two seconds to merge the runs here and ship the real one.
+    _, state_of = mcbuild.palette_of(world)
+    commands = sum(1 for _ in mcbuild._runs(world, state_of))
     return {"palette": palette, "map": table,
-            "pack_format": mcbuild.PACK_FORMAT_DEFAULT}
+            "commands": commands,
+            "parts": -(-commands // mcbuild.PER_FILE_DEFAULT),
+            "pack_format": mcbuild.PACK_FORMAT_DEFAULT,
+            # the control functions the page's own generator has to produce, so
+            # the two cannot drift the way they did over force-loading
+            "functions": sorted(mcbuild.CONTROL_FUNCTIONS),
+            # `export_datapack` lowercases the export name into the namespace,
+            # and the page has to name the same one or its README tells readers
+            # to type a command their pack does not answer to
+            "namespace": namespace.lower()}
 
 
 def export_machine(delay=None):
@@ -253,7 +270,7 @@ def export_machine(delay=None):
         # knows a repeater's facing flips on the way out; the page looks the
         # answer up by (kind, meta) rather than deriving it a second time, and
         # `tests/test_export.py` checks the table against mcbuild directly.
-        "mc": _mc_table(m.world),
+        "mc": _mc_table(m.world, pack_name(m.width)),
         "ops": OPS,
         "flags": FLAGS,
         "digits": [str(k) for k in reversed(range(m.ndigits))],

@@ -290,6 +290,16 @@ def test_the_page_gets_its_minecraft_table_from_the_exporter():
     assert mc, "the bundle carries no Minecraft table, so the page cannot " \
                "write a datapack without inventing one"
     assert mc["pack_format"] == mcbuild.PACK_FORMAT_DEFAULT
+    # The same argument covers the pack's *shape*, not just its blocks. The
+    # page generates a second copy of the control functions, and force-loading
+    # was added to the exporter alone: the browser's pack went out without a
+    # `load`, which in a real world means the far end of the machine never
+    # ticks. The list of functions and the namespace are shipped as data for
+    # the same reason the block states are.
+    assert mc["functions"] == sorted(mcbuild.CONTROL_FUNCTIONS)
+    from tools.build_world import pack_name
+    assert mc["namespace"] == pack_name(circ["width"]).lower(), \
+        "the page would name the pack something the README's /function is not"
 
     w = build()
     checked = 0
