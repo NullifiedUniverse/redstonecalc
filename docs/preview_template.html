@@ -2938,7 +2938,9 @@ function flashValue(el){
    can carry. The parts are then driven one per tick by a marker and a schedule
    chain, because a scheduled function forgets where it was called from — see
    `mcbuild.write_paced_entry`, whose output this mirrors. */
-const PACK_PER_FILE=2000;
+/* the batch size is the exporter's, shipped in the bundle: it sets how
+   many ticks the build takes and therefore what it looks like */
+const PACK_PER_FILE=null;
 function datapackFiles(){
   const mc=circ.mc;
   if(!mc)throw new Error("this bundle carries no Minecraft table");
@@ -3009,8 +3011,9 @@ function datapackFiles(){
   }
 
   const parts=[];
-  for(let i=0;i<lines.length;i+=PACK_PER_FILE)
-    parts.push(lines.slice(i,i+PACK_PER_FILE));
+  const per=mc.per_file;
+  for(let i=0;i<lines.length;i+=per)
+    parts.push(lines.slice(i,i+per));
   const name=n=>`part/${String(n).padStart(4,"0")}`;
   const out={};
   parts.forEach((p,i)=>{out[`data/${ns}/function/${name(i)}.mcfunction`]=p.join("\n")+"\n";});

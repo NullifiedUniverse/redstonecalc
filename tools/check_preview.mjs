@@ -525,6 +525,18 @@ const pack = await page.evaluate(() => {
            })(),
            gadgets: Object.keys(files)
              .filter(k => k.includes("/function/move/")).length,
+           // one labelled sign per control, hung after the machine is placed
+           signs: (files[`data/${ns}/function/sys/signs.mcfunction`] || "")
+             .split("\n").filter(l => l.startsWith("setblock")).length,
+           wantSigns: mc.signs,
+           signsHung: /function \S+:sys\/signs/
+             .test(files[`data/${ns}/function/sys/done.mcfunction`] || ""),
+           // the machine keeps ticking after the build and across a restart
+           keepsChunks:
+             /\bfunction \S+:load\b/
+               .test(files[`data/${ns}/function/sys/done.mcfunction`] || "")
+             && JSON.parse(files["data/minecraft/tags/function/load.json"] || "{}")
+                  .values?.[0] === `${ns}:sys/keep`,
            supportsFirst: (() => {
              // the skeleton goes down before any redstone: walk the emitted
              // commands and refuse to find a component before the last support
@@ -580,6 +592,14 @@ if (!pack.clearAnchored)
 if (!pack.supportsFirst)
   throw new Error(`a redstone component is placed before the last support ` +
                   `block, so the game would drop it as an item`);
+if (pack.signs !== pack.wantSigns || !pack.signs)
+  throw new Error(`the pack hangs ${pack.signs} signs, the bundle says there ` +
+                  `are ${pack.wantSigns} controls to label`);
+if (!pack.signsHung)
+  throw new Error(`the signs are never placed — sys/done does not run them`);
+if (!pack.keepsChunks)
+  throw new Error(`the chunks are not kept: the build does not re-assert its ` +
+                  `force-load, or the world-start hook does not restore it`);
 if (!pack.buildLoads)
   throw new Error(`build never calls load, so the machine is placed into ` +
                   `chunks the server is not simulating`);
@@ -603,8 +623,9 @@ console.log(`datapack: ${pack.commands.toLocaleString()} commands in ` +
 console.log(`  ${pack.ns}: ${pack.ctrl.length} functions copied byte-for-byte ` +
             `from the exporter (${pack.gadgets} of them gadgets in the same ` +
             `pack), ${pack.chunks.toLocaleString()} chunks force-loaded and ` +
-            `waited for, none of the footprint left out, the whole skeleton ` +
-            `placed before any redstone, clear anchored to the stored origin`);
+            `waited for and kept loaded, none of the footprint left out, the ` +
+            `whole skeleton placed before any redstone, ${pack.signs} controls ` +
+            `labelled, clear anchored to the stored origin`);
 
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written

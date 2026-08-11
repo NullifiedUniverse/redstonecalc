@@ -84,7 +84,7 @@ def test_the_linter_can_fail():
         ("a tag nothing applies", f"{fn}/{traverse.PREFIX}/tick.mcfunction",
          f"tag={ns}_on", "tag=nope_on"),
         ("a block tag the pack does not ship",
-         f"{fn}/{traverse.PREFIX}/step.mcfunction",
+         f"{fn}/{traverse.PREFIX}/grapple.mcfunction",
          f"#{ns}:passable", f"#{ns}:walkable"),
         ("a macro placeholder nothing supplies", f"{fn}/{traverse.PREFIX}/recall_at.mcfunction",
          "$(x)", "$(ex)"),
@@ -135,6 +135,43 @@ def test_the_hook_never_moves_you_into_a_block():
         shutil.rmtree(d)
 
 
+def test_the_pull_moves_you_rather_than_teleporting_you():
+    """The report from a real world was exact: *it just teleports the player*.
+
+    It did. `tp @s` once a tick is twenty position corrections a second for the
+    client to swallow — no interpolation, no momentum, and letting go leaves you
+    hanging, because a teleport has no velocity to inherit.
+
+    You cannot set a player's velocity from a command. You can set an entity's,
+    and a rider moves with its vehicle, so the hook mounts you on an invisible
+    marker armor stand and steers that instead. This pins the mechanism: the
+    grapple path must contain no teleport at all, and must set Motion on
+    whatever the player is riding.
+    """
+    d, _ = _built()
+    try:
+        fdir = os.path.join(d, "data", NS, "function", traverse.PREFIX)
+        pull = ""
+        for name in ("grapple", "thrust", "motion", "mount"):
+            with open(os.path.join(fdir, f"{name}.mcfunction")) as f:
+                pull += f.read()
+        assert " tp @" not in pull and not pull.startswith("tp @"), \
+            "the pull teleports again — that is the bug this replaced"
+        assert "ride @s mount" in pull, "nothing puts the player on a vehicle"
+        assert "on vehicle run data merge entity @s {Motion:[" in pull, \
+            "nothing gives the vehicle a velocity"
+        # and the vehicle has to be cleaned up, or you are stuck on it forever
+        for name in ("release", "arrive", "unstick"):
+            with open(os.path.join(fdir, f"{name}.mcfunction")) as f:
+                body = f.read()
+            assert "ride @s dismount" in body, name
+            assert f"kill @e[type=armor_stand,tag={NS}_ride" in body, name
+        print("  the pull sets Motion on a ridden entity and never teleports, "
+              "and every exit dismounts and cleans up: OK")
+    finally:
+        shutil.rmtree(d)
+
+
 def test_the_passable_tag_cannot_be_broken_by_one_bad_id():
     """A block tag containing an id the version lacks fails to load entirely.
 
@@ -175,6 +212,13 @@ def test_the_gadgets_live_in_the_machine_s_namespace():
         hooks = os.path.join(d, "data", "minecraft", "tags", "function")
         tick = json.load(open(os.path.join(hooks, "tick.json")))["values"]
         assert tick == [f"{NS}:{traverse.PREFIX}/tick"], tick
+        # the machine's world-start hook goes ahead of the gadgets', so the
+        # chunks are back under force-load before anything looks at them
+        load = json.load(open(os.path.join(hooks, "load.json")))["values"]
+        assert load == [f"{NS}:{traverse.PREFIX}/load"], load
+        traverse.write_hooks(d, ns=NS, on_load=[f"{NS}:sys/keep"])
+        load = json.load(open(os.path.join(hooks, "load.json")))["values"]
+        assert load == [f"{NS}:sys/keep", f"{NS}:{traverse.PREFIX}/load"], load
         print(f"  {len(info['functions'])} gadget functions under "
               f"{NS}:{traverse.PREFIX}/, in the machine's own namespace: OK")
     finally:

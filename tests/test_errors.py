@@ -277,6 +277,58 @@ def test_keypad_refuses_more_keys_than_its_bus_carries():
     print("  keypad: a pad wider than the bus is verified for is refused: OK")
 
 
+def test_every_sign_hangs_on_a_wall_and_names_one_control():
+    """A wall sign needs an empty cell and a block on the face it hangs from.
+
+    `sign_plan` searches for both rather than assuming, which is the only
+    reason this passes at all: the walkway occupies the obvious spot for half
+    the controls, so half the signs end up on a different face. Get the facing
+    wrong and the sign is attached to nothing — Minecraft places it anyway and
+    it drops as an item on the next block update, which is the sign version of
+    the dust-on-the-floor bug.
+
+    `facing` is the direction the text looks, so the block holding it up is one
+    step the *other* way. That relationship is what this checks, on the real
+    lever positions, for every one of them.
+    """
+    import rscalc.machine as M
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import build_world
+    from rscalc.alu import OPS
+
+    m = M.build_machine(repeater_delay=2)
+    (x0, y0, z0), _ = m.world.bounds()
+    signs = build_world.sign_plan(m)
+
+    expect = 2 * m.width + len(OPS)
+    assert len(signs) == expect, f"{len(signs)} signs for {expect} controls"
+
+    behind = {"north": (0, 0, 1), "south": (0, 0, -1),
+              "east": (-1, 0, 0), "west": (1, 0, 0)}
+    seen, faces = set(), {}
+    for (sx, sy, sz), facing, (line1, line2) in signs:
+        cell = (sx + x0, sy + y0, sz + z0)
+        assert cell not in seen, f"two signs share the cell {cell}"
+        seen.add(cell)
+        assert cell not in m.world.blocks, (
+            f"a sign at {cell} would be inside {m.world.blocks[cell].kind}")
+        dx, dy, dz = behind[facing]
+        wall = (cell[0] + dx, cell[1] + dy, cell[2] + dz)
+        assert wall in m.world.blocks, (
+            f"a sign at {cell} facing {facing} has nothing at {wall} to hang "
+            f"from, so it drops on the first block update")
+        assert line1 and line2 and len(line1) <= 15 and len(line2) <= 15, (
+            f"{line1!r}/{line2!r} will not fit on a sign")
+        faces[facing] = faces.get(facing, 0) + 1
+
+    # every control named exactly once, and no label used twice
+    labels = {tuple(t) for _, _, t in signs}
+    assert len(labels) == len(signs), "two controls carry the same label"
+    print(f"  signs: {len(signs)} labels, each on an empty cell with a wall "
+          f"behind it ({', '.join(f'{n} {f}' for f, n in sorted(faces.items()))}"
+          f"): OK")
+
+
 def test_export_refuses_unknown_blocks():
     from rscalc import mcbuild
     try:

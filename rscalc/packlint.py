@@ -33,7 +33,8 @@ import re
 #: by no parser here but by the game's, which reports it once per execution and
 #: then carries on — 2,000 times a tick, in a pack this size.
 KNOWN = {
-    "advancement", "attribute", "clear", "data", "difficulty", "effect",
+    "advancement", "attribute", "bossbar", "clear", "data", "difficulty",
+    "effect",
     "execute", "fill", "forceload", "function", "gamemode", "gamerule", "give",
     "item", "kill", "particle", "playsound", "return", "ride", "say",
     "schedule", "scoreboard", "setblock", "stopsound", "summon", "tag", "team",

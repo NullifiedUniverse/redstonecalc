@@ -79,6 +79,19 @@ hundred wires that way and still look finished.
 You will be standing **inside** the footprint when it starts, because you are
 standing on its minimum corner. Use spectator mode, or `/function {ns}:go/above`.
 
+### Watching it go up
+
+A boss bar counts chunks while it waits and batches while it places, and each
+batch lands with a stone knock whose pitch rises from 0.90 to 1.80 as the build
+finishes — so you can hear how far along it is without watching the bar. To
+slow it down, set the pace before you build. This is **ticks per batch**, so 4
+stretches {ticks} batches from {seconds:.0f} seconds to {slow_seconds:.0f}:
+
+```
+/scoreboard players set #pace {ns}_v 4
+{entry}
+```
+
 ### It waits for its chunks, and that wait is the point
 
 `/forceload add` does **not** load a chunk. It marks the chunk to be loaded, and
@@ -104,7 +117,7 @@ ten minutes rather than hanging silently.
 
 `status` reports where the machine was built, how big it is, and — while a
 build or clear is running — which part or layer it is on. Progress also goes to
-the action bar rather than to chat, because 36 lines of "placing..." is not
+the action bar rather than to chat, because {ticks} lines of "placing..." is not
 progress reporting.
 
 ### Getting around
@@ -126,6 +139,12 @@ and lets go when you reel in. The charm dashes where you look. The compass
 returns to your mark. All three leave you with slow falling, so the landing is
 survivable.
 
+The pull is a **pull**, not a teleport: you ride an invisible mount whose
+velocity is written each tick, so the client interpolates the movement and you
+keep your momentum when it lets go. The speed ramps up from rest and eases off
+inside eight blocks of the hook, and a rope of particles shows you the line. If
+anything ever leaves you riding something, `/function {ns}:move/unstick`.
+
 ### It will not run unless you force-load it — **read this one**
 
 Redstone only ticks in chunks the game is *simulating*. This build is
@@ -137,6 +156,14 @@ Nothing errors. The answer just never arrives.
 `{load}` covers the whole footprint with {forceload_commands} `/forceload`
 commands (one command takes at most 256 chunks). `build` runs it for you before
 placing anything. `{unload}` releases them again.
+
+**They stay loaded.** `/forceload` is saved with the world, so the machine keeps
+computing across a restart on its own, and this pack re-asserts it on every world
+start as well — for the cases where the save is not enough: a world copied
+without its forceload table, another pack running `forceload remove all`, an
+aborted clear. The re-assert is guarded by a flag `load` sets and `unload`
+clears, so it restores what a build asked for without overriding what you asked
+for.
 
 Force-loading {chunks} chunks is not free — that is a permanent load on the
 server for as long as it is set.
@@ -205,18 +232,19 @@ def target(what, width, delay):
         from rscalc.machine import build_machine, SETTLE_GT
         m = build_machine(width=width or 10, repeater_delay=delay)
         return pack_name(m.width), m.world, dict(
-            m.stats, settle=SETTLE_GT, controls=controls_note(m)), landmarks(m)
+            m.stats, settle=SETTLE_GT, controls=controls_note(m)), \
+            landmarks(m), sign_plan(m)
     if what == "console":
         from rscalc.console import build_console
         nl, w, L, pads, lamps, stats, ready = build_console(repeater_delay=delay)
-        return "rscalc_console", w, stats, {}
+        return "rscalc_console", w, stats, {}, []
     if what == "alu":
         from rscalc.alu import build_alu
         nl = build_alu(width=width or 8, carry="cla")
         w = World()
         compile_netlist(nl, w, repeater_delay=delay)
         return f"rscalc_alu_{width or 8}bit", w, {
-            "gates": nl.gate_count(), "depth": nl.depth()}, {}
+            "gates": nl.gate_count(), "depth": nl.depth()}, {}, []
     raise SystemExit(f"unknown target {what!r}")
 
 
@@ -268,6 +296,64 @@ def landmarks(m):
     return marks
 
 
+def sign_plan(m):
+    """A labelled sign beside every control, placed where one actually fits.
+
+    Twenty-eight identical levers on one wall, and nothing on them to say which
+    is which. You can work out that the columns are bits and the rows are A and
+    B, but only by counting — and the operation keys are indistinguishable from
+    the operand bits without the README open beside you.
+
+    Signs are **not** blocks in the simulated world. They carry no signal, and
+    putting them through `World` would change every block count this project
+    documents and every figure anchored to one. They are extra `/setblock`
+    commands the pack runs after the machine is placed.
+
+    Each position is searched for rather than assumed: a wall sign needs an
+    empty cell with the support block behind it, and the walkway is glass at the
+    B row's shoulder, so the obvious spot is taken for half of them. The search
+    prefers the side the player stands on and falls back around the block.
+    """
+    from rscalc.alu import OPS
+    from rscalc.panel import WALK_X
+    (x0, y0, z0), _ = m.world.bounds()
+    solid = m.world.blocks
+
+    def rel(p):
+        return (p[0] - x0, p[1] - y0, p[2] - z0)
+
+    # the walkway is at +X of the wall, so that is the face a reader is looking
+    # at; the rest are fallbacks for where the walkway itself is in the way
+    toward = 1 if WALK_X[0] > min(p[0] for p in m.levers.values()) else -1
+    dirs = [((toward, 0, 0), "east" if toward > 0 else "west"),
+            ((0, 0, -1), "north"), ((0, 0, 1), "south"),
+            ((-toward, 0, 0), "west" if toward > 0 else "east")]
+
+    labels = {}
+    for i in range(m.width):
+        labels[m.levers[f"A{i}"]] = (f"A bit {i}", f"value {1 << i}")
+        labels[m.levers[f"B{i}"]] = (f"B bit {i}", f"value {1 << i}")
+    for k in range(len(OPS)):
+        labels[m.keys[k]] = (OPS[k], "flip on, off")
+
+    out, used = [], set()
+    for pos, (line1, line2) in sorted(labels.items()):
+        support = (pos[0], pos[1] - 1, pos[2])
+        if support not in solid:
+            raise SystemExit(f"a control at {pos} has no support to hang a "
+                             f"sign from")
+        for (dx, dy, dz), facing in dirs:
+            cell = (support[0] + dx, support[1] + dy, support[2] + dz)
+            if cell in solid or cell in used:
+                continue
+            used.add(cell)
+            out.append((rel(cell), facing, [line1, line2]))
+            break
+        else:
+            raise SystemExit(f"nowhere to hang a sign for the control at {pos}")
+    return out
+
+
 def controls_note(m):
     """Where the player's controls are, relative to the build's minimum corner.
 
@@ -305,6 +391,10 @@ holds two levers, the upper at **y = {yhi}** and the lower at **y = {ylo}**:
 The glass walkway is at **y = {yw}**, x = {xw} and {xw2}: stand on it and your
 feet are level with the lower row while the upper row is a 2.6-block reach, so
 the whole wall is workable without moving more than a few steps.
+
+**You do not have to memorise this table.** Every control has a wall sign beside
+it in the world — `A bit 7` / `value 128` for an operand lever, the operation's
+name for a key. The table is here for reading away from the game.
 
 Flip the operand levers, then flip an operation lever on and off again the way
 you would press a button — the keypad latches on the way down and holds the
@@ -351,7 +441,8 @@ def main():
         args.delay = VERIFIED_DELAY[args.what] or DEFAULT_DELAY
 
     t0 = time.time()
-    name, world, stats, marks = target(args.what, args.width, args.delay)
+    name, world, stats, marks, signs = target(args.what, args.width,
+                                              args.delay)
     problems = world.lint()
     if problems:
         raise SystemExit(f"refusing to export a world with {len(problems)} "
@@ -366,22 +457,12 @@ def main():
     pack = mcbuild.export_datapack(world, packdir,
                                    name=name, solid=args.solid,
                                    mc_version=args.mc,
-                                   landmarks=marks)
+                                   landmarks=marks, signs=signs)
     # One pack, one namespace. The machine and the gadgets used to be two
     # separate downloads in two namespaces, which meant two things to install,
     # two `/reload`s to get wrong, and two prefixes to remember.
     ns = pack["namespace"]
-    machine_help = [
-        ("build", "place it, from the -X -Y -Z corner"),
-        ("clear", "take it away again, from anywhere"),
-        ("status", "where it is and what it is doing"),
-        ("load", "force-load its chunks so it ticks"),
-        ("unload", "release them again"),
-        ("abort", "stop a build or clear part way"),
-    ] + [(f"go/{k}", f"teleport to the {k}")
-         for k in sorted(pack["landmarks"])]
-    move = traverse.build(packdir, ns=ns, machine_help=machine_help)
-    traverse.write_hooks(packdir, ns=ns)
+    move = traverse.attach(packdir, ns, pack)
     problems = packlint.lint(packdir)
     if problems:
         for p in problems[:20]:
@@ -407,6 +488,7 @@ def main():
             forceload_commands=pack["forceload_commands"],
             maxy=319 - (y1 - y0),
             clear_ticks=pack["clear_ticks"], seconds=pack["ticks"] / 20,
+            slow_seconds=pack["ticks"] * 4 / 20,
             delay=args.delay,
             controls=stats.get("controls", ""),
             settle=args.settle or stats.get("settle", 0),

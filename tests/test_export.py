@@ -348,6 +348,73 @@ def test_the_page_gets_its_minecraft_table_from_the_exporter():
           f"mcbuild on every one of {checked} kinds checked: OK")
 
 
+def test_the_two_generators_assemble_the_same_pack():
+    """`tools/build_world.py` and `tools/build_preview.py` both write this pack.
+
+    Everything up to now compared the *page* against the *bundle* — and the
+    bundle is the second generator's copy, so the two agreeing proves nothing
+    about the download. Four differences lived in that blind spot at once: the
+    bundle's pack had no `minecraft:load` hook, no note about the build pace,
+    the old generated "teleport to the above" landmark phrasing, and a finish
+    message quoting the command count as a block count.
+
+    The fix was `traverse.attach`, one function both tools call. Comparing the
+    two tools' output to each other would now be vacuous — it is the same
+    function — so this checks the two things that actually keep it that way:
+    neither tool may wire the gadgets up itself, and the assembled pack must
+    carry each of the four things the bundle's copy was missing.
+    """
+    import json, tempfile, shutil
+    from rscalc import mcbuild, traverse
+    from rscalc.engine import World, Block
+
+    w = World()
+    for z in range(6):
+        w.set((0, 0, z), Block("solid"))
+        w.set((0, 1, z), Block("dust"))
+
+    # neither tool may assemble this half itself
+    for tool in ("build_world.py", "build_preview.py"):
+        src = open(os.path.join(ROOT, "tools", tool)).read()
+        for own in ("traverse.build(", "traverse.write_hooks("):
+            assert own not in src, (
+                f"tools/{tool} calls {own} directly — that is the second "
+                f"implementation coming back; it must go through "
+                f"traverse.attach")
+        assert "traverse.attach(" in src, f"tools/{tool} never attaches them"
+
+    d = tempfile.mkdtemp()
+    ns = mcbuild.NAMESPACE
+    fdir = os.path.join(d, "data", ns, "function")
+    os.makedirs(fdir, exist_ok=True)
+    paced = mcbuild.write_paced_entry(
+        fdir, ns, "t", ["part/0000"], 4, (1, 2, 6),
+        landmarks={"above": (0, 8, 0), "controls": (0, 2, 0)},
+        signs=[((1, 0, 0), "east", ("A bit 0", "value 1"))],
+        blocks=len(w.blocks))
+    traverse.attach(d, ns, paced)
+    a = {}
+    for dp, _, names in os.walk(d):
+        for n in names:
+            full = os.path.join(dp, n)
+            a[os.path.relpath(full, d).replace(os.sep, "/")] = open(full).read()
+    shutil.rmtree(d)
+
+    # the four things the bundle's copy was silently missing
+    hook = json.loads(a["data/minecraft/tags/function/load.json"])["values"]
+    assert hook[0] == f"{mcbuild.NAMESPACE}:sys/keep", hook
+    help_text = a[f"data/{mcbuild.NAMESPACE}/function/help.mcfunction"]
+    assert "#pace" in help_text, "the build pace is a knob nobody can find"
+    assert "controls has a sign beside it" in help_text
+    assert "teleport to the above" not in help_text, \
+        "a generated phrasing that says nothing reached the player"
+    done = a[f"data/{mcbuild.NAMESPACE}/function/sys/done.mcfunction"]
+    assert f"placed: {len(w.blocks):,} blocks" in done, \
+        "the finish message quotes the command count, not the block count"
+    print(f"  one assembler for both generators, {len(a)} pack files with the "
+          f"world-start hook, the pace note and a real block count: OK")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} export tests\n")

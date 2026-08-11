@@ -105,6 +105,14 @@ MUTATIONS = [
      '        pack["max_format"] = [major, minor]',
      '        pack["max_format"] = [major, 0]',
      "a pack.mcmeta declaring a format the target version does not use"),
+    ("panel.sign-facing", "tools/build_world.py",
+     '    dirs = [((toward, 0, 0), "east" if toward > 0 else "west"),',
+     '    dirs = [((toward, 0, 0), "west" if toward > 0 else "east"),',
+     "signs facing away from the wall they hang on, so they drop as items"),
+    ("traverse.hook-vehicle", "rscalc/traverse.py",
+     f'        f"ride @s mount @e[type=armor_stand,tag={{ride}}_new,limit=1]",',
+     f'        f"tp @s ~ ~ ~",',
+     "the grapple back to teleporting the player instead of riding a vehicle"),
     # this used to mutate the quarter-turn table, and it survived: nothing in
     # the repository ever built a rotated `Placer`, so the whole path was dead.
     # It is gone, and what is left is the frame that every cell really uses.

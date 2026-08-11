@@ -13,10 +13,19 @@ been stable for years. There is no Minecraft in this repository's test rig, so
 what cannot be executed can only be reasoned about, and the way to keep that
 honest is to lean on old dull commands rather than the newest component syntax:
 
-* the pull is `execute ... facing entity ... positioned ^ ^ ^d ... run tp @s ~ ~ ~`,
-  which moves the player along the line to the hook **without touching their
-  rotation** — `facing` changes the execution context's rotation, not the
-  entity's, so the camera stays where the player put it;
+* the pull does **not** teleport. The first version did — `tp @s` once a tick —
+  and the report from a real world was exact: *it just teleports the player
+  around*. A player's position set by the server twenty times a second is twenty
+  corrections the client has to swallow: no interpolation, no momentum, and
+  letting go leaves you hanging because a teleport has no velocity to inherit.
+  You cannot set a player's velocity from a command, but you can set an
+  entity's, and a rider moves with its vehicle — smoothly, because the client
+  interpolates a vehicle between ticks. So the hook mounts you on an invisible
+  marker armor stand and steers that;
+* the direction is a unit vector obtained without trigonometry, by letting the
+  game do it: `facing entity` aims the execution context, `positioned ^ ^ ^1`
+  steps one block that way, and the difference between that point and where you
+  stand *is* the unit vector;
 * the trigger for the dash is `minecraft.used:minecraft.carrot_on_a_stick`, a
   statistic objective, which is the oldest reliable "player right-clicked this"
   signal in the game;
@@ -30,9 +39,7 @@ works and feels bad is still a bad grappling hook:
 
 **It eases.** The pull accelerates out of rest over about eight ticks and eases
 off inside eight blocks of the hook. A constant-speed pull reads as being
-dragged by a winch; the ramp reads as swinging. Minecraft moves players at 20
-positions a second whatever you do, so speed shape is the only smoothness
-available — there is no sub-tick interpolation to reach for.
+dragged by a winch; the ramp reads as swinging.
 
 **It draws the rope.** Six `end_rod` particles between the player's eyes and the
 hook, redrawn every tick. Without them the hook is an invisible force and the
@@ -89,7 +96,7 @@ def _passable():
             [{"id": i, "required": False} for i in optional]}
 
 
-def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
+def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
     """Write the traversal half of the pack. Returns a summary dict."""
     fdir = os.path.join(outdir, "data", ns, "function")
     p = PREFIX
@@ -99,6 +106,9 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
     obj_speed = f"{ns}_speed"
     on = f"{ns}_on"
     hover = f"{ns}_hover"
+    obj_vec = f"{ns}_vec"
+    ride = f"{ns}_ride"
+    aim = f"{ns}_aim"
     bobber = (f"@e[type=fishing_bobber,limit=1,sort=nearest,"
               f"distance=..{REACH}]")
     near = lambda d: f"@e[type=fishing_bobber,limit=1,sort=nearest,distance=..{d}]"
@@ -121,6 +131,7 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
         f"minecraft.used:minecraft.compass",
         f"scoreboard objectives add {obj_fall} dummy",
         f"scoreboard objectives add {obj_speed} dummy",
+        f"scoreboard objectives add {obj_vec} dummy",
     ])
 
     # --- the gear ----------------------------------------------------------
@@ -183,38 +194,94 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
         f"scoreboard players remove @a[scores={{{obj_fall}=1..}}] {obj_fall} 1",
         f"execute as @a[tag={hover}] run "
         f"effect give @s minecraft:slow_falling 2 0 true",
+        # a mount whose rider let go, logged out or died would otherwise drift
+        # away forever with the motion it was last given
+        f"execute as @e[type=armor_stand,tag={ride}] at @s "
+        f"unless entity @a[distance=..2] run kill @s",
     ])
 
-    # One step along the line to the hook. Three things are deliberate:
+    # --- the pull ----------------------------------------------------------
     #
-    #   `facing entity ... feet` sets the *execution* rotation, so `^ ^ ^d` is
-    #   measured towards the bobber while the player's own view is untouched;
-    #   `positioned ^ ^ ^d` then `tp @s ~ ~ ~` lands on that point, which avoids
-    #   `tp @s ^ ^ ^d` resolving locals against the player's rotation instead of
-    #   the aimed one;
-    #   `if block ~ ~ ~ #passable` refuses the step into a solid, so the hook
-    #   stops you against a wall rather than shoving you inside it.
+    # This is the second design. The first moved the player with `tp @s` once a
+    # tick, and the report from a real world was exact: *it just teleports the
+    # player around*. That is what it was. A player's position set by the server
+    # twenty times a second is twenty corrections the client has to swallow —
+    # there is no interpolation, no momentum, and letting go leaves you hanging
+    # in the air because a teleport has no velocity to inherit.
+    #
+    # You cannot set a player's velocity from a command; the client owns it. But
+    # you *can* set an entity's, and a player riding an entity moves with it —
+    # smoothly, because the client interpolates a vehicle between ticks, and
+    # with momentum, because the motion is real. So the hook mounts you on an
+    # invisible marker armor stand and steers that.
+    #
+    # The direction is a unit vector, and the way to get one without
+    # trigonometry is to let the game do it: `facing entity` aims the execution
+    # context, `positioned ^ ^ ^1` steps one block that way, and the difference
+    # between that point and where you are standing *is* the unit vector. A
+    # marker is summoned there for one tick because a position has to belong to
+    # an entity before `data get` can read it.
     fn("grapple", [
         f"execute unless entity {bobber} run function {ns}:{p}/release",
         f"execute unless entity {bobber} run return fail",
         f"execute if entity {near(STOP)} run function {ns}:{p}/arrive",
         f"execute if entity {near(STOP)} run return fail",
+        # stop against a wall rather than being dragged through it: the mount
+        # is a marker and has no collision of its own
+        f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 "
+        f"unless block ~ ~ ~ #{ns}:passable run function {ns}:{p}/arrive",
+        f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 "
+        f"unless block ~ ~ ~ #{ns}:passable run return fail",
         f"scoreboard players set @s {obj_fall} {SAFE_FALL}",
-        # ease in, then ease off as the hook gets close
+        f"execute unless entity @e[type=armor_stand,tag={ride},distance=..3] "
+        f"run function {ns}:{p}/mount",
+        # ease in over eight ticks, and ease off as the hook comes close
         f"scoreboard players add @s {obj_speed} {PULL_RAMP}",
         f"execute if score @s {obj_speed} matches {PULL_MAX}.. run "
         f"scoreboard players set @s {obj_speed} {PULL_MAX}",
         f"execute if entity {near(EASE_AT)} if score @s {obj_speed} matches "
         f"{PULL_EASED + 1}.. run scoreboard players set @s {obj_speed} "
         f"{PULL_EASED}",
-        f"execute store result storage {ns}:{p} d double 0.01 run "
-        f"scoreboard players get @s {obj_speed}",
-        f"function {ns}:{p}/step with storage {ns}:{p}",
+        f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 run "
+        f'summon marker ~ ~ ~ {{Tags:["{aim}"]}}',
+        f"function {ns}:{p}/thrust",
+        f"kill @e[type=marker,tag={aim}]",
         f"function {ns}:{p}/rope",
     ])
-    fn("step", [
-        f"$execute facing entity {bobber} feet positioned ^ ^ ^$(d) "
-        f"if block ~ ~ ~ #{ns}:passable run tp @s ~ ~ ~",
+
+    fn("mount", [
+        f"summon minecraft:armor_stand ~ ~ ~ {{Invisible:1b,NoGravity:1b,"
+        f'Marker:1b,Silent:1b,Tags:["{ride}","{ride}_new"]}}',
+        f"ride @s mount @e[type=armor_stand,tag={ride}_new,limit=1]",
+        f"tag @e[type=armor_stand,tag={ride}_new] remove {ride}_new",
+        f"playsound minecraft:entity.arrow.hit player @s ~ ~ ~ 0.4 1.9",
+    ])
+
+    # unit vector times speed, in thousandths, straight onto the vehicle
+    axes = list(enumerate("xyz"))
+    fn("thrust", [
+        f"scoreboard players set #c100 {obj_vec} 100",
+        f"scoreboard players operation #spd {obj_vec} = @s {obj_speed}",
+    ] + [
+        line
+        for i, ax in axes
+        for line in (
+            f"execute store result score #d{ax} {obj_vec} run data get entity "
+            f"@e[type=marker,tag={aim},limit=1] Pos[{i}] 1000",
+            f"execute store result score #p{ax} {obj_vec} run data get entity "
+            f"@s Pos[{i}] 1000",
+            f"scoreboard players operation #d{ax} {obj_vec} -= #p{ax} {obj_vec}",
+            f"scoreboard players operation #d{ax} {obj_vec} *= #spd {obj_vec}",
+            f"scoreboard players operation #d{ax} {obj_vec} /= #c100 {obj_vec}",
+            f"execute store result storage {ns}:{p} m{ax} double 0.001 run "
+            f"scoreboard players get #d{ax} {obj_vec}",
+        )
+    ] + [
+        f"function {ns}:{p}/motion with storage {ns}:{p}",
+    ])
+    fn("motion", [
+        f"$execute as @s on vehicle run data merge entity @s "
+        f"{{Motion:[$(mx)d,$(my)d,$(mz)d]}}",
     ])
 
     # The rope. Without it the hook is an invisible force and the whole gadget
@@ -228,16 +295,30 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
 
     fn("release", [
         f"scoreboard players set @s {obj_speed} 0",
+        f"ride @s dismount",
+        f"kill @e[type=armor_stand,tag={ride},distance=..6]",
     ])
     fn("arrive", [
         f"scoreboard players set @s {obj_speed} 0",
         f"scoreboard players set @s {obj_fall} {SAFE_FALL}",
+        f"ride @s dismount",
+        f"kill @e[type=armor_stand,tag={ride},distance=..6]",
         f"particle minecraft:cloud ~ ~ ~ 0.2 0.2 0.2 0.01 8 normal @a",
         f"playsound minecraft:entity.arrow.hit player @s ~ ~ ~ 0.5 1.8",
     ])
 
-    # A dash is checked block by block so it cannot pass through a wall: each
-    # step only happens if the one before it did.
+    # An escape hatch, because "you are stuck riding something invisible" is the
+    # one failure of this design that a player cannot fix themselves.
+    fn("unstick", [
+        f"ride @s dismount",
+        f"kill @e[type=armor_stand,tag={ride},distance=..32]",
+        f"scoreboard players set @s {obj_speed} 0",
+        say("dismounted and cleaned up.", "yellow"),
+    ])
+
+    # A dash *is* a blink, and is the one place a teleport is the right verb.
+    # It is checked block by block so it cannot pass through a wall: each step
+    # only happens if the one before it did.
     fn("dash", [
         f"scoreboard players set @s {obj_dash} 0",
         f"scoreboard players set @s {obj_fall} {SAFE_FALL}",
@@ -290,11 +371,17 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
         (f"{p}/gear", "hook, dash charm and recall compass — start here"),
         (f"{p}/mark", "remember where you are standing"),
         (f"{p}/hover", "stop taking fall damage while you look around"),
+        (f"{p}/unstick", "if the hook ever leaves you riding something"),
         (f"{p}/off", "put the gadgets away"),
     ]:
         help_lines.append(
             f'tellraw @s {{"text":"  /function {ns}:{cmd}  — {what}",'
             f'"color":"gray"}}')
+    # the build's speed is a scoreboard value, which is no use to anyone who
+    # cannot see it. Both of these were knobs that existed and were untellable.
+    for note in machine_notes:
+        help_lines.append(
+            f'tellraw @s {{"text":"  {note}","color":"dark_gray"}}')
     help_lines.append(
         f'tellraw @s {{"text":"  Cast the rod to grapple — it pulls while the '
         f'bobber is out and lets go when you reel in. The charm dashes {DASH} '
@@ -317,11 +404,77 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=()):
             "pull": PULL_MAX / 100, "dash": DASH, "reach": REACH}
 
 
-def write_hooks(outdir, ns=mcbuild.NAMESPACE):
-    """The `minecraft:load` and `minecraft:tick` tags that drive the gadgets."""
+def write_hooks(outdir, ns=mcbuild.NAMESPACE, on_load=()):
+    """The `minecraft:load` and `minecraft:tick` tags that drive the gadgets.
+
+    `on_load` is for functions this module does not own — the machine half's
+    `sys/keep`, which puts its chunks back under force-load on every world
+    start. It is a parameter rather than a hardcoded name because the gadgets
+    can be written without the machine, and a tag hooking a function that is
+    not in the pack is exactly what the linter is for.
+    """
     d = os.path.join(outdir, "data", "minecraft", "tags", "function")
     os.makedirs(d, exist_ok=True)
-    for hook, values in (("load", [f"{ns}:{PREFIX}/load"]),
+    # the machine's own hooks run first, so the chunks are back before anything
+    # else looks at them
+    for hook, values in (("load", list(on_load) + [f"{ns}:{PREFIX}/load"]),
                          ("tick", [f"{ns}:{PREFIX}/tick"])):
         with open(os.path.join(d, f"{hook}.json"), "w") as f:
             json.dump({"values": values}, f, indent=1)
+
+
+#: What each landmark teleport is for, in a player's words. `go/above` reading
+#: "teleport to the above" was the generated phrasing, and it says nothing.
+GO_HELP = {
+    "above": "look down on the whole machine from the air",
+    "controls": "the labelled lever wall — set A, B and the operation here",
+    # no distance here: the same table serves the Mk II console and the ALU,
+    # where "973 blocks away" would simply be a lie
+    "display": "the seven-segment readout, at the far end",
+    "origin": "the -X -Y -Z corner the build was placed from",
+}
+
+
+def attach(outdir, ns, paced):
+    """Wire the gadgets into a machine pack. One pack, assembled in one place.
+
+    Two tools write this pack: `tools/build_world.py` writes the one you
+    download, and `tools/build_preview.py` writes the same one into the page's
+    bundle. They used to assemble this half separately — the same help lines,
+    the same hook tags, typed twice — and every check compared the page against
+    the bundle, which is the same copy, so four differences sat there unseen:
+    the page's pack had no world-start hook, no pace note, no landmark
+    descriptions and a stale `go/...` phrasing. This is that code, once.
+
+    `paced` is what `mcbuild.write_paced_entry` returned.
+    """
+    machine_help = [
+        ("build", "place it, from the -X -Y -Z corner"),
+        ("clear", "take it away again, from anywhere"),
+        ("status", "where it is and what it is doing"),
+        ("load", "force-load its chunks so it ticks"),
+        ("unload", "release them again"),
+        ("abort", "stop a build or clear part way"),
+    ] + [(f"go/{k}", GO_HELP.get(k, f"teleport to the {k}"))
+         for k in sorted(paced["landmarks"])]
+    ticks = paced["ticks"]
+    notes = [
+        f"To watch it go up slowly: /scoreboard players set #pace {ns}_v 4 "
+        f"before /function {ns}:build — that is ticks per batch, so 4 makes "
+        f"the {ticks} batches take {ticks * 4 / 20:.0f} seconds instead of "
+        f"{ticks / 20:.0f}.",
+    ]
+    # only if there are any: the Mk II console and the bare ALU go through this
+    # same function, and a help line promising signs on a wall that has none is
+    # worse than no help line
+    if paced["signs"]:
+        where = (f" /function {ns}:go/controls puts you in front of them."
+                 if "controls" in paced["landmarks"] else "")
+        notes.append(
+            f"Each of the {paced['signs']} controls has a sign beside it "
+            f"saying which bit or operation it is.{where}")
+    move = build(outdir, ns=ns, machine_help=machine_help,
+                 machine_notes=notes)
+    write_hooks(outdir, ns=ns,
+                on_load=[paced["on_world_load"].split(" ", 1)[1]])
+    return move

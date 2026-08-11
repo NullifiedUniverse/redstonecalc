@@ -301,6 +301,11 @@ def _chain(fdir, ns):
                     ran.append("done")
                 elif target == "tick":
                     pending = "tick"
+                elif target == "sys/next":
+                    # `sys/next` is a one-line macro that re-schedules `tick`
+                    # after however many ticks `#pace` asks for. The delay is
+                    # not something this interpreter models; that it loops is.
+                    pending = "tick"
             elif rest.startswith("schedule function "):
                 pending = rest.split()[2].split(":", 1)[1]
             m = addre.match(rest)

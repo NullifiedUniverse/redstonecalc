@@ -3182,3 +3182,161 @@ gadget reads as teleportation.
 | falling after a grapple | slow falling for three seconds after any gadget lets go |
 | no idea what the build was doing | action-bar progress for loading, placing and clearing, plus `status` |
 | no way to stop a build | `abort` |
+
+## 37. Twenty-eight identical levers, and a hook that teleported — **measured**
+
+Four reports from the world, all of them fair:
+
+> add signboard to the control panel to show what each level does and means.
+> Also the grappling hook is completely broken it just teleports the player
+> around. Please also improve the animations of the calculator being built out
+> and also remember to keep all the chunks loaded.
+
+### The wall of levers nobody could read
+
+Twenty-eight levers on one wall, all identical. The columns are bits and the
+rows are A and B, but you can only work that out by counting, and the eight
+operation keys look exactly like the twenty operand bits. The README said which
+was which; the README is not in the world.
+
+Each control now has a wall sign beside it — `A bit 7 / value 128`,
+`SUB / flip on, off`. Three things made this less trivial than it sounds.
+
+**Signs are not simulator blocks.** Putting them through `World` would change
+the block count, the bounds, the chunk count and every figure in this document
+anchored to one. They are extra `/setblock` commands the pack runs after the
+machine is placed, from the same anchor marker everything else reads.
+
+**The position is searched for, not assumed.** A wall sign needs an empty cell
+*and* a block on the face it hangs from. The walkway is at the readers'
+shoulder, so the obvious spot beside the lever is occupied for half of them.
+The search tries the walkway side first and falls back around the block:
+
+| face | signs |
+|---|---|
+| east — the side the player stands on | 14 |
+| north — where the walkway is in the way | 14 |
+| nowhere found | **0** |
+
+**The facing has to be the other way round.** `facing` is the direction the text
+looks, so the block holding the sign up is one step the *opposite* way. Get that
+backwards and Minecraft places the sign anyway, attached to nothing, and it
+drops as an item on the first block update — the sign version of §36's dust on
+the floor. `tests/test_errors.py` checks the empty cell and the wall behind it
+for all 28, on the real lever positions, and `panel.sign-facing` flips the table
+to prove the check bites.
+
+### The hook was a teleporter, because it was one
+
+The old pull was `tp @s` once a tick towards the bobber. That is not a fast
+teleport that looks like movement; it is a teleport, twenty times a second. The
+client is told the player is somewhere else and snaps there — no interpolation,
+no momentum, no camera continuity, and the report was exactly right.
+
+You cannot set a player's velocity from a command. You *can* set an entity's,
+and **a rider moves with its vehicle** — which the client does interpolate,
+because it is ordinary entity motion.
+
+So the hook summons an invisible, gravity-less, silent marker armour stand,
+`/ride`s the player onto it, and each tick writes `Motion` on the vehicle:
+
+| | old | new |
+|---|---|---|
+| how the player moves | `tp @s` per tick | `Motion` on a ridden armour stand |
+| client interpolation | none | the entity's own |
+| momentum on release | none — dead stop | carries, then slow falling |
+| ` tp @` in the pull path | one, run 20 times a second | **none** |
+
+The direction is a unit vector without any trigonometry: `facing entity <bobber>
+… positioned ^ ^ ^1` summons a marker exactly one block along the line of sight,
+and subtracting the player's position from the marker's — in thousandths,
+through the scoreboard — is that vector. Multiply by the speed score, divide by
+100, and `store result … double 0.001` puts it straight into `Motion`.
+
+The **dash** still teleports, and should: it is a five-block blink, checked
+block by block so it cannot cross a wall, and it is over in the frame it starts
+in. A teleport reads as a teleport when it is meant to be one. The complaint was
+never about the charm.
+
+Every exit dismounts and kills the stand: release, arrive, `unstick`, and a
+sweep in `move/tick` for stands with nobody within two blocks. A player left
+riding an invisible entity is the worst failure this gadget has, so it has four
+ways out.
+
+### The build, made watchable
+
+| | before | now |
+|---|---|---|
+| commands per batch | 2,000 | 600 |
+| batches | 36 | 120 |
+| wall time at one batch a tick | 1.8 s | 6.0 s |
+| progress | action bar text | action bar + a boss bar, in two phases |
+| sound | one pitch, 36 knocks | 120 knocks rising 0.90 → 1.80 |
+| slower, to watch it | — | `#pace` ticks per batch, and `help` now says so |
+
+The boss bar counts chunks while it waits (aqua, out of 2,135) and batches while
+it places (green, out of 120), so the two phases §36 introduced are visibly two
+phases rather than one stall. The rising pitch is the part you can hear without
+looking: a fixed knock 120 times is a machine stuck, a rising one is a machine
+finishing. It costs four scoreboard operations a batch and one macro.
+
+`#pace` existed before this section and was worth nothing, because it was a
+scoreboard value with no way to find out about it. `help` prints the command.
+
+### Keeping the chunks
+
+`/forceload` is saved with the world, so in the ordinary case the machine keeps
+ticking across a restart on its own. The cases where that is not enough are real
+though: a world copied without its forceload table, another pack running
+`forceload remove all`, an aborted `clear`.
+
+`sys/keep` runs from `minecraft:load` on every world start and re-asserts the
+force-load — guarded by a `#keep` flag that `load` sets and `unload` clears, so
+it restores what a build asked for without overriding what a player asked for.
+It goes ahead of the gadgets in the tag, so the chunks are back before anything
+looks at them. Standalone `write_hooks` does not name it: the gadgets can be
+written without the machine, and a tag hooking a function that is not in the
+pack is what the linter is for.
+
+`sys/done` also re-runs `load`, and hangs the signs, and drops the boss bar.
+
+### One number that was wrong the whole time
+
+The finish message said *placed: 71,768 blocks*. 71,768 is the command count.
+One `/fill` carries a run of up to 418 blocks, so the machine was under-reporting
+itself by a factor of six, in the one line a player reads at the end of a build.
+It says 456,558 now, and so does `status`.
+
+`go/above` said "teleport to the above", which is what a generated string looks
+like. All four landmarks have written descriptions now.
+
+### The blind spot between the two generators
+
+§36 said the second implementation of the pack was deleted, and it was — for
+the *block batches* and the control functions, which the page now copies as
+bytes. What it did not say is that the two tools still assembled the
+**gadget half** separately: the same list of help lines, the same hook tags,
+typed once in `tools/build_world.py` and once in `tools/build_preview.py`.
+
+Every check compared the page's pack against the bundle. The bundle *is* the
+second generator's copy. So the two agreeing proved nothing about the file you
+download, and four differences sat in that gap at once:
+
+| in the pack you download | in the page's pack |
+|---|---|
+| `minecraft:load` hooks `sys/keep` | no world-start hook at all |
+| `help` names the build-pace knob | no note |
+| `go/above` — *look down on the whole machine from the air* | *teleport to the above* |
+| finish message: 456,558 blocks | 71,768 |
+
+Three of those were introduced in this section, which is the honest reading: a
+seam that costs nothing while nobody touches it, and diverges the moment
+somebody does.
+
+`traverse.attach` is that half, once. Both tools call it. The check that keeps
+it that way is not a comparison of the two outputs — that would now be
+comparing a function to itself — but a refusal: neither tool may call
+`traverse.build` or `write_hooks` directly, and the assembled pack must carry
+each of the four things the bundle's copy was missing. `tools/check_preview.mjs`
+gained the runtime half of the same question, and found the missing hook on the
+first run.

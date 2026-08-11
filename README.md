@@ -245,6 +245,22 @@ are all `rscalc:...` — type `/function rscalc:` and press tab and you have the
 whole thing. `rscalc:move/gear` gives you a grappling hook, a dash charm and a
 recall compass, which is how you get around a build most of a kilometre long.
 
+**The hook pulls; it does not teleport.** The first version moved the player
+with one `tp @s` per tick towards the bobber, which is not a fast teleport that
+looks like movement — it is a teleport, twenty times a second, and it reads
+exactly like one. You cannot set a *player's* velocity from a command, but you
+can set an entity's, and a rider moves with its vehicle. So the hook summons an
+invisible marker armour stand, `/ride`s you onto it, and writes `Motion` on the
+vehicle each tick: the client interpolates it as ordinary entity movement, the
+speed ramps over eight ticks and eases inside eight blocks, and you keep your
+momentum when it lets go. There is no `tp` anywhere in the pull path, and
+`tests/test_traverse.py` asserts that. The direction is a unit vector with no
+trigonometry — `facing entity … positioned ^ ^ ^1` puts a marker one block along
+the line of sight, and the difference from the player's position, in
+thousandths through the scoreboard, is the vector. Every exit — release, arrive,
+`unstick`, and a sweep for stands with nobody riding them — dismounts and kills
+the stand.
+
 **Targets Minecraft 26.2** — what the launcher calls *1.26.2*. Two things moved
 under this project and both break a pack silently: the game was renamed, and
 since 25w31a `pack_format` was replaced by `min_format`/`max_format` written as
@@ -266,7 +282,7 @@ structure-block `.nbt` files with a placement manifest, and a datapack of
 `/fill` and `/setblock` commands placed relative to where you stand. Runs of
 identical blocks collapse into fills along X and then along Z, which is what
 makes the command count affordable: **456,558 blocks become 71,768 commands**,
-seven blocks per command, in 604 structure chunks and 8.4 MB. The README it
+6.4 blocks per command, in 373 structure chunks and 6.8 MB. The README it
 writes beside them says which repeater setting the build is verified at, and
 gives a table of where the 28 controls are relative to the minimum corner —
 the only practical way to find them in six hundred thousand blocks.
@@ -275,14 +291,33 @@ A caution rather than a caveat: half a million redstone components in one world
 is far past what a Minecraft server ticks comfortably. This is a build that is
 honest about being a simulation artefact first.
 
-The datapack is **paced**: it places one batch per game tick over 36 ticks
-rather than running 71,768 commands inside one, which freezes a server and drops
-half a million redstone blocks into the world in the same instant — the worst
-possible starting transient for a machine this deep. Placement follows a marker
-entity, because a `schedule`d function forgets where it was called from and
-would otherwise build at world origin. There is a `clear` function to take it
-back out, and `tests/test_mcbuild.py` interprets the whole chain to prove every
-part runs exactly once, in order, with no function in the pack unreachable.
+The datapack is **paced**: it places one batch of 600 commands per game tick
+over 120 batches rather than running 71,768 commands inside one, which freezes a
+server and drops half a million redstone blocks into the world in the same
+instant — the worst possible starting transient for a machine this deep. Six
+seconds is also long enough to watch: a boss bar counts chunks while it waits
+and batches while it places, and the stone knock rises from pitch 0.90 to 1.80
+as it finishes, so you can hear where it is without looking. `/scoreboard
+players set #pace rscalc_v 4` stretches it to 24 seconds, and `rscalc:help`
+says so — it was a knob with no way to find out about it before.
+
+Placement follows a marker entity, because a `schedule`d function forgets where
+it was called from and would otherwise build at world origin. There is a `clear`
+function to take it back out, and `tests/test_mcbuild.py` interprets the whole
+chain to prove every part runs exactly once, in order, with no function in the
+pack unreachable.
+
+**Every lever has a sign on it.** Twenty-eight identical levers on one wall are
+unreadable — the columns are bits and the rows are A and B, but only if you
+count. Each one now has a wall sign beside it (`A bit 7` / `value 128`, `SUB` /
+`flip on, off`). The signs are not blocks in the simulated world, so no
+documented block count moves; they are `/setblock` commands run from the same
+anchor after the machine is placed. Each position is *searched* for rather than
+assumed, because a wall sign needs an empty cell and a block on the face it
+hangs from, and the walkway takes the obvious spot for half of them: 14 end up
+facing east and 14 facing north, and `tests/test_errors.py` checks all 28
+against the real lever positions. Getting the facing backwards attaches a sign
+to nothing, and it drops as an item on the first block update.
 
 **The skeleton goes down before any redstone.** Every solid, glass and lamp
 block is placed across the whole build first, and only then the dust,
@@ -309,12 +344,23 @@ default simulation distance a player standing at the control wall has about a
 fifth of it live, so a lever throw would propagate a few hundred blocks and
 stop, with no error anywhere. `build` calls `load` before it places anything —
 12 `/forceload add` commands, since one covers at most 256 chunks — and `unload`
-gives the chunks back. The page's in-browser generator writes the same ten
-control functions — not by generating them a second time, but by copying the
-finished text the exporter ships in the bundle. Two implementations of one
-artifact drifted three ways in a single round, so there is only one now:
-`tools/check_preview.mjs` checks the browser's pack against the exporter's file
-by file, and every one of the 71 files plus `pack.mcmeta` comes out identical.
+gives the chunks back.
+
+**And they stay loaded.** `/forceload` is saved with the world, so the machine
+keeps computing across a restart on its own. The pack re-asserts it on every
+world start as well, for the cases where the save is not enough: a world copied
+without its forceload table, another pack running `forceload remove all`, an
+aborted `clear`. That hook is guarded by a flag `load` sets and `unload` clears,
+so it restores what a build asked for without overriding what a player asked
+for, and it runs ahead of the gadgets' own hook so the chunks are back before
+anything looks at them.
+
+The page's in-browser generator writes the same control functions — not by
+generating them a second time, but by copying the finished text the exporter
+ships in the bundle. Two implementations of one artifact drifted three ways in a
+single round, so there is only one now: `tools/check_preview.mjs` checks the
+browser's pack against the exporter's file by file, and every one of them plus
+`pack.mcmeta` comes out identical.
 
 **Nothing here runs Minecraft**, so the commands are the one artefact a player
 executes first. `rscalc/packlint.py` reads a pack back the way the loader

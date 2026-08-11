@@ -27,7 +27,7 @@ from rscalc.pla import compile_netlist
 from rscalc.export import export_circuit, write_bundle
 from rscalc.display import build_digit, DIGIT_SEGMENTS, SEGS
 from tools.prototype_decimal import seven_seg
-from tools.build_world import pack_name, landmarks
+from tools.build_world import pack_name, landmarks, sign_plan
 
 LANE_LEN = 6              # how far the feed lanes reach out to -X
 DIGIT_PITCH = 14          # X spacing between digits; feed lanes need the room
@@ -171,7 +171,7 @@ def main():
 
 
 
-def _mc_table(world, name, landmarks=None):
+def _mc_table(world, name, landmarks=None, signs=()):
     """(kind, meta) -> Minecraft block state, as a palette and an index map.
 
     The bundle already carries every block's kind and meta byte. This is the
@@ -242,24 +242,19 @@ def _mc_table(world, name, landmarks=None):
         paced = mcbuild.write_paced_entry(
             fdir, ns, name, [f"part/{i:04d}" for i in range(parts)],
             commands, (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1),
-            landmarks=landmarks)
-        machine_help = [
-            ("build", "place it, from the -X -Y -Z corner"),
-            ("clear", "take it away again, from anywhere"),
-            ("status", "where it is and what it is doing"),
-            ("load", "force-load its chunks so it ticks"),
-            ("unload", "release them again"),
-            ("abort", "stop a build or clear part way"),
-        ] + [(f"go/{k}", f"teleport to the {k}")
-             for k in sorted(paced["landmarks"])]
-        move = traverse.build(d, ns=ns, machine_help=machine_help)
-        traverse.write_hooks(d, ns=ns)
+            landmarks=landmarks, signs=signs, blocks=len(world.blocks))
+        # `traverse.attach` rather than a second copy of the help lines and the
+        # hook tags. Assembling this half twice is what put a pack with no
+        # world-start hook, no pace note and stale landmark descriptions into
+        # the bundle while every check still passed — they all compared the
+        # page against the bundle, which is this copy.
+        move = traverse.attach(d, ns, paced)
         meta = mcbuild.pack_meta(f"{name} — a redstone calculator")
         with open(os.path.join(d, "pack.mcmeta"), "w") as f:
             json.dump(meta, f, indent=1)
         with open(os.path.join(d, "README.txt"), "w") as f:
             f.write(mcbuild.pack_readme(
-                name, ns, world.n if hasattr(world, "n") else len(world.blocks),
+                name, ns, len(world.blocks),
                 world.bounds(), commands, paced))
         files = {}
         for dirpath, _, names in os.walk(d):
@@ -278,6 +273,7 @@ def _mc_table(world, name, landmarks=None):
             "files_z": blob, "file_count": len(files),
             "landmarks": {k: list(v) for k, v in paced["landmarks"].items()},
             "chunks": paced["chunks"], "probes": paced["probes"],
+            "per_file": paced["per_file"], "signs": paced["signs"],
             "gadgets": len(move["functions"]),
             "version": mcbuild.MC_VERSION_DEFAULT,
             "pack_meta": meta,
@@ -333,7 +329,8 @@ def export_machine(delay=None):
         # knows a repeater's facing flips on the way out; the page looks the
         # answer up by (kind, meta) rather than deriving it a second time, and
         # `tests/test_export.py` checks the table against mcbuild directly.
-        "mc": _mc_table(m.world, pack_name(m.width), landmarks(m)),
+        "mc": _mc_table(m.world, pack_name(m.width), landmarks(m),
+                        sign_plan(m)),
         "ops": OPS,
         "flags": FLAGS,
         "digits": [str(k) for k in reversed(range(m.ndigits))],

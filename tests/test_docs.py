@@ -156,6 +156,9 @@ ANCHORS = [
     (DESIGN, r"proving the opposite — every one of the\s+([\d,]+) blocks",
      "blocks"),
     (DESIGN, r"Getting around a machine ([\d,]+) blocks long", "z"),
+    # §37: the finish message reported the command count as a block count, so
+    # the corrected figure is anchored like every other block count here
+    (DESIGN, r"It says ([\d,]+) now, and so does", "blocks"),
     # §22 quotes figures while explaining why quoting figures needs a guard,
     # so it is anchored by its own rule
     (DESIGN, r"one occurrence of `([\d,]+)` in README", "blocks"),

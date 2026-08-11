@@ -93,10 +93,14 @@ def pack_meta(description, version=MC_VERSION_DEFAULT):
     else:
         pack["pack_format"] = major
     return {"pack": pack}
-#: Commands per `partNNNN` function, which is also what sets how many game ticks
-#: the paced build takes. Named because the page prints the tick count in its
-#: prose and has to arrive at the same one.
-PER_FILE_DEFAULT = 2000
+#: Commands per `part/NNNN` function, which is also what sets how many game
+#: ticks the paced build takes — and therefore how the build *looks*. At 2,000
+#: the whole machine appeared in 36 ticks, under two seconds: a flicker, not a
+#: construction. Smaller batches take longer, cost the server less per tick, and
+#: let you watch the thing grow. The page prints the resulting tick count in its
+#: own prose and has to arrive at the same number, so it is shipped in the
+#: bundle rather than written down twice.
+PER_FILE_DEFAULT = 600
 
 #: There are two generators of this pack — this file and the one in
 #: `docs/preview_template.html` — and the first thing that went wrong with
@@ -435,9 +439,15 @@ load them, and a /fill into a chunk that has not arrived yet fails silently.
 Expect "loading chunks N of {paced['chunks']}" on the action bar for a while —
 on a cold world that can be minutes.
 
-Then {count:,} commands over {paced['ticks']} ticks. Solid blocks go down first
-across the whole build, then the redstone, so nothing is ever placed into thin
-air and dropped as an item.
+Then {count:,} commands over {paced['ticks']} batches, one a tick — about
+{paced['ticks'] / 20:.0f} seconds, with a boss bar and a knock that rises in
+pitch as it goes. Solid blocks go down first across the whole build, then the
+redstone, so nothing is ever placed into thin air and dropped as an item.
+
+To watch it go up slowly, set the batch pace first — this is ticks per batch,
+so 4 stretches it to {paced['ticks'] * 4 / 20:.0f} seconds:
+
+    /scoreboard players set #pace {ns}_v 4
 
 You are standing inside the footprint when it starts. Use spectator, or
 /function {ns}:go/above.
@@ -450,18 +460,35 @@ Everything else
   /function {ns}:unload      release them (the machine stops ticking)
   /function {ns}:abort       stop a build or clear part way
   /function {ns}:help        this list, in game
+  /function {ns}:go/controls the lever wall — every lever has a sign on it
   /function {ns}:move/gear   grappling hook, dash charm, recall compass
 
+The chunks stay force-loaded across restarts: /forceload is saved with the
+world, and this pack re-asserts it on every world start as well, until you run
+{ns}:unload. That is what lets the machine keep computing while you walk away.
+
 The control wall is at the -X end; the lamps are {dz} blocks away at the other.
-Flip the operand levers, press an operation key, read the digits. The answer
-takes a couple of thousand game ticks to arrive — it is a very deep machine.
+Every lever has a wall sign beside it saying which operand bit it is and what
+it is worth, and each operation key is named. Flip the operand levers, press an
+operation key, read the digits. The answer takes a couple of thousand game
+ticks to arrive — it is a very deep machine.
+
+The gadgets
+-----------
+/function {ns}:move/gear hands you a rod, a carrot on a stick and a compass.
+Cast the rod at something up to 96 blocks away and it pulls you there — it is a
+real pull, not a teleport: you ride an invisible mount whose velocity is set
+each tick, so the movement interpolates and you keep your momentum when it lets
+go. Reel in to release. The carrot dashes you 5 blocks where you look, the
+compass returns you to your mark ({ns}:move/mark). Anything that lets go leaves
+you with slow falling. If you are ever left riding something, {ns}:move/unstick.
 """
 
 
 def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
                     per_file=PER_FILE_DEFAULT,
                     mc_version=MC_VERSION_DEFAULT, landmarks=None,
-                    ns=NAMESPACE):
+                    ns=NAMESPACE, signs=()):
     """A datapack whose functions rebuild the machine relative to the player.
 
     Commands are relative (``~``), so running the entry function places the
@@ -509,7 +536,8 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
     (bx0, by0, bz0), (bx1, by1, bz1) = world.bounds()
     paced = write_paced_entry(fdir, ns, name, files, count,
                               (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1),
-                              landmarks=landmarks)
+                              landmarks=landmarks, signs=signs,
+                              blocks=len(world.blocks))
     meta = pack_meta(f"{name} — a redstone calculator", mc_version)
     with open(os.path.join(outdir, "pack.mcmeta"), "w") as f:
         json.dump(meta, f, indent=1)
@@ -528,7 +556,8 @@ def _write(path, lines):
         f.write("\n".join(lines) + "\n")
 
 
-def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
+def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None,
+                      signs=(), blocks=None):
     """Everything in the pack that is not a batch of blocks.
 
     Three things are load-bearing here, and the third was found the hard way.
@@ -600,7 +629,24 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
         f"data get entity @e[type=marker,tag={tag},limit=1] Pos[{i}]"
         for i, axis in enumerate("xyz")
     ] + [
-        say(f"{name}: {count:,} commands over {nparts} ticks, once "
+        # default pace, unless the player has set one to slow it down
+        f"execute unless score #pace {obj} matches 1.. run "
+        f"scoreboard players set #pace {obj} 1",
+        # constants for the rising build knock
+        f"scoreboard players set #c90 {obj} 90",
+        f"scoreboard players set #cparts {obj} {nparts}",
+        # `add` onto an id that already exists fails, and so does `remove` on one
+        # that does not — there is no clean way to pre-clear it. `done` and
+        # `abort` both remove it, so the only way to arrive here with a stale bar
+        # is a crash mid-build, and a failed command inside a function is silent
+        # and does not stop the rest of it.
+        f'bossbar add {ns}:progress "{name}"',
+        f"bossbar set {ns}:progress players @a",
+        f"bossbar set {ns}:progress color aqua",
+        f'bossbar set {ns}:progress name "{name}: loading chunks"',
+        f"bossbar set {ns}:progress max {chunks}",
+        f"bossbar set {ns}:progress value 0",
+        say(f"{name}: {count:,} commands over {nparts} batches, once "
             f"{chunks} chunks are loaded. You are standing inside the "
             f"footprint — use spectator, or /function {ns}:go/above."),
         f"function {ns}:load",
@@ -649,9 +695,11 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
     fn("sys/wait_bar", [
         f'$title @a actionbar {{"text":"{name}: loading chunks $(loaded) of '
         f'{chunks}...","color":"aqua"}}',
+        f"$bossbar set {ns}:progress value $(loaded)",
     ])
     fn("sys/wait_gave_up", [
         f"scoreboard players set #run {obj} 0",
+        f"bossbar remove {ns}:progress",
         say(f"{name}: gave up waiting for chunks after "
             f"{wait_limit // 1200} minutes. Nothing has been placed. The "
             f"server may be struggling; try again, or reduce the view "
@@ -659,6 +707,10 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
     ])
     fn("sys/go", [
         say(f"{name}: {chunks} chunks loaded. Placing.", "green"),
+        f"bossbar set {ns}:progress color green",
+        f'bossbar set {ns}:progress name "{name}: placing blocks"',
+        f"bossbar set {ns}:progress max {nparts}",
+        f"bossbar set {ns}:progress value 0",
         f"function {ns}:tick",
     ])
 
@@ -668,17 +720,39 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
         f"scoreboard players add #build {obj} 1",
         f"execute store result storage {ui} part int 1 run "
         f"scoreboard players get #build {obj}",
+        # the knock's pitch rises with progress: #pitch counts 90 -> 180 in
+        # hundredths, which `store ... double 0.01` turns into 0.90 -> 1.80.
+        # A fixed pitch for 120 batches is a stuck machine; a rising one is
+        # audibly a thing being finished, without watching the bar.
+        f"scoreboard players operation #pitch {obj} = #build {obj}",
+        f"scoreboard players operation #pitch {obj} *= #c90 {obj}",
+        f"scoreboard players operation #pitch {obj} /= #cparts {obj}",
+        f"scoreboard players add #pitch {obj} 90",
+        f"execute store result storage {ui} pitch double 0.01 run "
+        f"scoreboard players get #pitch {obj}",
         f"function {ns}:sys/bar with storage {ui}",
+        # the pace is a score so it can be slowed to watch: set #pace before
+        # building and every batch waits that many ticks instead of one
+        f"execute store result storage {ui} pace int 1 run "
+        f"scoreboard players get #pace {obj}",
         f"execute if score #build {obj} matches ..{nparts - 1} run "
-        f"schedule function {ns}:tick 1t replace",
+        f"function {ns}:sys/next with storage {ui}",
         f"execute if score #build {obj} matches {nparts}.. run "
         f"function {ns}:sys/done",
+    ])
+    fn("sys/next", [
+        f"$schedule function {ns}:tick $(pace)t replace",
     ])
     # the action bar rather than chat: 36 lines of "placing..." is not progress
     # reporting, it is a wall of text you scroll past to find the answer
     fn("sys/bar", [
         f'$title @a actionbar {{"text":"{name}: placing part $(part) of '
         f'{nparts}","color":"gray"}}',
+        f"$bossbar set {ns}:progress value $(part)",
+        # something to hear it by. One quiet stone knock a batch turns a silent
+        # flicker into a building site.
+        f"$execute as @a at @s run playsound minecraft:block.stone.place "
+        f"master @s ~ ~ ~ 0.22 $(pitch)",
     ])
     # `execute if score` rather than a macro, so this runs on any 1.21+ build
     fn("sys/dispatch",
@@ -687,9 +761,23 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
 
     fn("sys/done", [
         f"scoreboard players set #run {obj} 0",
+        f"bossbar remove {ns}:progress",
+        # the labels go on last, so the wall reads as a control panel rather
+        # than as twenty-eight identical levers
+        f"execute as @e[type=marker,tag={tag},limit=1] at @s "
+        f"run function {ns}:sys/signs",
+        # and re-assert the force-load, so the finished machine is definitely
+        # ticking everywhere rather than only where the build happened to reach
+        f"function {ns}:load",
+        f"execute as @a at @s run playsound "
+        f"minecraft:entity.player.levelup master @s ~ ~ ~ 0.6 1.2",
         # the anchor stays: clear, status and the teleports all read it, and it
         # is the only record of where the machine actually went
-        say(f"{name} placed: {count:,} blocks, {dx} x {dy} x {dz}. "
+        # `count` is commands, not blocks — one /fill can carry a whole run of
+        # them, so reporting it as a block count understates the machine by a
+        # factor of six. The caller passes the real figure.
+        say(f"{name} placed: {(blocks if blocks is not None else count):,} "
+            f"blocks, {dx} x {dy} x {dz}. "
             f"/function {ns}:help for what to do next.", "green"),
         bar(f"{name}: placed", "green"),
     ])
@@ -704,6 +792,8 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
         f"schedule clear {ns}:sys/wait",
         f"schedule clear {ns}:sys/clear_tick",
         f"scoreboard players set #run {obj} 0",
+        # or it sits at the top of everyone's screen until they log out
+        f"bossbar remove {ns}:progress",
         say(f"{name}: stopped. Anything half-placed is still there; run build "
             f"again or clear it.", "yellow"),
     ])
@@ -806,7 +896,19 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
     fn("load", [
         f"execute unless data storage {store} x run function {ns}:sys/no_origin",
         f"execute unless data storage {store} x run return fail",
+        f"scoreboard objectives add {obj} dummy",
+        f"scoreboard players set #keep {obj} 1",
         f"function {ns}:sys/load_at with storage {store}",
+    ])
+    # `/forceload` is saved with the world, so in the ordinary case this hook
+    # has nothing to do. It is here for the cases where that is not enough: a
+    # world copied without its forceload table, another pack running `forceload
+    # remove all`, or a `clear` that was aborted. `#keep` is what makes it
+    # respect `unload` rather than fighting it.
+    fn("sys/keep", [
+        f"scoreboard objectives add {obj} dummy",
+        f"execute if score #keep {obj} matches 1 if data storage {store} x "
+        f"run function {ns}:sys/load_at with storage {store}",
     ])
     fn("sys/load_at",
        [f"$execute positioned $(x) $(y) $(z) run function {ns}:sys/load_tiles"])
@@ -820,6 +922,7 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
     fn("unload", [
         f"execute unless data storage {store} x run function {ns}:sys/no_origin",
         f"execute unless data storage {store} x run return fail",
+        f"scoreboard players set #keep {obj} 0",
         f"function {ns}:sys/unload_at with storage {store}",
     ])
     fn("sys/unload_at",
@@ -845,10 +948,24 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
         f"run function {ns}:sys/status_clear with storage {ui}",
         f"execute if data storage {store} x unless entity "
         f"@e[type=marker,tag={tag}] run function {ns}:sys/status_lost",
+        # measured, not assumed: run the same probe the build waits on and say
+        # how many chunks answer right now
+        f"scoreboard players set #loaded {obj} 0",
+        f"execute as @e[type=marker,tag={tag},limit=1] at @s run "
+        f"function {ns}:sys/probe",
+        f"execute store result storage {ui} loaded int 1 run "
+        f"scoreboard players get #loaded {obj}",
+        f"execute if entity @e[type=marker,tag={tag}] run "
+        f"function {ns}:sys/status_chunks with storage {ui}",
+    ])
+    fn("sys/status_chunks", [
+        f'$tellraw @a {{"text":"{name}: $(loaded) of {chunks} chunks are '
+        f'loaded and ticking right now.","color":"aqua"}}',
     ])
     fn("sys/status_show", [
         f'$tellraw @a {{"text":"{name}: built at $(x) $(y) $(z), {dx} x {dy} x '
-        f'{dz}, {count:,} blocks in {chunks} force-loaded chunks.",'
+        f'{dz}, {(blocks if blocks is not None else count):,} blocks in '
+        f'{chunks} force-loaded chunks.",'
         f'"color":"green"}}',
     ])
     fn("sys/status_build", [
@@ -881,6 +998,19 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
             say(f"{name}: {key}", "gray", "@s"),
         ])
 
+    # Labels. Not blocks in the simulated world — they carry no signal, and
+    # routing them through `World` would move every block count this project
+    # documents. They are `/setblock`s the pack runs once the machine is up.
+    def _msg(t):
+        return '\'"' + t.replace('"', "") + '"\''
+    fn("sys/signs", [
+        f"# {len(signs)} labels, one per control.",
+    ] + [
+        f"setblock ~{sx} ~{sy} ~{sz} minecraft:oak_wall_sign[facing={face}]"
+        f"{{front_text:{{messages:[{_msg(a)},{_msg(b)},'\"\"','\"\"']}}}} replace"
+        for (sx, sy, sz), face, (a, b) in signs
+    ] + ([say(f"{name}: {len(signs)} control labels placed.")] if signs else []))
+
     for fname, lines in out.items():
         path = os.path.join(fdir, f"{fname}.mcfunction")
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -894,6 +1024,9 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
             "load": f"function {ns}:load", "unload": f"function {ns}:unload",
             "status": f"function {ns}:status", "help": f"function {ns}:help",
             "abort": f"function {ns}:abort",
+            # not typed by a player: the `minecraft:load` tag runs it on every
+            # world start. It is an entry point all the same.
+            "on_world_load": f"function {ns}:sys/keep",
             **{f"go_{k}": f"function {ns}:go/{k}" for k in marks},
             "control_functions": sorted(out),
             "control_files": {f"{k}.mcfunction": "\n".join(v) + "\n"
@@ -901,4 +1034,5 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
             "ticks": nparts, "clear_ticks": dy,
             "fills_per_layer": len(strips), "forceload_commands": len(tiles),
             "landmarks": marks, "probes": len(probes),
+            "signs": len(signs), "per_file": PER_FILE_DEFAULT,
             "chunks": chunks}
