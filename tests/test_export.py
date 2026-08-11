@@ -415,6 +415,72 @@ def test_the_two_generators_assemble_the_same_pack():
           f"world-start hook, the pace note and a real block count: OK")
 
 
+def test_the_pack_ships_both_directory_spellings():
+    """A pack can be *enabled* and still have no functions in it.
+
+    24w21a renamed every data directory to the singular on the way to 1.21:
+    `functions/` -> `function/`, `tags/blocks/` -> `tags/block/`. Which one a
+    pack needs is decided by the game, not the pack — 1.21+ reads only the
+    singular, 1.20.x only the plural — and getting it wrong produces no warning
+    whatsoever. The report that found this was a screenshot: `/datapack list`
+    showing the pack enabled, and `/function rscalc:build` answering "Unknown
+    function", because the game had loaded a pack it found nothing in.
+
+    Nothing here can run Minecraft to detect the player's version, and the
+    player should not have to know it either, so the pack carries both. A client
+    ignores the directory names it does not recognise.
+    """
+    import json, tempfile, shutil
+    from rscalc import mcbuild, traverse
+    from rscalc.engine import World, Block
+
+    w = World()
+    for z in range(4):
+        w.set((0, 0, z), Block("solid"))
+
+    d = tempfile.mkdtemp()
+    try:
+        ns = mcbuild.NAMESPACE
+        fdir = os.path.join(d, "data", ns, "function")
+        os.makedirs(fdir, exist_ok=True)
+        paced = mcbuild.write_paced_entry(
+            fdir, ns, "t", ["part/0000"], 4, (1, 1, 4),
+            landmarks={"above": (0, 8, 0)}, blocks=len(w.blocks))
+        traverse.attach(d, ns, paced)
+
+        def rel(*parts):
+            return os.path.join(d, *parts)
+
+        # the entry point a player types, under both spellings, identical
+        for a, b in (
+            (rel("data", ns, "function", "build.mcfunction"),
+             rel("data", ns, "functions", "build.mcfunction")),
+            (rel("data", ns, "tags", "block", "passable.json"),
+             rel("data", ns, "tags", "blocks", "passable.json")),
+            (rel("data", ns, "tags", "entity_type", "prey.json"),
+             rel("data", ns, "tags", "entity_types", "prey.json")),
+            (rel("data", "minecraft", "tags", "function", "tick.json"),
+             rel("data", "minecraft", "tags", "functions", "tick.json")),
+        ):
+            assert os.path.exists(a), f"missing {a}"
+            assert os.path.exists(b), (
+                f"missing {b} — a 1.20.x world enables this pack and then "
+                f"reports every function in it as unknown")
+            assert open(a, "rb").read() == open(b, "rb").read(), \
+                f"{a} and {b} have drifted apart"
+
+        # the gadgets and the pet too, not just the machine
+        for name in (f"move/gear", f"pet/get"):
+            assert os.path.exists(
+                rel("data", ns, "functions", f"{name}.mcfunction")), name
+        n = sum(1 for dp, _, fs in os.walk(rel("data", ns, "functions"))
+                for _ in fs)
+        print(f"  every data directory ships under both the 1.21 and the "
+              f"1.20 spelling ({n} functions each), byte-identical: OK")
+    finally:
+        shutil.rmtree(d)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"Running {len(tests)} export tests\n")

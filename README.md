@@ -280,25 +280,28 @@ thousandths through the scoreboard, is the vector. Every exit — release, arriv
 `unstick`, and a sweep for stands with nobody riding them — dismounts and kills
 the stand.
 
-**If `/function rscalc:build` says "unknown command", the pack did not load.**
-That is one symptom, not a missing function — every `/function` in a pack that
-failed to load is unknown, and nothing says why. Two causes, in the order worth
-checking:
+**It ships both directory layouts, so it works on 1.20.x and 1.21+.** 24w21a
+renamed every data directory to the singular on the way to 1.21 —
+`data/<ns>/functions/` became `data/<ns>/function/`, `tags/blocks/` became
+`tags/block/`. Which one is needed is decided by the game, not the pack, and the
+wrong one produces **no warning at all**: `/datapack list` shows the pack
+*enabled*, and every `/function` in it answers "Unknown function", because the
+game loaded a pack it found nothing inside. Nothing in this repository can run
+Minecraft to detect a player's version, and a player should not have to know it,
+so every directory is written twice. That is what doubles the zip to 828 KB, and
+it is worth it. See DESIGN §38.
 
-1. `/datapack list` — if `rscalc` is not in the enabled list, it is a `/reload`
-   away, or the zip is in the wrong folder (it goes in `<world>/datapacks/`,
-   and `pack.mcmeta` must be at the **root** of the zip, not inside a folder).
-2. `pack.mcmeta` — a format field the game cannot parse makes the pack
-   invisible rather than an error. Every value this pack writes is now a plain
-   integer (`pack_format`, `min_format`, `max_format`) plus a
-   `supported_formats` range of 48..107, which has meant the same thing since
-   1.20.2. It used to write `[major, minor]` pairs, which was an assumption
-   about a newer format table that nothing here can test. See DESIGN §38.
+If `/function rscalc:build` is still unknown, `/datapack list` is the first
+thing to check: if `rscalc` is not in the *enabled* list, it is a `/reload`
+away, or the zip is in the wrong folder — it goes in `<world>/datapacks/`, and
+`pack.mcmeta` must be at the **root** of the zip, not inside a folder.
 
-The range is wide on purpose: this pack is `/fill`, `/setblock`, `/execute` and
-`/scoreboard`, whose syntax has not moved in years, so being refused over a
-version number is a worse failure than running on a version that has drifted.
-`--mc` targets a different one.
+The format fields are all plain integers (`pack_format`, `min_format`,
+`max_format`) plus a `supported_formats` range of 48..107. The range is wide on
+purpose: this pack is `/fill`, `/setblock`, `/execute` and `/scoreboard`, whose
+syntax has not moved in years, so being refused over a version number is a worse
+failure than running on a version that has drifted. `--mc` targets a different
+one.
 
 **It waits for its chunks, and that wait is the fix for redstone on the floor.**
 `/forceload add` does not load a chunk; it marks it to be loaded, and the server

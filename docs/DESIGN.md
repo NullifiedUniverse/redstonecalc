@@ -3377,10 +3377,48 @@ honest — and being refused over a version number is a worse failure than runni
 on a version that has drifted. The linter now enforces integers and rejects the
 pair form, with the reason written into the message.
 
-This is a hypothesis, not a measurement. It is the most likely single cause of
-both reports and it is the one that could be acted on without a client; if the
-pack still does not appear, the next thing to read is the version string and
-`/datapack list`.
+That was a hypothesis, and a screenshot disproved it.
+
+### It was the directory name
+
+```
+Unknown function rscalc:build
+There are 2 data pack(s) enabled: [vanilla (built-in)],
+ [file/rscalc_mk3_10bit_datapack.zip (world)]
+```
+
+The pack is **enabled**. So `pack.mcmeta` parsed, the zip layout was right, and
+the format fields were never the problem — the game loaded the pack and found no
+functions in it.
+
+24w21a, on the way to 1.21, renamed every data directory to the singular:
+`data/<ns>/functions/` became `data/<ns>/function/`, `tags/blocks/` became
+`tags/block/`, and so on for every registry. This exporter has written the
+singular since §32, which is correct for 1.21 and later and invisible to
+anything earlier. Which spelling is needed is decided by the **game**, not the
+pack, and an unrecognised directory is not a warning — it is simply not looked
+at. A pack in the wrong dialect is enabled, present, and empty.
+
+| | 1.20.x and earlier | 1.21 and later |
+|---|---|---|
+| functions | `data/<ns>/functions/` | `data/<ns>/function/` |
+| block tags | `tags/blocks/` | `tags/block/` |
+| what the other one does | ignored, silently | ignored, silently |
+
+Nothing here can run Minecraft to find out which one a player is on, and the
+player should not have to know either. So the pack ships **both**: every data
+directory is mirrored under its plural name as the last step of assembly. The
+zip goes from 415 KB to 828 KB, which is the whole cost.
+
+That is also the second half of the answer to "the grappling hook is completely
+broken". It was never running. Neither was anything else.
+
+The lesson is the one §36 already paid for once and this section paid for again:
+when a check cannot be run, the guess that follows should be labelled a guess —
+and the first thing to ask for is the output, not the next change. The format
+rewrite in this section was aimed at the wrong target. It is kept because
+integers are still the safer shape and the reasoning behind it stands, but it
+fixed nothing.
 
 ### The pet
 

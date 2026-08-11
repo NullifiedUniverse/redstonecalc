@@ -482,4 +482,7 @@ def attach(outdir, ns, paced):
                          f"{ns}:{pet.PREFIX}/load"],
                 on_tick=[f"{ns}:{pet.PREFIX}/tick"])
     move["pet"] = creature
+    # last, so it mirrors everything both halves wrote. See LEGACY_DIRS: this is
+    # what makes one file work on a 1.20.x world and a 1.21+ one.
+    move["legacy_files"] = mcbuild.mirror_legacy_layout(outdir)
     return move

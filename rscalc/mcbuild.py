@@ -72,6 +72,71 @@ MC_RANGE_FORMAT = 88
 PACK_FORMAT_DEFAULT = 48
 
 
+#: The directories Minecraft renamed to the singular in 24w21a, on the way to
+#: 1.21 / pack format 48. `data/<ns>/functions/` became `data/<ns>/function/`,
+#: `tags/blocks/` became `tags/block/`, and so on for every registry.
+#:
+#: Which spelling a pack needs is decided by the *game*, not by the pack: a
+#: 1.21+ client reads only the singular, and a 1.20.x client reads only the
+#: plural. Get it wrong and the symptom is precisely the one reported here —
+#: `/datapack list` shows the pack **enabled**, and `/function <ns>:build` comes
+#: back "Unknown function", because the game loaded a pack it found no functions
+#: in. There is no warning; an unrecognised directory is simply not looked at.
+LEGACY_DIRS = {
+    "function": "functions",
+    "advancement": "advancements",
+    "recipe": "recipes",
+    "loot_table": "loot_tables",
+    "predicate": "predicates",
+    "item_modifier": "item_modifiers",
+    "structure": "structures",
+    "block": "blocks",
+    "entity_type": "entity_types",
+    "fluid": "fluids",
+    "game_event": "game_events",
+}
+
+
+def mirror_legacy_layout(packdir):
+    """Write every data directory under its pre-1.21 plural name as well.
+
+    Belt and braces, and cheap: a client only looks for the directory names its
+    own version knows, and ignores the rest without complaint. Shipping both
+    means one file works on 1.20.x and on 1.21+ without the player having to
+    know which one they are on — which they should not have to, and which this
+    repository cannot detect, since nothing here can run the game.
+
+    Returns the number of files copied.
+    """
+    copied = 0
+    data = os.path.join(packdir, "data")
+    if not os.path.isdir(data):
+        return 0
+    for ns in sorted(os.listdir(data)):
+        ns_dir = os.path.join(data, ns)
+        if not os.path.isdir(ns_dir):
+            continue
+        # `data/<ns>/<registry>/` and `data/<ns>/tags/<registry>/`
+        for parent in (ns_dir, os.path.join(ns_dir, "tags")):
+            if not os.path.isdir(parent):
+                continue
+            for name in sorted(os.listdir(parent)):
+                legacy = LEGACY_DIRS.get(name)
+                src = os.path.join(parent, name)
+                if legacy is None or not os.path.isdir(src):
+                    continue
+                dst = os.path.join(parent, legacy)
+                for dp, _, files in os.walk(src):
+                    for f in files:
+                        s = os.path.join(dp, f)
+                        d = os.path.join(dst, os.path.relpath(s, src))
+                        os.makedirs(os.path.dirname(d), exist_ok=True)
+                        with open(s, "rb") as a, open(d, "wb") as b:
+                            b.write(a.read())
+                        copied += 1
+    return copied
+
+
 def pack_meta(description, version=MC_VERSION_DEFAULT):
     """The `pack.mcmeta` body for a target version.
 

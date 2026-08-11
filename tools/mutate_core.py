@@ -108,6 +108,13 @@ MUTATIONS = [
      '        "max_format": major,',
      '        "max_format": [major, 0],',
      "a pack.mcmeta format written as a pair rather than an integer"),
+    # the wrong directory dialect is a pack that is enabled and empty, with no
+    # warning anywhere — see DESIGN §38
+    ("mcbuild.legacy-layout", "rscalc/mcbuild.py",
+     '    "function": "functions",',
+     '    "function": "function",',
+     "the pre-1.21 function directory never written, so a 1.20 world enables "
+     "the pack and finds nothing in it"),
     ("pet.trail-count", "rscalc/pet.py",
      f'        f"execute store result score #crumbs {{seq}} if entity "',
      f'        f"execute if entity "',
