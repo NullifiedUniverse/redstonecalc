@@ -404,7 +404,7 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
             "pull": PULL_MAX / 100, "dash": DASH, "reach": REACH}
 
 
-def write_hooks(outdir, ns=mcbuild.NAMESPACE, on_load=()):
+def write_hooks(outdir, ns=mcbuild.NAMESPACE, on_load=(), on_tick=()):
     """The `minecraft:load` and `minecraft:tick` tags that drive the gadgets.
 
     `on_load` is for functions this module does not own — the machine half's
@@ -418,7 +418,7 @@ def write_hooks(outdir, ns=mcbuild.NAMESPACE, on_load=()):
     # the machine's own hooks run first, so the chunks are back before anything
     # else looks at them
     for hook, values in (("load", list(on_load) + [f"{ns}:{PREFIX}/load"]),
-                         ("tick", [f"{ns}:{PREFIX}/tick"])):
+                         ("tick", [f"{ns}:{PREFIX}/tick"] + list(on_tick))):
         with open(os.path.join(d, f"{hook}.json"), "w") as f:
             json.dump({"values": values}, f, indent=1)
 
@@ -473,8 +473,13 @@ def attach(outdir, ns, paced):
         notes.append(
             f"Each of the {paced['signs']} controls has a sign beside it "
             f"saying which bit or operation it is.{where}")
-    move = build(outdir, ns=ns, machine_help=machine_help,
+    from . import pet
+    creature = pet.build(outdir, ns=ns)
+    move = build(outdir, ns=ns, machine_help=machine_help + pet.HELP,
                  machine_notes=notes)
     write_hooks(outdir, ns=ns,
-                on_load=[paced["on_world_load"].split(" ", 1)[1]])
+                on_load=[paced["on_world_load"].split(" ", 1)[1],
+                         f"{ns}:{pet.PREFIX}/load"],
+                on_tick=[f"{ns}:{pet.PREFIX}/tick"])
+    move["pet"] = creature
     return move

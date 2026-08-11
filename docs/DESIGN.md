@@ -3340,3 +3340,98 @@ comparing a function to itself — but a refusal: neither tool may call
 each of the four things the bundle's copy was missing. `tools/check_preview.mjs`
 gained the runtime half of the same question, and found the missing hook on the
 first run.
+
+## 38. A pet that walks your path, and a pack that was not there — **measured**
+
+> the build command is not there and grappling hook is completely broken, give
+> me a pet build using armor stand and path tracing that follows me and attacks
+> nearby mobs, it should only be shown as a player head on the ground.
+
+### Two reports, probably one cause
+
+`/function rscalc:build` missing and the gadgets doing nothing are not two
+bugs. They are what a **pack that did not load** looks like from inside the
+game. Every function in it is an unknown command, and nothing anywhere says
+why.
+
+The first place to look is `pack.mcmeta`, and §35 put an assumption in it:
+`min_format` and `max_format` written as `[major, minor]` pairs, because that is
+the shape the newer format table is written in. Nothing in this repository can
+check that — there is no Minecraft here — and the cost of being wrong is not an
+error message. A `pack.mcmeta` the game cannot parse makes the pack **invisible**.
+
+The zip was ruled out first, because it is checkable: `pack.mcmeta` and `data/`
+are at the archive root, not nested under a folder, which is the other classic
+way a datapack silently fails to appear.
+
+| field | was | now |
+|---|---|---|
+| `pack_format` | `48` — a 1.21 pack, on a 26.x world | `107` |
+| `min_format` / `max_format` | `[48, 0]` / `[107, 1]` | `48` / `107` |
+| `supported_formats` | absent | `{48, 107}` |
+
+All integers, plus the range field that has meant the same thing since 1.20.2.
+The range is wide deliberately: this pack is `/fill`, `/setblock`, `/execute`
+and `/scoreboard`, whose syntax has not moved in years, so claiming breadth is
+honest — and being refused over a version number is a worse failure than running
+on a version that has drifted. The linter now enforces integers and rejects the
+pair form, with the reason written into the message.
+
+This is a hypothesis, not a measurement. It is the most likely single cause of
+both reports and it is the one that could be acted on without a client; if the
+pack still does not appear, the next thing to read is the version string and
+`/datapack list`.
+
+### The pet
+
+An armour stand wearing the player's own head, walking the route the player
+walked. Four decisions, each one a lesson already paid for in this document.
+
+**It may be teleported, and the hook may not.** §37 established that moving a
+*player* with `tp` twenty times a second reads as stuttering, because each one
+is a correction the client has to swallow. A non-player entity is the opposite
+case: the client is *sent* entity positions and interpolates between them, so
+`tp @s ^ ^ ^0.22` once a tick is simply how smooth entity movement is done.
+The same command is wrong in one place and right in the other.
+
+**Vanilla physics carries it.** The stand is `Small` but **not** a `Marker`, so
+it keeps its hitbox and the game does gravity, collision and standing on the
+floor. A `Marker` has no hitbox, which means nothing holds it up and it falls
+out of the world. One tag is the difference between a pet and a hole.
+
+**The head goes on with `/item`, not with NBT.** Entity equipment moved from
+`ArmorItems` to `equipment` in 1.21.5 and item contents moved to components in
+1.20.5. A `summon` carrying either spelling works on one side of a version line
+and silently produces a *headless invisible armour stand* on the other — a pet
+that cannot be seen at all. `/item replace entity … armor.head` has meant the
+same thing throughout. The skin is the owner's, from the one piece of identity
+readable straight off a player: `data get entity @s UUID` into a macro.
+
+**Path tracing, not a magnet.** Every 1.5 blocks the player drops a numbered
+marker; the pet walks to the lowest-numbered one it owns, eats it, and takes the
+next. A follower that beelines swims into the wall between you; this one goes
+round the corner you went round. The trail caps at 64 crumbs, about 100 blocks
+of history.
+
+### Four bugs found by reading the commands back
+
+None of these would have been visible from the Python side, and all four were
+found by generating the pack and reading it:
+
+| | what it did |
+|---|---|
+| `if entity @e[…,limit=65]` | a selector limit is not a count — it is true when **one** entity matches, so the trail was trimmed on every crumb and the pet had a single waypoint. It beelined, which is the exact behaviour path tracing exists to avoid. `execute store result … if entity` is the count |
+| `@a[tag=rscalc_mine]` | `mine` goes on the pet and the crumbs, never on a player, so "is my owner nearby" matched nothing and the give-up-and-teleport branch fired every tick — a pet that never walked because it was always being recalled |
+| `#owner` left stale | a player with no pet made `scoreboard players operation #owner = @s` fail silently, leaving the previous player's id, so `dismiss` killed **somebody else's** pet. It clears to 0 first now, and no pet can hold 0 |
+| `return fail` before the fight | the pet stopped biting the moment it caught up — which is whenever you stand still, and whenever something walks up to you |
+
+`tests/test_pet.py` is one test per bug, each named after what it does rather
+than what it calls.
+
+### What it will not attack
+
+The tag is the design, and what is missing from it is most of the design:
+`enderman` (a fight the player is now in, at the pet's reach, beside them),
+`zombified_piglin` and `wolf` (angering a pack is worse than the mob), and every
+passive mob — a pet that kills the cows is not a feature. 31 kinds of prey, 29
+of them `required: false` so one renamed id cannot disable the whole tag.

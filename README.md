@@ -245,6 +245,25 @@ are all `rscalc:...` — type `/function rscalc:` and press tab and you have the
 whole thing. `rscalc:move/gear` gives you a grappling hook, a dash charm and a
 recall compass, which is how you get around a build most of a kilometre long.
 
+**A pet head that walks your path.** `rscalc:pet/get` gives you an armour stand
+wearing *your* head, sitting on the ground, which follows you by retracing your
+route rather than beelining at you: every 1.5 blocks you drop a numbered marker,
+and it walks to the oldest one it owns, eats it, and takes the next. A follower
+that beelines swims into the wall between you; this one goes round the corner
+you went round. It bites hostile mobs within 3.5 blocks, crediting the kill to
+you, and it will not touch endermen, piglins, wolves or anything passive — a pet
+that kills the cows is not a feature. `pet/here` calls it over, `pet/dismiss`
+puts it away.
+
+The head is fitted with `/item replace entity`, not with a tag on the `summon`,
+because entity equipment moved from `ArmorItems` to `equipment` in 1.21.5 and
+the wrong spelling produces a *headless invisible armour stand* with nothing in
+the log. The stand is `Small` but deliberately not a `Marker`: it keeps its
+hitbox, so gravity and collision are the game's job and not ours. See DESIGN §38
+for the four bugs that only showed up on reading the generated commands back —
+including a selector `limit` used as a count, which quietly turned the path
+tracing back into a beeline.
+
 **The hook pulls; it does not teleport.** The first version moved the player
 with one `tp @s` per tick towards the bobber, which is not a fast teleport that
 looks like movement — it is a teleport, twenty times a second, and it reads
@@ -261,11 +280,25 @@ thousandths through the scoreboard, is the vector. Every exit — release, arriv
 `unstick`, and a sweep for stands with nobody riding them — dismounts and kills
 the stand.
 
-**Targets Minecraft 26.2** — what the launcher calls *1.26.2*. Two things moved
-under this project and both break a pack silently: the game was renamed, and
-since 25w31a `pack_format` was replaced by `min_format`/`max_format` written as
-`[major, minor]` pairs. The pack declares both spellings, so one file loads on
-26.x and on 1.21. `--mc` targets another version.
+**If `/function rscalc:build` says "unknown command", the pack did not load.**
+That is one symptom, not a missing function — every `/function` in a pack that
+failed to load is unknown, and nothing says why. Two causes, in the order worth
+checking:
+
+1. `/datapack list` — if `rscalc` is not in the enabled list, it is a `/reload`
+   away, or the zip is in the wrong folder (it goes in `<world>/datapacks/`,
+   and `pack.mcmeta` must be at the **root** of the zip, not inside a folder).
+2. `pack.mcmeta` — a format field the game cannot parse makes the pack
+   invisible rather than an error. Every value this pack writes is now a plain
+   integer (`pack_format`, `min_format`, `max_format`) plus a
+   `supported_formats` range of 48..107, which has meant the same thing since
+   1.20.2. It used to write `[major, minor]` pairs, which was an assumption
+   about a newer format table that nothing here can test. See DESIGN §38.
+
+The range is wide on purpose: this pack is `/fill`, `/setblock`, `/execute` and
+`/scoreboard`, whose syntax has not moved in years, so being refused over a
+version number is a worse failure than running on a version that has drifted.
+`--mc` targets a different one.
 
 **It waits for its chunks, and that wait is the fix for redstone on the floor.**
 `/forceload add` does not load a chunk; it marks it to be loaded, and the server

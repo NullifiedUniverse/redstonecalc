@@ -512,6 +512,9 @@ def main():
     print(f"  structures: {len(man['pieces'])} .nbt chunks")
     print(f"  gadgets:    {len(move['functions'])} functions under "
           f"{ns}:{move['prefix']}/ in the same pack")
+    print(f"  pet:        {len(move['pet']['functions'])} functions, "
+          f"{move['pet']['prey']} kinds of prey, "
+          f"{move['pet']['trail']}-crumb trail")
     print(f"  datapack:   {pack['commands']:,} commands in {pack['files']} "
           f"functions ({len(world.blocks)/max(1,pack['commands']):.1f} blocks "
           f"per command)")

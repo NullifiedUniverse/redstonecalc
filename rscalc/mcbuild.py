@@ -75,24 +75,39 @@ PACK_FORMAT_DEFAULT = 48
 def pack_meta(description, version=MC_VERSION_DEFAULT):
     """The `pack.mcmeta` body for a target version.
 
-    Both spellings go in. A 26.x client reads `min_format`/`max_format` and
-    ignores the integer; a 1.21 client reads the integer and ignores the pair.
-    Neither errors on the other's field, so one file serves both, and the range
-    is opened down to 1.21 rather than pinned so a pack built today still loads
-    on the version it was tested against.
+    **Every value here is an integer, deliberately.**
+
+    This used to write `min_format`/`max_format` as `[major, minor]` pairs,
+    because that is the shape the newer format table is written in. That was an
+    assumption, and nothing in this repository can test it: there is no
+    Minecraft here, and a `pack.mcmeta` the game cannot parse does not report a
+    parse error to the player — the pack simply **does not appear**, and every
+    `/function` in it is "unknown command". A report of *the build command is
+    not there* and *the grappling hook does nothing* is one symptom, not two,
+    and this file is the first place to look for it.
+
+    So: integers, which both spellings accept, plus `supported_formats`, which
+    has meant a version range since 1.20.2 and is the most widely understood of
+    the three. The range is wide on purpose. This pack is `/fill`, `/setblock`,
+    `/execute` and `/scoreboard` — commands whose syntax has not moved in years
+    — so claiming a broad range is honest, and being refused for a version
+    number is a worse failure than being run on a version that has drifted.
     """
     if version not in MC_FORMATS:
         raise ValueError(f"unknown Minecraft version {version!r}; "
                          f"known: {', '.join(sorted(MC_FORMATS))}")
-    major, minor = MC_FORMATS[version]
-    pack = {"description": description}
-    if major >= MC_RANGE_FORMAT:
-        pack["min_format"] = list(MC_FORMATS["1.21"])
-        pack["max_format"] = [major, minor]
-        pack["pack_format"] = PACK_FORMAT_DEFAULT
-    else:
-        pack["pack_format"] = major
-    return {"pack": pack}
+    major, _minor = MC_FORMATS[version]
+    lo = MC_FORMATS["1.21"][0]
+    return {"pack": {
+        "description": description,
+        # the classic field, still read by everything
+        "pack_format": major,
+        # the range, for anything from 1.20.2 on
+        "supported_formats": {"min_inclusive": lo, "max_inclusive": major},
+        # the new spelling, as plain integers rather than pairs
+        "min_format": lo,
+        "max_format": major,
+    }}
 #: Commands per `part/NNNN` function, which is also what sets how many game
 #: ticks the paced build takes — and therefore how the build *looks*. At 2,000
 #: the whole machine appeared in 36 ticks, under two seconds: a flicker, not a

@@ -33,8 +33,8 @@ import re
 #: by no parser here but by the game's, which reports it once per execution and
 #: then carries on — 2,000 times a tick, in a pack this size.
 KNOWN = {
-    "advancement", "attribute", "bossbar", "clear", "data", "difficulty",
-    "effect",
+    "advancement", "attribute", "bossbar", "clear", "damage", "data",
+    "difficulty", "effect",
     "execute", "fill", "forceload", "function", "gamemode", "gamerule", "give",
     "item", "kill", "particle", "playsound", "return", "ride", "say",
     "schedule", "scoreboard", "setblock", "stopsound", "summon", "tag", "team",
@@ -103,11 +103,25 @@ def lint(root):
         if not ({"min_format", "max_format"} <= set(meta)
                 or "pack_format" in meta):
             bad.append("pack.mcmeta declares no format at all")
-        for k in ("min_format", "max_format"):
+        # An integer, not a pair. The pair form is what the newer format table
+        # is written in, but nothing here can run a client to find out whether
+        # a given build parses it, and the cost of guessing wrong is not an
+        # error message — it is a pack that does not appear in the world at all,
+        # with every `/function` in it reported as an unknown command.
+        for k in ("min_format", "max_format", "pack_format"):
             v = meta.get(k)
-            if v is not None and not (isinstance(v, list) and len(v) == 2
-                                      and all(isinstance(i, int) for i in v)):
-                bad.append(f"pack.mcmeta {k} must be [major, minor], got {v!r}")
+            if v is not None and not isinstance(v, int):
+                bad.append(f"pack.mcmeta {k} must be a plain integer, got "
+                           f"{v!r} — a shape the game cannot parse makes the "
+                           f"whole pack invisible rather than an error")
+        sup = meta.get("supported_formats")
+        if sup is not None and not (
+                isinstance(sup, dict)
+                and isinstance(sup.get("min_inclusive"), int)
+                and isinstance(sup.get("max_inclusive"), int)
+                and sup["min_inclusive"] <= sup["max_inclusive"]):
+            bad.append(f"pack.mcmeta supported_formats must be "
+                       f"{{min_inclusive, max_inclusive}}, got {sup!r}")
 
     funcs = _functions(root)
     if not funcs:

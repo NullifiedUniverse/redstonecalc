@@ -470,24 +470,30 @@ def test_the_exported_pack_lints_clean():
 
 
 def test_the_pack_declares_a_version_the_game_still_recognises():
-    """`pack_format` alone stopped being enough, and a stale one is invisible.
+    """Every format value is a plain integer, and a wide range is declared.
 
-    Two things moved. Mojang renamed the game — what a player calls "1.26.2" the
-    format table calls **26.2** — and since 25w31a `pack_format` was replaced by
-    `min_format`/`max_format`, written as `[major, minor]` pairs. A pack
-    carrying only the old integer is not read as "close enough"; it is read as a
-    pack for a version that no longer exists, and the game asks the player to
-    confirm they want to load something incompatible.
+    This file used to require `[major, minor]` pairs, because that is the shape
+    the newer format table is written in. Nothing here can run a client to check
+    that a given build parses that shape, and the failure mode is the worst kind
+    there is: a `pack.mcmeta` the game cannot read produces **no error** — the
+    pack does not appear, and every `/function` in it comes back as an unknown
+    command. "The build command is not there" and "the gadgets do nothing" are
+    one symptom of that, not two bugs.
 
-    Both spellings go in, so one file serves a 26.x world and a 1.21 one.
+    So the pack declares all three spellings as integers, plus the
+    `supported_formats` range that has meant the same thing since 1.20.2. Being
+    refused over a version number is a worse outcome than running on a version
+    that has drifted, for a pack whose commands are this old and this dull.
     """
     meta = mcbuild.pack_meta("x")["pack"]
-    assert meta["max_format"] == list(mcbuild.MC_FORMATS["26.2"]), meta
-    assert meta["max_format"] == [107, 1], meta
-    assert meta["min_format"] == [48, 0], meta
-    assert meta["pack_format"] == 48, "a 1.21 world reads this one"
+    for k in ("pack_format", "min_format", "max_format"):
+        assert isinstance(meta[k], int), f"{k} is {meta[k]!r}, not an integer"
+    assert meta["max_format"] == mcbuild.MC_FORMATS["26.2"][0] == 107, meta
+    assert meta["min_format"] == mcbuild.MC_FORMATS["1.21"][0] == 48, meta
+    sup = meta["supported_formats"]
+    assert sup == {"min_inclusive": 48, "max_inclusive": 107}, sup
     old = mcbuild.pack_meta("x", "1.21")["pack"]
-    assert old == {"description": "x", "pack_format": 48}, old
+    assert old["pack_format"] == 48 and old["max_format"] == 48, old
     try:
         mcbuild.pack_meta("x", "1.19")
     except ValueError as e:
@@ -495,7 +501,7 @@ def test_the_pack_declares_a_version_the_game_still_recognises():
     else:
         raise AssertionError("an unknown version has to be refused, not guessed")
     print(f"  pack.mcmeta declares {meta['min_format']}..{meta['max_format']} "
-          f"and a legacy pack_format {meta['pack_format']}: OK")
+          f"as integers, with a supported_formats range: OK")
 
 
 def test_nothing_is_placed_before_the_block_holding_it_up():
