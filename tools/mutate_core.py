@@ -101,10 +101,22 @@ MUTATIONS = [
      f'        f"function {{ns}}:sys/wait",',
      f'        f"function {{ns}}:tick",',
      "the build starting before its chunks have loaded"),
+    # The pair form is the thing being guarded against, not a typo: a format
+    # value the game cannot parse makes the whole pack invisible, with every
+    # /function in it reported as an unknown command and nothing to say why.
     ("mcbuild.pack-version", "rscalc/mcbuild.py",
-     '        pack["max_format"] = [major, minor]',
-     '        pack["max_format"] = [major, 0]',
-     "a pack.mcmeta declaring a format the target version does not use"),
+     '        "max_format": major,',
+     '        "max_format": [major, 0],',
+     "a pack.mcmeta format written as a pair rather than an integer"),
+    ("pet.trail-count", "rscalc/pet.py",
+     f'        f"execute store result score #crumbs {{seq}} if entity "',
+     f'        f"execute if entity "',
+     "a selector limit used as a count, so the pet beelines instead of "
+     "retracing the path"),
+    ("pet.owner-tag", "rscalc/pet.py",
+     f'        f"execute unless entity @a[tag={{boss}},distance=..{{LOST}}] run "',
+     f'        f"execute unless entity @a[tag={{mine}},distance=..{{LOST}}] run "',
+     "the pet looking for its owner by a tag no player carries"),
     ("panel.sign-facing", "tools/build_world.py",
      '    dirs = [((toward, 0, 0), "east" if toward > 0 else "west"),',
      '    dirs = [((toward, 0, 0), "west" if toward > 0 else "east"),',
