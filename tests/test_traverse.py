@@ -92,6 +92,12 @@ def test_the_linter_can_fail():
          '"color":"white"}', '"color":"white"'),
         ("a misspelled command", f"{fn}/{traverse.PREFIX}/mark.mcfunction",
          "tellraw @s", "telraw @s"),
+        # the one that actually shipped: an enum value from the wrong
+        # vocabulary. It does not misbehave at run time — the function does not
+        # load, and the command a player types is "Unknown function".
+        ("a sound source that is not a sound source",
+         f"{fn}/{traverse.PREFIX}/mount.mcfunction",
+         "player @s", "players @s"),
         ("a tick hook pointing nowhere",
          "data/minecraft/tags/function/tick.json",
          f"{ns}:{traverse.PREFIX}/tick", f"{ns}:{traverse.PREFIX}/tock"),

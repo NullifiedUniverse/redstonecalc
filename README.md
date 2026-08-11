@@ -296,6 +296,17 @@ thing to check: if `rscalc` is not in the *enabled* list, it is a `/reload`
 away, or the zip is in the wrong folder — it goes in `<world>/datapacks/`, and
 `pack.mcmeta` must be at the **root** of the zip, not inside a folder.
 
+**"Unknown function" can also mean one bad command.** A function is parsed when
+the pack loads, whole: a single command in it that does not parse gets the
+entire function rejected, and from in game that is indistinguishable from a
+missing file. That is what actually happened here — `bossbar set … color aqua`,
+where `aqua` is a *text* colour and a boss bar takes one of seven different
+ones. One wrong word on line 20 meant the one command the README tells you to
+type did not exist, while all 165 other functions worked. `rscalc/packlint.py`
+now knows the closed vocabularies the pack emits (boss bar colours and styles,
+`playsound` sources) and `tools/build_world.py` refuses to write a pack it
+rejects, so that build cannot be produced again. DESIGN §38 has the reasoning.
+
 The format fields are all plain integers (`pack_format`, `min_format`,
 `max_format`) plus a `supported_formats` range of 48..107. The range is wide on
 purpose: this pack is `/fill`, `/setblock`, `/execute` and `/scoreboard`, whose

@@ -3413,6 +3413,77 @@ zip goes from 415 KB to 828 KB, which is the whole cost.
 That is also the second half of the answer to "the grappling hook is completely
 broken". It was never running. Neither was anything else.
 
+### And underneath it, one wrong word
+
+With the layouts fixed, a second screenshot narrowed it to a single function:
+
+```
+Running function rscalc:load
+rscalc_mk3_10bit: nothing built yet — no origin on record.
+Function rscalc:load returned 0
+Unknown function rscalc:build
+Running function rscalc:sys/status_build
+```
+
+`load` runs. `sys/status_build` runs. Only `build` is unknown — so the pack, the
+layout and the format were all fine by this point, and exactly one file was not
+loading.
+
+A function is parsed **when the pack loads, in its entirety**. One command in it
+that does not parse does not misbehave at run time and does not fail alone: the
+whole function is rejected and never enters the registry. From inside the game
+that is indistinguishable from a missing file, which is why the report was "the
+build command is not there" three times running.
+
+Line 20 of `build.mcfunction`:
+
+```
+bossbar set rscalc:progress color aqua
+```
+
+A boss bar takes one of **seven** colours — blue, green, pink, purple, red,
+white, yellow. `aqua` is a **text** colour, from the vocabulary used by the
+`tellraw` four lines further down the same function. Two enumerations, similar
+names, different sets, and §37 wrote one where the other belonged. `sys/go` sets
+the bar `green`, which is in both vocabularies, so the second half of the same
+feature worked perfectly and made the failure look unrelated to it.
+
+| | |
+|---|---|
+| wrong words in the pack | **1** |
+| functions that failed to load | 1 of 166 |
+| commands a player could type that worked | every one except the entry point |
+
+### The fix is the linter, not the word
+
+Changing `aqua` to `blue` is a character. The defect is that `rscalc/packlint.py`
+resolves function references, objectives, entity tags, block tags, macro
+arguments and brackets — and had **no idea what any argument means**. It knew
+`bossbar` was a real command and stopped there.
+
+It now carries the fixed vocabularies the pack actually emits — boss bar colours
+and styles, and `playsound` sources — checked outside quoted strings and after
+every `run`, with macro placeholders skipped rather than guessed at. When the
+value is a text colour used where a bar colour belongs, it says so, because that
+is the mistake that was actually made:
+
+```
+rscalc:build:20: bossbar color 'aqua' is not one of blue, green, pink,
+purple, red, white, yellow — that is a *text* colour, not a boss bar one;
+the two vocabularies are different
+```
+
+`tools/build_world.py` already refuses to write a pack the linter rejects, so
+this build is now impossible to ship. Putting the old value back and running the
+exporter prints the line above and writes nothing — which is the check, and it
+was run.
+
+`tests/test_traverse.py` grew a tenth deliberate break for the same class, and
+`mutate_core` a mutation. The general lesson is narrower than "test more": an
+argument whose legal values are a closed set is a place where a plausible wrong
+answer exists, and every one of those in this pack is now enumerated somewhere a
+program reads.
+
 The lesson is the one §36 already paid for once and this section paid for again:
 when a check cannot be run, the guess that follows should be labelled a guess —
 and the first thing to ask for is the output, not the next change. The format

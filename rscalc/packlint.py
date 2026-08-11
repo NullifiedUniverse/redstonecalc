@@ -29,6 +29,41 @@ import json
 import os
 import re
 
+#: Arguments that are a **fixed vocabulary**, and the words allowed in each.
+#:
+#: These matter more than they look. A wrong enum value is not a run-time
+#: failure that misbehaves once — the command does not *parse*, and a function
+#: containing one command that does not parse **fails to load in its entirety**.
+#: The symptom is that `/function <ns>:<name>` answers "Unknown function" while
+#: every other function in the same pack works perfectly, which reads like a
+#: missing file rather than a typo on line 20 of a file that is right there.
+#:
+#: This list exists because `bossbar set … color aqua` shipped. A boss bar takes
+#: one of seven colours; `aqua` is a *text* colour, from the vocabulary two
+#: lines further down the same function. Nothing here objected, and
+#: `rscalc:build` — the one command the README tells a player to type — did not
+#: exist in game. See DESIGN §38.
+ENUMS = {
+    # `bossbar set <id> color <colour>`
+    ("bossbar", "color"): {"blue", "green", "pink", "purple", "red", "white",
+                           "yellow"},
+    # `bossbar set <id> style <style>`
+    ("bossbar", "style"): {"progress", "notched_6", "notched_10", "notched_12",
+                           "notched_20"},
+    # `playsound <sound> <source> …`
+    ("playsound", None): {"master", "music", "record", "weather", "block",
+                          "hostile", "neutral", "player", "ambient", "voice"},
+}
+
+#: Text-component colours, which are a *different* vocabulary from the boss
+#: bar's and overlap it only partly. Named here so the two cannot be confused
+#: again without something noticing.
+TEXT_COLOURS = {
+    "black", "dark_blue", "dark_green", "dark_aqua", "dark_red",
+    "dark_purple", "gold", "gray", "dark_gray", "blue", "green", "aqua",
+    "red", "light_purple", "yellow", "white", "reset",
+}
+
 #: Commands this project actually emits. A typo in a command name is accepted
 #: by no parser here but by the game's, which reports it once per execution and
 #: then carries on — 2,000 times a tick, in a pack this size.
@@ -59,6 +94,53 @@ def _functions(root):
                 rel = os.path.relpath(os.path.join(dirpath, n), fdir)
                 out[f"{ns}:{rel[:-11].replace(os.sep, '/')}"] = \
                     os.path.join(dirpath, n)
+    return out
+
+
+def _enum_problems(body):
+    """Fixed-vocabulary arguments whose value is not in the vocabulary.
+
+    Only the run of the command *outside* any quoted string is examined, so a
+    boss bar named "…: loading chunks" cannot be mistaken for an argument.
+
+    A macro line (`$…`) may hold `$(x)` where a word belongs; those are skipped
+    rather than guessed at, since the value is not known until it runs.
+    """
+    out = []
+    # everything after `run` is a fresh command; check each piece
+    for part in re.split(r"(?:^|\s)run\s", body):
+        words, quoted = [], False
+        for tok in re.findall(r'"[^"]*"|\S+', part):
+            if tok.startswith('"'):
+                quoted = True
+                continue
+            words.append(tok)
+        del quoted
+        if not words:
+            continue
+        head = words[0]
+        for (cmd, key), allowed in ENUMS.items():
+            if head != cmd:
+                continue
+            if key is None:
+                # positional: `playsound <sound> <source>`
+                if len(words) >= 3 and "$(" not in words[2] \
+                        and words[2] not in allowed:
+                    out.append(f"{cmd} source {words[2]!r} is not one of "
+                               f"{', '.join(sorted(allowed))}")
+                continue
+            for i, w in enumerate(words[:-1]):
+                if w != key:
+                    continue
+                v = words[i + 1]
+                if "$(" in v or v in allowed:
+                    continue
+                extra = ""
+                if cmd == "bossbar" and key == "color" and v in TEXT_COLOURS:
+                    extra = (" — that is a *text* colour, not a boss bar one; "
+                             "the two vocabularies are different")
+                out.append(f"{cmd} {key} {v!r} is not one of "
+                           f"{', '.join(sorted(allowed))}{extra}")
     return out
 
 
@@ -164,6 +246,8 @@ def lint(root):
             head = body.split(None, 1)[0] if body.split() else ""
             if head and head not in KNOWN:
                 bad.append(f"{where}: unknown command {head!r}")
+            for problem in _enum_problems(body):
+                bad.append(f"{where}: {problem}")
             for m in re.finditer(r"(?:^|\s)function ([a-z0-9_.-]+:[a-z0-9_./-]+)",
                                  body):
                 ref = m.group(1)

@@ -108,6 +108,14 @@ MUTATIONS = [
      '        "max_format": major,',
      '        "max_format": [major, 0],',
      "a pack.mcmeta format written as a pair rather than an integer"),
+    # a value from the wrong closed vocabulary: the command does not parse, so
+    # the whole function fails to load and the entry point a player types comes
+    # back "Unknown function" while the rest of the pack works — see DESIGN §38
+    ("mcbuild.bossbar-colour", "rscalc/mcbuild.py",
+     f'        f"bossbar set {{ns}}:progress color blue",',
+     f'        f"bossbar set {{ns}}:progress color aqua",',
+     "a text colour where a boss bar colour belongs, which stops rscalc:build "
+     "from loading at all"),
     # the wrong directory dialect is a pack that is enabled and empty, with no
     # warning anywhere — see DESIGN §38
     ("mcbuild.legacy-layout", "rscalc/mcbuild.py",

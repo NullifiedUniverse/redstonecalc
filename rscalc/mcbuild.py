@@ -722,7 +722,13 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None,
         # and does not stop the rest of it.
         f'bossbar add {ns}:progress "{name}"',
         f"bossbar set {ns}:progress players @a",
-        f"bossbar set {ns}:progress color aqua",
+        # `blue`, not `aqua`. A boss bar takes one of seven colours and `aqua`
+        # is not among them — it is a *text* colour, which is what the tellraw
+        # on the next line takes, and the two were conflated. An unparseable
+        # command does not fail at run time: the whole function fails to load,
+        # and `/function rscalc:build` answers "Unknown function" while every
+        # other function in the pack works. See DESIGN §38.
+        f"bossbar set {ns}:progress color blue",
         f'bossbar set {ns}:progress name "{name}: loading chunks"',
         f"bossbar set {ns}:progress max {chunks}",
         f"bossbar set {ns}:progress value 0",
