@@ -3084,3 +3084,101 @@ purpose — nine ways, and it catches all nine:
 What it does not prove: that the grappling hook feels right, or that 0.85 blocks
 a tick is a good speed. Nothing here can. That is said out loud in the module
 rather than left for a reader to assume.
+
+## 36. `/forceload` does not load anything — **measured**
+
+A report from a world: *a lot of redstone dust falls to the floor upon
+placement*. §35 had just finished proving the opposite — every one of the
+456,558 blocks has a sturdy support, and replaying the command stream finds zero
+placed before the thing holding it up. Both are true. The ordering was never the
+problem.
+
+### What the static check could not see
+
+`/forceload add` does not load a chunk. It **marks** the chunk to be loaded, and
+the server gets to it over the following ticks. The build force-loaded 2,135
+chunks and started placing on the *very next tick*:
+
+| | ticks |
+|---|---|
+| the whole build, at one part per tick | 36 (1.8 seconds) |
+| loading two thousand chunks on a cold world | minutes |
+
+So the build ran a mile ahead of the chunk loader. A `/fill` into a chunk that
+has not arrived **fails silently** — no exception a player sees, no missing
+feedback, just a command that does nothing. The result is holes; and where
+loading finished part-way through a batch, dust went down in a chunk that was
+ready onto a support in a chunk that was not.
+
+That is redstone on the floor, and it is invisible to every check in this
+repository, because every check here reads the *commands*. The commands were
+right. The world was not ready to receive them.
+
+### The gate
+
+`execute if loaded <pos>` (Java 1.19.4, so it is available on both ends of the
+declared format range) is true only when a position's chunk is fully loaded and
+**entity-ticking** — which is exactly the state `/fill` needs, and exactly the
+state redstone needs.
+
+`build` hands off to a wait instead of to the first batch. One probe per chunk
+runs every tick until all of them answer, and only then does a block go down.
+Sampling would have been cheaper and wrong: chunks arrive in whatever order the
+loader reaches them, so a corner can be ready while the middle is not. It is one
+probe each — 2,135 of them — and it times out after ten minutes rather than
+hanging in silence.
+
+`clear` had the identical race and now has the identical gate. That is the
+second reason it used to leave most of the machine standing; §35 fixed only the
+first.
+
+### One pack
+
+The machine and the gadgets were two downloads in two namespaces: two things to
+install, two `/reload`s to get wrong, two prefixes to remember. They are one
+pack in one namespace now — `rscalc:build`, `rscalc:clear`, `rscalc:go/display`,
+`rscalc:move/gear` — so typing `/function rscalc:` and pressing tab lists
+everything this project can do.
+
+That also settled a question §34 got wrong twice. The page used to generate its
+own copy of the control functions, and §34 "fixed" the drift by comparing the
+two copies. The right fix was to delete one: the exporter now ships **every file
+of the pack except the block batches**, gzipped into the bundle, and the page
+writes those bytes. 15 KB carries all 64 of them, including a `sys/probe` that
+is 2,135 lines of the most compressible text imaginable.
+
+| | result |
+|---|---|
+| files in the page's pack | 101 |
+| byte-identical to the exporter's | **101** |
+| differing | **none** |
+
+### The gadgets, made to feel like tools
+
+Three things separate a grappling hook that works from one that is pleasant, and
+none of them are testable from here — which is stated rather than implied.
+
+**It eases.** The pull ramps from rest over eight ticks and drops to a slower
+speed inside eight blocks of the hook. A constant-speed pull reads as being
+dragged by a winch. Minecraft moves players at 20 positions a second whatever
+you do, so the shape of the speed curve is the only smoothness available; there
+is no sub-tick interpolation to reach for.
+
+**It draws the rope.** Six `end_rod` particles between the player's eyes and the
+bobber, every tick. Without them the hook is an invisible force and the whole
+gadget reads as teleportation.
+
+**It arrives.** A puff of `cloud`, a click, and a landing that cannot hurt you.
+
+### The friction that was left, and what replaced it
+
+| friction | fix |
+|---|---|
+| two packs to install | one pack, one namespace |
+| `give`, `give`, then `on` | `move/gear` does all three |
+| recall told you off for not setting a mark first | `gear` marks where you are standing |
+| every gadget needed a typed command | rod, charm and compass are the interface; commands are for setup |
+| the hook pulled you into terrain | every teleport gated on a passable destination |
+| falling after a grapple | slow falling for three seconds after any gadget lets go |
+| no idea what the build was doing | action-bar progress for loading, placing and clearing, plus `status` |
+| no way to stop a build | `abort` |

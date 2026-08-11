@@ -237,20 +237,29 @@ are still 657 blocks away and 192 up — see DESIGN §15.
 curl -LO https://github.com/NullifiedUniverse/redstonecalc/raw/claude/minecraft-redstone-calculator-r0si6x/dist/rscalc_mk3_10bit_datapack.zip
 ```
 
-Drop that zip into `<your world>/datapacks/`, `/reload`, then stand where you
-want the machine's minimum corner and run `/function rscalc_mk3_10bit:build`.
-`dist/rscalc_move_datapack.zip` beside it is the traversal pack — a grappling
-hook, a dash and a waypoint, for getting around a build this size.
+Drop it into `<your world>/datapacks/`, `/reload`, stand where you want the
+machine's minimum corner, and run `/function rscalc:build`.
 
-Both are built from source by the tools below; the zips are committed so that
-getting one is a single command rather than a checkout and a three-minute
-build.
+**One pack, one namespace.** The machine, its controls and the movement gadgets
+are all `rscalc:...` — type `/function rscalc:` and press tab and you have the
+whole thing. `rscalc:move/gear` gives you a grappling hook, a dash charm and a
+recall compass, which is how you get around a build most of a kilometre long.
 
 **Targets Minecraft 26.2** — what the launcher calls *1.26.2*. Two things moved
 under this project and both break a pack silently: the game was renamed, and
 since 25w31a `pack_format` was replaced by `min_format`/`max_format` written as
 `[major, minor]` pairs. The pack declares both spellings, so one file loads on
 26.x and on 1.21. `--mc` targets another version.
+
+**It waits for its chunks, and that wait is the fix for redstone on the floor.**
+`/forceload add` does not load a chunk; it marks it to be loaded, and the server
+gets to it over the following ticks. The build used to force-load 2,135 chunks
+and start placing on the very next tick, so it ran a mile ahead of the loader
+and most of its `/fill`s landed in chunks that were not there yet — silently,
+because a fill into an unloaded chunk simply does nothing. Where loading
+finished part-way through a batch, dust went down onto a support that had not.
+`build` now gates on one `execute if loaded` probe per chunk and places nothing
+until every one answers. See DESIGN §36.
 
 `python3 tools/build_world.py` exports the build two vanilla ways — a grid of
 structure-block `.nbt` files with a placement manifest, and a datapack of
@@ -279,21 +288,19 @@ part runs exactly once, in order, with no function in the pack unreachable.
 block is placed across the whole build first, and only then the dust,
 repeaters, torches and levers. `/setblock minecraft:redstone_wire` into thin air
 does not fail — the block is placed, the game updates it, and it drops as an
-item — so a build this size would quietly lose a few hundred wires and still
+item — so a build this size could quietly lose a few hundred wires and still
 look finished. `tests/test_mcbuild.py` replays the command stream and requires
 every support to already be standing, wall torches included.
 
 **`clear` works from anywhere, and removes all of it.** The build records its
 origin in `data storage` from a block-aligned marker; `clear` reads that back,
-force-loads the footprint and then removes it. It used to start from wherever
-the player happened to be standing and force-load nothing, so it took away the
-part of the machine near you and left the rest — the chunks further out were not
-loaded, so the `fill` commands had nothing to act on.
+force-loads the footprint, waits for it, and then removes it. It used to start
+from wherever the player happened to be standing and force-load nothing, so it
+took away the part near you and left the rest.
 
-There is also `status` (where it is, what it is doing), `help`, `abort`, and
-`go_controls` / `go_display` / `go_above` / `go_origin`, because the control
-wall and the lamps are 973 blocks apart and walking it was the worst part of
-using the thing.
+There is also `status`, `help`, `abort`, and `go/controls` / `go/display` /
+`go/above` / `go/origin`, because the control wall and the lamps are 973 blocks
+apart and walking it was the worst part of using the thing.
 
 The pack also **force-loads its own footprint**, which is the difference between
 a machine that answers and one that does not. Redstone only ticks in chunks the

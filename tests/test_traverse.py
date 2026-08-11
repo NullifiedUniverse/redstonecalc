@@ -24,9 +24,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from rscalc import mcbuild, packlint, traverse
 
 
-def _built(mc=mcbuild.MC_VERSION_DEFAULT):
+NS = mcbuild.NAMESPACE
+
+
+def _built():
+    """The gadgets, alone in a pack, so the linter has something complete."""
     d = tempfile.mkdtemp()
-    info = traverse.build(d, mc_version=mc)
+    info = traverse.build(d, ns=NS, machine_help=[("build", "place it")])
+    traverse.write_hooks(d, ns=NS)
+    with open(os.path.join(d, "pack.mcmeta"), "w") as f:
+        json.dump(mcbuild.pack_meta("traversal only, for the tests"), f)
     return d, info
 
 
@@ -35,7 +42,7 @@ def test_the_pack_lints_clean():
     try:
         bad = packlint.lint(d)
         assert not bad, "\n  ".join([""] + bad)
-        print(f"  {len(info['functions'])} functions, {info['files']} files, "
+        print(f"  {len(info['functions'])} gadget functions, "
               f"no unresolved reference: OK")
     finally:
         shutil.rmtree(d)
@@ -50,7 +57,7 @@ def test_the_linter_can_fail():
     damage rather than be trusted.
     """
     d, _ = _built()
-    fdir = os.path.join(d, "data", traverse.NS, "function")
+    fdir = os.path.join(d, "data", NS, "function")
 
     def broken(what, path, find, put):
         copy = tempfile.mkdtemp()
@@ -65,28 +72,29 @@ def test_the_linter_can_fail():
         assert found, f"{what}: the linter did not notice"
         return found[0]
 
-    ns = traverse.NS
+    ns = NS
     fn = f"data/{ns}/function"
     cases = [
-        ("a call to a function that is gone", f"{fn}/gear.mcfunction",
-         f"{ns}:on", f"{ns}:onn"),
-        ("a schedule for a missing function", f"{fn}/tick.mcfunction",
-         f"function {ns}:grapple", f"function {ns}:grappel"),
-        ("an objective nothing creates", f"{fn}/tick.mcfunction",
+        ("a call to a function that is gone", f"{fn}/{traverse.PREFIX}/gear.mcfunction",
+         f"{ns}:{traverse.PREFIX}/on", f"{ns}:{traverse.PREFIX}/onn"),
+        ("a call from the tick loop that is gone", f"{fn}/{traverse.PREFIX}/tick.mcfunction",
+         f"{ns}:{traverse.PREFIX}/grapple", f"{ns}:{traverse.PREFIX}/grappel"),
+        ("an objective nothing creates", f"{fn}/{traverse.PREFIX}/tick.mcfunction",
          f"{ns}_dash=1..", "nope_dash=1.."),
-        ("a tag nothing applies", f"{fn}/tick.mcfunction",
+        ("a tag nothing applies", f"{fn}/{traverse.PREFIX}/tick.mcfunction",
          f"tag={ns}_on", "tag=nope_on"),
-        ("a block tag the pack does not ship", f"{fn}/grapple.mcfunction",
+        ("a block tag the pack does not ship",
+         f"{fn}/{traverse.PREFIX}/step.mcfunction",
          f"#{ns}:passable", f"#{ns}:walkable"),
-        ("a macro placeholder nothing supplies", f"{fn}/recall_at.mcfunction",
+        ("a macro placeholder nothing supplies", f"{fn}/{traverse.PREFIX}/recall_at.mcfunction",
          "$(x)", "$(ex)"),
-        ("an unbalanced component", f"{fn}/help.mcfunction",
+        ("an unbalanced component", f"data/{ns}/function/help.mcfunction",
          '"color":"white"}', '"color":"white"'),
-        ("a misspelled command", f"{fn}/mark.mcfunction",
+        ("a misspelled command", f"{fn}/{traverse.PREFIX}/mark.mcfunction",
          "tellraw @s", "telraw @s"),
         ("a tick hook pointing nowhere",
          "data/minecraft/tags/function/tick.json",
-         f"{ns}:tick", f"{ns}:tock"),
+         f"{ns}:{traverse.PREFIX}/tick", f"{ns}:{traverse.PREFIX}/tock"),
     ]
     try:
         for what, path, find, put in cases:
@@ -109,7 +117,7 @@ def test_the_hook_never_moves_you_into_a_block():
     """
     d, _ = _built()
     try:
-        fdir = os.path.join(d, "data", traverse.NS, "function")
+        fdir = os.path.join(d, "data", NS, "function", traverse.PREFIX)
         unguarded = []
         for name in sorted(os.listdir(fdir)):
             for n, line in enumerate(open(os.path.join(fdir, name)), 1):
@@ -118,7 +126,7 @@ def test_the_hook_never_moves_you_into_a_block():
                     continue
                 if name == "recall_at.mcfunction":
                     continue
-                if f"if block ~ ~ ~ #{traverse.NS}:passable" not in s:
+                if f"if block ~ ~ ~ #{NS}:passable" not in s:
                     unguarded.append(f"{name}:{n}: {s}")
         assert not unguarded, "\n  ".join([""] + unguarded)
         print(f"  every teleport but the waypoint is gated on a passable "
@@ -138,7 +146,7 @@ def test_the_passable_tag_cannot_be_broken_by_one_bad_id():
     d, _ = _built()
     try:
         tag = json.load(open(os.path.join(
-            d, "data", traverse.NS, "tags", "block", "passable.json")))
+            d, "data", NS, "tags", "block", "passable.json")))
         required = [v for v in tag["values"] if isinstance(v, str)]
         optional = [v for v in tag["values"] if isinstance(v, dict)]
         assert set(required) == {"minecraft:air", "minecraft:cave_air",
@@ -150,19 +158,27 @@ def test_the_passable_tag_cannot_be_broken_by_one_bad_id():
         shutil.rmtree(d)
 
 
-def test_it_targets_the_version_it_says_it_does():
-    d, _ = _built()
+def test_the_gadgets_live_in_the_machine_s_namespace():
+    """One pack, one namespace, one prefix to remember.
+
+    The gadgets used to be a second download in a second namespace: two things
+    to install, two `/reload`s to get wrong, and two prefixes to recall. They
+    are `rscalc:move/...` now, beside `rscalc:build`, so tab completion after
+    `/function rscalc:` lists everything this project can do.
+    """
+    d, info = _built()
     try:
-        meta = json.load(open(os.path.join(d, "pack.mcmeta")))["pack"]
-        assert meta["max_format"] == list(mcbuild.MC_FORMATS["26.2"])
-        shutil.rmtree(d)
-        d, _ = _built("1.21")
-        meta = json.load(open(os.path.join(d, "pack.mcmeta")))["pack"]
-        assert meta == {"description": meta["description"], "pack_format": 48}
-        print("  pack.mcmeta follows --mc, in both the new and the old "
-              "spelling: OK")
+        fdir = os.path.join(d, "data", NS, "function")
+        assert os.path.isdir(os.path.join(fdir, traverse.PREFIX))
+        assert all(f.startswith(traverse.PREFIX + "/") or f == "help"
+                   for f in info["functions"]), info["functions"]
+        hooks = os.path.join(d, "data", "minecraft", "tags", "function")
+        tick = json.load(open(os.path.join(hooks, "tick.json")))["values"]
+        assert tick == [f"{NS}:{traverse.PREFIX}/tick"], tick
+        print(f"  {len(info['functions'])} gadget functions under "
+              f"{NS}:{traverse.PREFIX}/, in the machine's own namespace: OK")
     finally:
-        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(d)
 
 
 if __name__ == "__main__":

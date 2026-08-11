@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from rscalc import mcbuild
+from rscalc import mcbuild, packlint, traverse
 from rscalc.engine import World
 from rscalc.pla import compile_netlist
 
@@ -43,7 +43,10 @@ repository and verified in a tick-accurate simulator before export.
 
 ## Option 1 — the datapack (no mods, no structure blocks)
 
-1. Copy `datapack/` into your world's `datapacks/` folder, as its own folder.
+1. Copy `datapack/` (or the `.zip` beside it) into your world's `datapacks/`
+   folder. It is **one pack**: the machine, its controls and the movement
+   gadgets are all `{ns}:...`, so there is one thing to install and one prefix
+   to remember.
 2. `/reload`
 3. Stand where you want the **minimum corner** of the build (it grows +X, +Y, +Z
    from you) and run:
@@ -74,13 +77,29 @@ game updates it, and it drops as an item. A build this size would lose a few
 hundred wires that way and still look finished.
 
 You will be standing **inside** the footprint when it starts, because you are
-standing on its minimum corner. Use spectator mode, or `/function {name}:go_above`.
+standing on its minimum corner. Use spectator mode, or `/function {ns}:go/above`.
+
+### It waits for its chunks, and that wait is the point
+
+`/forceload add` does **not** load a chunk. It marks the chunk to be loaded, and
+the server gets to it over the following ticks. The build used to force-load and
+start placing on the very next tick — so it ran a mile ahead of the chunk loader
+and most of its `/fill`s landed in chunks that were not there yet. Those commands
+fail *silently*, and where loading finished part-way through a batch, dust went
+down onto a support that had not. **That is what put redstone all over the
+floor**, and no amount of placement ordering fixes it.
+
+So `build` now hands off to a wait: one `execute if loaded` probe per chunk of
+the footprint, every tick, until all {chunks} answer. Expect
+`loading chunks N of {chunks}` on the action bar for a while — on a cold world
+that can be minutes. Nothing is placed until it is done, and it gives up after
+ten minutes rather than hanging silently.
 
 ### Knowing what it is doing
 
 ```
-/function {name}:status
-/function {name}:help
+/function {ns}:status
+/function {ns}:help
 ```
 
 `status` reports where the machine was built, how big it is, and — while a
@@ -95,8 +114,17 @@ The control wall is at one end and the lamps are at the other, {dz} blocks away.
 ```
 {gos}```
 
-There is a companion pack for the rest of it — a grappling hook, a dash and a
-waypoint — in `out/build/rscalc_move/`, built by `tools/build_traversal.py`.
+And for everything between the two ends, the same pack carries a grappling
+hook, a dash and a waypoint:
+
+```
+/function {ns}:move/gear
+```
+
+Cast the rod to grapple — it pulls you along the rope while the bobber is out
+and lets go when you reel in. The charm dashes where you look. The compass
+returns to your mark. All three leave you with slow falling, so the landing is
+survivable.
 
 ### It will not run unless you force-load it — **read this one**
 
@@ -126,7 +154,7 @@ is why it would take away the part of the machine near you and leave the rest
 standing — the chunks further out were not loaded, so the `fill` commands had
 nothing to act on.
 
-`/function {name}:abort` stops a build or a clear part way if you need it to.
+`/function {ns}:abort` stops a build or a clear part way if you need it to.
 
 ## Option 2 — structure files
 
@@ -334,10 +362,32 @@ def main():
 
     man = mcbuild.export_structures(world, os.path.join(root, "structures"),
                                     name=name, solid=args.solid)
-    pack = mcbuild.export_datapack(world, os.path.join(root, "datapack"),
+    packdir = os.path.join(root, "datapack")
+    pack = mcbuild.export_datapack(world, packdir,
                                    name=name, solid=args.solid,
                                    mc_version=args.mc,
                                    landmarks=marks)
+    # One pack, one namespace. The machine and the gadgets used to be two
+    # separate downloads in two namespaces, which meant two things to install,
+    # two `/reload`s to get wrong, and two prefixes to remember.
+    ns = pack["namespace"]
+    machine_help = [
+        ("build", "place it, from the -X -Y -Z corner"),
+        ("clear", "take it away again, from anywhere"),
+        ("status", "where it is and what it is doing"),
+        ("load", "force-load its chunks so it ticks"),
+        ("unload", "release them again"),
+        ("abort", "stop a build or clear part way"),
+    ] + [(f"go/{k}", f"teleport to the {k}")
+         for k in sorted(pack["landmarks"])]
+    move = traverse.build(packdir, ns=ns, machine_help=machine_help)
+    traverse.write_hooks(packdir, ns=ns)
+    problems = packlint.lint(packdir)
+    if problems:
+        for p in problems[:20]:
+            print(f"  {p}", file=sys.stderr)
+        raise SystemExit(f"refusing to write a pack with {len(problems)} "
+                         f"problems")
 
     with open(os.path.join(root, "README.md"), "w") as f:
         f.write(README.format(
@@ -346,7 +396,8 @@ def main():
             dv=mcbuild.DATA_VERSION, solid=args.solid, mc=args.mc,
             fmt=pack["pack_meta"]["pack"].get("max_format")
                 or pack["pack_meta"]["pack"]["pack_format"],
-            gos="".join(f"/function {name}:go_{k}\n"
+            ns=pack["namespace"],
+            gos="".join(f"/function {pack['namespace']}:go/{k}\n"
                         for k in sorted(pack["landmarks"])),
             entry="/" + pack["entry"], commands=pack["commands"],
             files=pack["files"], pieces=len(man["pieces"]),
@@ -364,7 +415,7 @@ def main():
     zipped = None
     if args.zip:
         import zipfile
-        src = os.path.join(root, "datapack")
+        src = packdir
         zipped = os.path.join(root, f"{name}_datapack.zip")
         with zipfile.ZipFile(zipped, "w", zipfile.ZIP_DEFLATED, 6) as z:
             for dp, _, fs in os.walk(src):
@@ -377,6 +428,8 @@ def main():
     print(f"{name}: {len(world.blocks):,} blocks, "
           f"{x1-x0+1}x{y1-y0+1}x{z1-z0+1}")
     print(f"  structures: {len(man['pieces'])} .nbt chunks")
+    print(f"  gadgets:    {len(move['functions'])} functions under "
+          f"{ns}:{move['prefix']}/ in the same pack")
     print(f"  datapack:   {pack['commands']:,} commands in {pack['files']} "
           f"functions ({len(world.blocks)/max(1,pack['commands']):.1f} blocks "
           f"per command)")

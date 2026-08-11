@@ -289,6 +289,7 @@ def test_the_page_gets_its_minecraft_table_from_the_exporter():
     mc = circ.get("mc")
     assert mc, "the bundle carries no Minecraft table, so the page cannot " \
                "write a datapack without inventing one"
+    import json
     assert mc["pack_meta"] == mcbuild.pack_meta(mc["pack_meta"]["pack"]
                                                 ["description"])
     # The same argument covers the pack's *shape*, not just its blocks — and it
@@ -299,15 +300,25 @@ def test_the_page_gets_its_minecraft_table_from_the_exporter():
     # ships the finished text and the page writes those bytes out, so the only
     # thing left to check is that the text is there and covers the entry points
     # the page's own README tells a reader to type.
-    files = mc["control_files"]
+    import base64, gzip
+    files = json.loads(gzip.decompress(
+        base64.b64decode(mc["files_z"])).decode())
     ns = mc["namespace"]
-    for entry in ("build", "clear", "load", "unload", "status", "help"):
-        assert f"{entry}.mcfunction" in files, entry
-    assert f"function {ns}:load" in files["build.mcfunction"], \
+    fn = f"data/{ns}/function"
+    for entry in ("build", "clear", "load", "unload", "status", "help",
+                  "abort", "move/gear", "move/tick", "sys/probe"):
+        assert f"{fn}/{entry}.mcfunction" in files, entry
+    assert f"function {ns}:load" in files[f"{fn}/build.mcfunction"], \
         "build must force-load before it places anything"
-    assert "forceload add" in files["load_tiles.mcfunction"]
-    from tools.build_world import pack_name
-    assert ns == pack_name(circ["width"]).lower(), \
+    assert f"function {ns}:sys/wait" in files[f"{fn}/build.mcfunction"], \
+        "and then wait for the chunks to arrive, or it races the loader"
+    assert "forceload add" in files[f"{fn}/sys/load_tiles.mcfunction"]
+    assert "execute if loaded" in files[f"{fn}/sys/probe.mcfunction"]
+    assert "pack.mcmeta" in files and "README.txt" in files
+    # the gadgets ride in the same pack, under the same namespace
+    assert "data/minecraft/tags/function/tick.json" in files
+    assert f"data/{ns}/tags/block/passable.json" in files
+    assert ns == mcbuild.NAMESPACE, \
         "the page would name the pack something the README's /function is not"
 
     w = build()

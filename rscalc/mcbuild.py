@@ -397,9 +397,71 @@ def _command(name, props, a, b):
             f"{state} replace")
 
 
+#: One namespace for the whole pack, so every command a player types starts the
+#: same way and tab-completion groups them. The machine lives at the top level
+#: (`rscalc:build`), its plumbing under `sys/`, its batches under `part/`, and
+#: the traversal gadgets under `move/`.
+NAMESPACE = "rscalc"
+
+
+def pack_readme(name, ns, blocks, bounds, count, paced,
+                mc_version=MC_VERSION_DEFAULT):
+    """Instructions inside the pack, because the pack is what a reader holds.
+
+    The repository's README is not in the folder they just dropped into
+    `datapacks/`. Written here rather than in either generator so the file the
+    page hands over and the file the exporter writes are the same file.
+    """
+    (bx0, by0, bz0), (bx1, by1, bz1) = bounds
+    dx, dy, dz = bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1
+    return f"""{name} — a {blocks:,}-block redstone calculator
+{'=' * 60}
+
+{dx} x {dy} x {dz}, targets Minecraft {mc_version}.
+(What the launcher calls 1.26.2 the pack format table calls 26.2. This pack
+declares both the new min_format/max_format pair and a legacy pack_format, so
+it also loads on 1.21.)
+
+  1. This zip goes in <your world>/datapacks/   — cheats on; superflat is easiest
+  2. /reload
+  3. Stand where you want the -X -Y -Z corner, facing +X:
+
+       /function {ns}:build
+
+It force-loads {paced['chunks']} chunks and then **waits for them to actually
+arrive** before placing anything. That wait is the difference between a machine
+and a floor covered in dropped redstone: /forceload marks chunks, it does not
+load them, and a /fill into a chunk that has not arrived yet fails silently.
+Expect "loading chunks N of {paced['chunks']}" on the action bar for a while —
+on a cold world that can be minutes.
+
+Then {count:,} commands over {paced['ticks']} ticks. Solid blocks go down first
+across the whole build, then the redstone, so nothing is ever placed into thin
+air and dropped as an item.
+
+You are standing inside the footprint when it starts. Use spectator, or
+/function {ns}:go/above.
+
+Everything else
+---------------
+  /function {ns}:status      where it is and what it is doing
+  /function {ns}:clear       remove it — from anywhere, not just the corner
+  /function {ns}:load        force-load its chunks again
+  /function {ns}:unload      release them (the machine stops ticking)
+  /function {ns}:abort       stop a build or clear part way
+  /function {ns}:help        this list, in game
+  /function {ns}:move/gear   grappling hook, dash charm, recall compass
+
+The control wall is at the -X end; the lamps are {dz} blocks away at the other.
+Flip the operand levers, press an operation key, read the digits. The answer
+takes a couple of thousand game ticks to arrive — it is a very deep machine.
+"""
+
+
 def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
                     per_file=PER_FILE_DEFAULT,
-                    mc_version=MC_VERSION_DEFAULT, landmarks=None):
+                    mc_version=MC_VERSION_DEFAULT, landmarks=None,
+                    ns=NAMESPACE):
     """A datapack whose functions rebuild the machine relative to the player.
 
     Commands are relative (``~``), so running the entry function places the
@@ -407,16 +469,16 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
     because a single one with half a million commands would stall the server for
     minutes; the entry function calls them in order.
     """
-    ns = name.lower()
     fdir = os.path.join(outdir, "data", ns, "function")
     # Clear it first. Without this an export inherits every `partNNNN` a
     # previous, differently-chunked run left behind: the shipped pack held
     # part0009 and part0010 from two earlier builds, 512 KB of another
     # machine's commands, uncalled but distributed.
     if os.path.isdir(fdir):
-        for stale in os.listdir(fdir):
-            if stale.endswith(".mcfunction"):
-                os.remove(os.path.join(fdir, stale))
+        for dirpath, _, names in os.walk(fdir):
+            for stale in names:
+                if stale.endswith(".mcfunction"):
+                    os.remove(os.path.join(dirpath, stale))
     os.makedirs(fdir, exist_ok=True)
     (x0, y0, z0), _ = world.bounds()
     palette, state_of = palette_of(world, solid)
@@ -426,8 +488,10 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
         if not lines:
             return
         idx = len(files)
-        fn = f"part{idx:04d}"
-        with open(os.path.join(fdir, f"{fn}.mcfunction"), "w") as f:
+        fn = f"part/{idx:04d}"
+        path = os.path.join(fdir, f"{fn}.mcfunction")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
             f.write("\n".join(lines) + "\n")
         files.append(fn)
         lines.clear()
@@ -449,7 +513,13 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
     meta = pack_meta(f"{name} — a redstone calculator", mc_version)
     with open(os.path.join(outdir, "pack.mcmeta"), "w") as f:
         json.dump(meta, f, indent=1)
-    return {"commands": count, "files": len(os.listdir(fdir)),
+    with open(os.path.join(outdir, "README.txt"), "w") as f:
+        f.write(pack_readme(name, ns, len(world.blocks), world.bounds(),
+                            count, paced, mc_version))
+
+    n_files = sum(1 for _, _, fs in os.walk(fdir) for f in fs
+                  if f.endswith(".mcfunction"))
+    return {"commands": count, "files": n_files, "namespace": ns,
             "mc_version": mc_version, "pack_meta": meta, **paced}
 
 
@@ -461,116 +531,181 @@ def _write(path, lines):
 def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
     """Everything in the pack that is not a batch of blocks.
 
-    The parts run one per tick rather than all at once: 71,768 commands inside a
-    single game tick freezes a server and drops half a million redstone blocks
-    into the world in the same instant, which is the most hostile possible
-    starting transient for a machine 36 stages deep. A `schedule` chain paces
-    them.
+    Three things are load-bearing here, and the third was found the hard way.
 
-    That chain has a trap in it: **a scheduled function does not remember where
-    it was called from.** It runs at the world origin with no executor, so every
-    `~` — all of them, because the build is relative — would place the machine
-    at 0, 0, 0. A `marker` entity carries the position through the chain.
+    **Pacing.** 71,768 commands inside one game tick freezes a server and drops
+    half a million redstone blocks into the world in the same instant, which is
+    the most hostile possible starting transient for a machine 36 stages deep.
+    A `schedule` chain runs one part per tick instead.
 
-    The marker is now an *anchor*: aligned to the block grid, written into
-    `data storage`, and kept after the build finishes. Everything else in the
-    pack reads it, which is what makes `clear` reliable. `clear` used to start
-    from wherever the player happened to be standing and force-load nothing, so
-    it cleared 195 layers of whatever was under their feet and stopped at the
-    edge of the chunks the server was already simulating — the reason it never
-    took the whole machine away.
+    **Position.** A scheduled function does not remember where it was called
+    from — it runs at the world origin with no executor, so every `~` would
+    place the machine at 0, 0, 0. A block-aligned `marker` carries the origin
+    through the chain and into `data storage`, which is what lets `clear`,
+    `status` and the teleports find the machine afterwards.
+
+    **Loading.** `/forceload add` does not load a chunk; it marks it to be
+    loaded, and the server gets to it over the following ticks. The build used
+    to force-load 2,135 chunks and start placing on the *very next tick*, so it
+    ran a mile ahead of the chunk loader and most of its `/fill`s landed in
+    chunks that were not there yet. Those commands fail silently — and where
+    loading finished part-way through a batch, dust went down onto a support
+    that had not. That is redstone on the floor, and no amount of ordering fixes
+    it, because the ordering was already right.
+
+    So the build now *waits*. `execute if loaded` (1.19.4) tests whether a
+    position's chunk is fully loaded and entity-ticking; one probe per chunk of
+    the footprint runs each tick until every one answers, and only then does the
+    first block go down.
     """
-    obj, tag = f"{ns}_step", f"{ns}_anchor"
+    obj, tag = f"{ns}_v", f"{ns}_anchor"
     store = f"{ns}:origin"
+    ui = f"{ns}:ui"
     dx, dy, dz = dims
     nparts = len(files)
     marks = {"origin": (0, 0, 0),
              "above": (dx // 2, dy + 12, dz // 2), **(landmarks or {})}
+    cw, ch = -(-dx // 16), -(-dz // 16)
+    chunks = cw * ch
     out = {}
 
     def fn(fname, lines):
         out[fname] = list(lines)
 
+    def say(text, colour="gray", who="@a"):
+        return f'tellraw {who} {{"text":"{text}","color":"{colour}"}}'
+
+    def bar(text, colour="gray"):
+        return f'title @a actionbar {{"text":"{text}","color":"{colour}"}}'
+
     # --- placing it ---------------------------------------------------------
     fn("build", [
-        f"# {count:,} commands in {nparts} parts, one part per tick.",
-        f"# Stand at the machine's -X -Y -Z corner and run this.",
+        f"# {count:,} commands in {nparts} parts, one part per tick, after the",
+        f"# chunks are actually loaded. Stand at the -X -Y -Z corner.",
         f"scoreboard objectives add {obj} dummy",
-        # A second build on top of a running one interleaves two schedule
-        # chains through one scoreboard and places the machine twice, wrongly.
-        f"execute if score #run {obj} matches 1 run function {ns}:busy",
+        f"execute if score #run {obj} matches 1 run function {ns}:sys/busy",
         f"execute if score #run {obj} matches 1 run return fail",
         f"scoreboard players set #run {obj} 1",
         f"scoreboard players set #build {obj} 0",
-        f"data remove storage {ns}:ui layer",
+        f"scoreboard players set #wait {obj} 0",
+        f"data remove storage {ui} layer",
         f"kill @e[type=marker,tag={tag}]",
-        # `align xyz` floors the position before summoning, so the anchor sits
+        # `align xyz` floors the position before the summon, so the anchor sits
         # exactly on the block corner. Without it the stored origin is the
         # player's fractional position, and truncating that towards zero is off
-        # by one for every negative coordinate — a machine 555 blocks wide,
-        # placed one block from where `clear` would later look for it.
+        # by one for every negative coordinate.
         f'execute at @s align xyz run summon marker ~ ~ ~ {{Tags:["{tag}"]}}',
-        f"execute store result storage {store} x int 1 run "
-        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[0]",
-        f"execute store result storage {store} y int 1 run "
-        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[1]",
-        f"execute store result storage {store} z int 1 run "
-        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[2]",
-        f'tellraw @a {{"text":"{name}: {count:,} commands over {nparts} ticks '
-        f'({nparts / 20:.1f}s). You are standing inside the footprint — use '
-        f'spectator, or /function {ns}:go_above.","color":"gray"}}',
-        # load before placing, so nothing lands in a chunk that is not ticking
+    ] + [
+        f"execute store result storage {store} {axis} int 1 run "
+        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[{i}]"
+        for i, axis in enumerate("xyz")
+    ] + [
+        say(f"{name}: {count:,} commands over {nparts} ticks, once "
+            f"{chunks} chunks are loaded. You are standing inside the "
+            f"footprint — use spectator, or /function {ns}:go/above."),
         f"function {ns}:load",
+        f"function {ns}:sys/wait",
+    ])
+
+    # --- waiting for the chunks --------------------------------------------
+    # One probe per chunk, at its centre. Sampling corners is not enough: chunks
+    # arrive in whatever order the server's loader gets to them, so a corner can
+    # be ready while the middle is not.
+    probes = []
+    for cx in range(cw):
+        for cz in range(ch):
+            px, pz = min(cx * 16 + 8, dx - 1), min(cz * 16 + 8, dz - 1)
+            probes.append(f"execute if loaded ~{px} ~0 ~{pz} run "
+                          f"scoreboard players add #loaded {obj} 1")
+    fn("sys/probe", [
+        f"# {chunks} chunks, one probe each. `if loaded` is true only when the",
+        f"# chunk is fully loaded and entity-ticking, which is what redstone",
+        f"# and `/fill` both need.",
+    ] + probes)
+
+    #: how long to wait before giving up, in ticks. Ten minutes: loading two
+    #: thousand chunks on a cold world is slow, and a silent hang is worse than
+    #: a slow one.
+    wait_limit = 12000
+    fn("sys/wait", [
+        f"scoreboard players set #loaded {obj} 0",
+        f"execute as @e[type=marker,tag={tag},limit=1] at @s run "
+        f"function {ns}:sys/probe",
+        f"scoreboard players add #wait {obj} 1",
+        f"execute if score #loaded {obj} matches {chunks}.. run "
+        f"function {ns}:sys/go",
+        f"execute if score #loaded {obj} matches ..{chunks - 1} run "
+        f"function {ns}:sys/waiting",
+    ])
+    fn("sys/waiting", [
+        f"execute store result storage {ui} loaded int 1 run "
+        f"scoreboard players get #loaded {obj}",
+        f"function {ns}:sys/wait_bar with storage {ui}",
+        f"execute if score #wait {obj} matches ..{wait_limit} run "
+        f"schedule function {ns}:sys/wait 1t replace",
+        f"execute if score #wait {obj} matches {wait_limit + 1}.. run "
+        f"function {ns}:sys/wait_gave_up",
+    ])
+    fn("sys/wait_bar", [
+        f'$title @a actionbar {{"text":"{name}: loading chunks $(loaded) of '
+        f'{chunks}...","color":"aqua"}}',
+    ])
+    fn("sys/wait_gave_up", [
+        f"scoreboard players set #run {obj} 0",
+        say(f"{name}: gave up waiting for chunks after "
+            f"{wait_limit // 1200} minutes. Nothing has been placed. The "
+            f"server may be struggling; try again, or reduce the view "
+            f"distance and retry.", "red"),
+    ])
+    fn("sys/go", [
+        say(f"{name}: {chunks} chunks loaded. Placing.", "green"),
         f"function {ns}:tick",
     ])
 
     fn("tick", [
         f"execute as @e[type=marker,tag={tag},limit=1] at @s "
-        f"run function {ns}:dispatch",
+        f"run function {ns}:sys/dispatch",
         f"scoreboard players add #build {obj} 1",
-        f"execute store result storage {ns}:ui part int 1 run "
+        f"execute store result storage {ui} part int 1 run "
         f"scoreboard players get #build {obj}",
-        f"function {ns}:progress with storage {ns}:ui",
+        f"function {ns}:sys/bar with storage {ui}",
         f"execute if score #build {obj} matches ..{nparts - 1} run "
         f"schedule function {ns}:tick 1t replace",
         f"execute if score #build {obj} matches {nparts}.. run "
-        f"function {ns}:done",
+        f"function {ns}:sys/done",
     ])
-
     # the action bar rather than chat: 36 lines of "placing..." is not progress
     # reporting, it is a wall of text you scroll past to find the answer
-    fn("progress", [
+    fn("sys/bar", [
         f'$title @a actionbar {{"text":"{name}: placing part $(part) of '
         f'{nparts}","color":"gray"}}',
     ])
-
     # `execute if score` rather than a macro, so this runs on any 1.21+ build
-    fn("dispatch",
+    fn("sys/dispatch",
        [f"execute if score #build {obj} matches {i} run function {ns}:{f}"
         for i, f in enumerate(files)])
 
-    fn("done", [
+    fn("sys/done", [
         f"scoreboard players set #run {obj} 0",
-        # the anchor stays: `clear`, `status` and the teleports all read it,
-        # and it is the only record of where the machine actually went
-        f'tellraw @a {{"text":"{name} placed: {count:,} blocks, {dx} x {dy} x '
-        f'{dz}. The control wall is at the -X end. /function {ns}:help for '
-        f'what to do next.","color":"green"}}',
-        f'title @a actionbar {{"text":"{name}: placed","color":"green"}}',
+        # the anchor stays: clear, status and the teleports all read it, and it
+        # is the only record of where the machine actually went
+        say(f"{name} placed: {count:,} blocks, {dx} x {dy} x {dz}. "
+            f"/function {ns}:help for what to do next.", "green"),
+        bar(f"{name}: placed", "green"),
     ])
 
-    fn("busy", [
-        f'tellraw @a {{"text":"{name}: a build or clear is already running. '
-        f'Wait for it, or /function {ns}:abort.","color":"red"}}',
+    fn("sys/busy", [
+        say(f"{name}: a build or clear is already running. Wait for it, or "
+            f"/function {ns}:abort.", "red"),
     ])
-
     fn("abort", [
+        f"scoreboard objectives add {obj} dummy",
         f"schedule clear {ns}:tick",
-        f"schedule clear {ns}:clear_tick",
+        f"schedule clear {ns}:sys/wait",
+        f"schedule clear {ns}:sys/clear_tick",
         f"scoreboard players set #run {obj} 0",
-        f"kill @e[type=marker,tag={tag}_clear]",
-        f'tellraw @a {{"text":"{name}: stopped. The machine is half-placed; '
-        f'run build again or clear it.","color":"yellow"}}',
+        say(f"{name}: stopped. Anything half-placed is still there; run build "
+            f"again or clear it.", "yellow"),
     ])
 
     # --- taking it away -----------------------------------------------------
@@ -584,55 +719,68 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
     fn("clear", [
         f"# Removes the machine wherever it was built. Run it from anywhere.",
         f"scoreboard objectives add {obj} dummy",
-        f"execute if score #run {obj} matches 1 run function {ns}:busy",
+        f"execute if score #run {obj} matches 1 run function {ns}:sys/busy",
         f"execute if score #run {obj} matches 1 run return fail",
-        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run function {ns}:sys/no_origin",
         f"execute unless data storage {store} x run return fail",
         f"scoreboard players set #run {obj} 1",
         f"scoreboard players set #clear {obj} 0",
-        # force-load first. This is the whole bug: the fills only ever touched
-        # chunks the server already had loaded, so `clear` took away the part of
-        # the machine near the player and left the rest standing.
+        f"scoreboard players set #wait {obj} 0",
+        f"data remove storage {ui} part",
+        # force-load *and wait*, for the same reason the build does: a `fill`
+        # into a chunk that is not loaded yet does nothing and says nothing,
+        # which is why clear used to leave most of the machine standing
         f"function {ns}:load",
-        f"function {ns}:clear_at with storage {store}",
+        f"function {ns}:sys/clear_wait",
     ])
-
-    fn("clear_at", [
-        f"$execute positioned $(x) $(y) $(z) run function {ns}:clear_begin",
+    fn("sys/clear_wait", [
+        f"scoreboard players set #loaded {obj} 0",
+        f"execute as @e[type=marker,tag={tag},limit=1] at @s run "
+        f"function {ns}:sys/probe",
+        f"scoreboard players add #wait {obj} 1",
+        f"execute if score #loaded {obj} matches {chunks}.. run "
+        f"function {ns}:sys/clear_at with storage {store}",
+        f"execute if score #loaded {obj} matches ..{chunks - 1} run "
+        f"function {ns}:sys/clear_waiting",
     ])
-
-    fn("clear_begin", [
-        f"data remove storage {ns}:ui part",
+    fn("sys/clear_waiting", [
+        f"execute store result storage {ui} loaded int 1 run "
+        f"scoreboard players get #loaded {obj}",
+        f"function {ns}:sys/wait_bar with storage {ui}",
+        f"execute if score #wait {obj} matches ..{wait_limit} run "
+        f"schedule function {ns}:sys/clear_wait 1t replace",
+        f"execute if score #wait {obj} matches {wait_limit + 1}.. run "
+        f"function {ns}:sys/wait_gave_up",
+    ])
+    fn("sys/clear_at", [
+        f"$execute positioned $(x) $(y) $(z) run function {ns}:sys/clear_begin",
+    ])
+    fn("sys/clear_begin", [
         f"kill @e[type=marker,tag={tag}_clear]",
         f'summon marker ~ ~ ~ {{Tags:["{tag}_clear"]}}',
-        f'tellraw @a {{"text":"{name}: clearing {dy} layers '
-        f'({dy / 20:.1f}s)...","color":"gray"}}',
-        f"function {ns}:clear_tick",
+        say(f"{name}: clearing {dy} layers ({dy / 20:.1f}s)..."),
+        f"function {ns}:sys/clear_tick",
     ])
-
-    fn("clear_tick", [
+    fn("sys/clear_tick", [
         f"execute as @e[type=marker,tag={tag}_clear,limit=1] at @s "
-        f"run function {ns}:clear_slice",
+        f"run function {ns}:sys/clear_slice",
         f"execute as @e[type=marker,tag={tag}_clear,limit=1] at @s "
         f"run tp @s ~ ~1 ~",
         f"scoreboard players add #clear {obj} 1",
-        f"execute store result storage {ns}:ui layer int 1 run "
+        f"execute store result storage {ui} layer int 1 run "
         f"scoreboard players get #clear {obj}",
-        f"function {ns}:clear_progress with storage {ns}:ui",
+        f"function {ns}:sys/clear_bar with storage {ui}",
         f"execute if score #clear {obj} matches ..{dy - 1} run "
-        f"schedule function {ns}:clear_tick 1t replace",
+        f"schedule function {ns}:sys/clear_tick 1t replace",
         f"execute if score #clear {obj} matches {dy}.. run "
-        f"function {ns}:clear_done",
+        f"function {ns}:sys/clear_done",
     ])
-
-    fn("clear_progress", [
+    fn("sys/clear_bar", [
         f'$title @a actionbar {{"text":"{name}: clearing layer $(layer) of '
         f'{dy}","color":"gray"}}',
     ])
-
-    fn("clear_slice", strips)
-
-    fn("clear_done", [
+    fn("sys/clear_slice", strips)
+    fn("sys/clear_done", [
         f"kill @e[type=marker,tag={tag}_clear]",
         f"kill @e[type=marker,tag={tag}]",
         f"function {ns}:unload",
@@ -640,131 +788,117 @@ def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
         f"data remove storage {store} y",
         f"data remove storage {store} z",
         f"scoreboard players set #run {obj} 0",
-        f'tellraw @a {{"text":"{name} removed: {dy} layers, chunks released.",'
-        f'"color":"gray"}}',
-        f'title @a actionbar {{"text":"{name}: removed","color":"gray"}}',
+        say(f"{name} removed: {dy} layers, chunks released."),
+        bar(f"{name}: removed"),
     ])
 
     # --- keeping it loaded --------------------------------------------------
-    # The single most important thing about running a machine this size in a
-    # real world: **redstone only ticks in chunks the game is simulating.** This
-    # build is dx x dz blocks; at Java's default simulation distance a player
-    # sees a 21 x 21 square of chunks, so somebody at the control wall would
-    # throw a lever and the far end would simply be frozen. No error, no answer.
-    #
-    # `/forceload` holds chunks at the ticket level that grants block ticking.
-    # One command covers at most 256 chunks, so the footprint is tiled.
+    # Redstone only ticks in chunks the game is simulating. At Java's default
+    # simulation distance a player holds a 21 x 21 square, so somebody at the
+    # control wall would throw a lever and the far end would be frozen: no
+    # error, no answer. One `/forceload add` covers at most 256 chunks.
     tiles = []
     for x in range(0, dx, 256):
         for z in range(0, dz, 256):
             tiles.append(f"forceload add ~{x} ~{z} "
                          f"~{min(dx - 1, x + 255)} ~{min(dz - 1, z + 255)}")
-    chunks = (-(-dx // 16)) * (-(-dz // 16))
 
     fn("load", [
-        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run function {ns}:sys/no_origin",
         f"execute unless data storage {store} x run return fail",
-        f"function {ns}:load_at with storage {store}",
+        f"function {ns}:sys/load_at with storage {store}",
     ])
-    fn("load_at",
-       [f"$execute positioned $(x) $(y) $(z) run function {ns}:load_tiles"])
-    fn("load_tiles", [
-        f"# {-(-dx // 16)} x {-(-dz // 16)} = {chunks} chunks, "
-        f"{len(tiles)} commands (256 chunks each is the cap).",
+    fn("sys/load_at",
+       [f"$execute positioned $(x) $(y) $(z) run function {ns}:sys/load_tiles"])
+    fn("sys/load_tiles", [
+        f"# {cw} x {ch} = {chunks} chunks, {len(tiles)} commands "
+        f"(256 chunks each is the cap).",
     ] + tiles + [
-        f'tellraw @a {{"text":"{name}: {chunks} chunks force-loaded — the '
-        f'machine ticks even where nobody is standing.","color":"green"}}',
+        say(f"{name}: {chunks} chunks force-loaded. They take a moment to "
+            f"arrive — nothing is placed until they have.", "green"),
     ])
-
     fn("unload", [
-        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run function {ns}:sys/no_origin",
         f"execute unless data storage {store} x run return fail",
-        f"function {ns}:unload_at with storage {store}",
+        f"function {ns}:sys/unload_at with storage {store}",
     ])
-    fn("unload_at",
-       [f"$execute positioned $(x) $(y) $(z) run function {ns}:unload_tiles"])
-    fn("unload_tiles",
+    fn("sys/unload_at",
+       [f"$execute positioned $(x) $(y) $(z) run function {ns}:sys/unload_tiles"])
+    fn("sys/unload_tiles",
        [t.replace("forceload add", "forceload remove") for t in tiles] +
-       [f'tellraw @a {{"text":"{name}: chunks released. The machine stops '
-        f'ticking away from you.","color":"gray"}}'])
-
-    fn("no_origin", [
-        f'tellraw @a {{"text":"{name}: nothing built yet — no origin on '
-        f'record. Stand at the -X -Y -Z corner and run /function '
-        f'{ns}:build.","color":"red"}}',
+       [say(f"{name}: chunks released. The machine stops ticking away "
+            f"from you.")])
+    fn("sys/no_origin", [
+        say(f"{name}: nothing built yet — no origin on record. Stand at the "
+            f"-X -Y -Z corner and run /function {ns}:build.", "red"),
     ])
 
     # --- saying where things are -------------------------------------------
     fn("status", [
         f"scoreboard objectives add {obj} dummy",
-        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run function {ns}:sys/no_origin",
         f"execute if data storage {store} x run "
-        f"function {ns}:status_show with storage {store}",
-        f"execute if score #run {obj} matches 1 if data storage {ns}:ui part "
-        f"run function {ns}:status_running with storage {ns}:ui",
-        f"execute if score #run {obj} matches 1 if data storage {ns}:ui layer "
-        f"run function {ns}:status_clearing with storage {ns}:ui",
+        f"function {ns}:sys/status_show with storage {store}",
+        f"execute if score #run {obj} matches 1 if data storage {ui} part "
+        f"run function {ns}:sys/status_build with storage {ui}",
+        f"execute if score #run {obj} matches 1 if data storage {ui} layer "
+        f"run function {ns}:sys/status_clear with storage {ui}",
         f"execute if data storage {store} x unless entity "
-        f"@e[type=marker,tag={tag}] run function {ns}:status_lost",
+        f"@e[type=marker,tag={tag}] run function {ns}:sys/status_lost",
     ])
-    fn("status_show", [
+    fn("sys/status_show", [
         f'$tellraw @a {{"text":"{name}: built at $(x) $(y) $(z), {dx} x {dy} x '
         f'{dz}, {count:,} blocks in {chunks} force-loaded chunks.",'
         f'"color":"green"}}',
     ])
-    fn("status_running", [
+    fn("sys/status_build", [
         f'$tellraw @a {{"text":"{name}: working — part $(part) of {nparts}.",'
         f'"color":"yellow"}}',
     ])
-    fn("status_clearing", [
+    fn("sys/status_clear", [
         f'$tellraw @a {{"text":"{name}: clearing — layer $(layer) of {dy}.",'
         f'"color":"yellow"}}',
     ])
-    fn("status_lost", [
-        f'tellraw @a {{"text":"{name}: the origin marker is missing (chunks '
-        f'unloaded, or it was killed). Coordinates above still work; run '
-        f'/function {ns}:load to bring the chunks back.","color":"yellow"}}',
+    fn("sys/status_lost", [
+        say(f"{name}: the origin marker is missing (chunks unloaded, or it "
+            f"was killed). The coordinates above still work; /function "
+            f"{ns}:load brings the chunks back.", "yellow"),
     ])
 
-    fn("help", [
-        f'tellraw @a {{"text":"{name} — {dx} x {dy} x {dz}, {count:,} blocks",'
-        f'"color":"white"}}',
-    ] + [
-        f'tellraw @a {{"text":"  /function {ns}:{c}  — {d}","color":"gray"}}'
-        for c, d in [
-            ("build", "place it, from the -X -Y -Z corner"),
-            ("clear", "take it away again, from anywhere"),
-            ("status", "where it is and what it is doing"),
-            ("load", "force-load its chunks so it ticks"),
-            ("unload", "release them again"),
-            ("abort", "stop a build or clear part way"),
-        ] + [(f"go_{k}", f"teleport to the {k}") for k in sorted(marks)]
-    ])
-
-    # Teleports, because the control wall is one corner of a 555 x 973 machine
-    # and walking to it is a minute of holding W in a trench.
+    # Teleports, because the control wall is one corner of a machine most of a
+    # kilometre long and walking to it is a minute of holding W in a trench.
     for key, (mx, my, mz) in sorted(marks.items()):
-        fn(f"go_{key}", [
-            f"execute unless data storage {store} x run function {ns}:no_origin",
+        fn(f"go/{key}", [
+            f"execute unless data storage {store} x run "
+            f"function {ns}:sys/no_origin",
             f"execute unless data storage {store} x run return fail",
-            f"function {ns}:go_{key}_at with storage {store}",
+            f"function {ns}:sys/go_{key} with storage {store}",
         ])
-        fn(f"go_{key}_at", [
-            f"$execute positioned $(x) $(y) $(z) run "
-            f"tp @s ~{mx} ~{my} ~{mz}",
-            f'tellraw @s {{"text":"{name}: {key}","color":"gray"}}',
+        fn(f"sys/go_{key}", [
+            f"$execute positioned $(x) $(y) $(z) run tp @s ~{mx} ~{my} ~{mz}",
+            f"playsound minecraft:entity.enderman.teleport player @s ~ ~ ~ "
+            f"0.4 1.4",
+            say(f"{name}: {key}", "gray", "@s"),
         ])
 
     for fname, lines in out.items():
-        _write(os.path.join(fdir, f"{fname}.mcfunction"), lines)
+        path = os.path.join(fdir, f"{fname}.mcfunction")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write(path, lines)
 
+    # Every one of these is something a player types, so every one of them has
+    # to count as reachable — `tests/test_mcbuild.py` seeds its orphan hunt
+    # from exactly this list, and an entry point missing from it reads as dead
+    # code rather than as a command.
     return {"entry": f"function {ns}:build", "clear": f"function {ns}:clear",
             "load": f"function {ns}:load", "unload": f"function {ns}:unload",
             "status": f"function {ns}:status", "help": f"function {ns}:help",
+            "abort": f"function {ns}:abort",
+            **{f"go_{k}": f"function {ns}:go/{k}" for k in marks},
             "control_functions": sorted(out),
             "control_files": {f"{k}.mcfunction": "\n".join(v) + "\n"
                               for k, v in out.items()},
             "ticks": nparts, "clear_ticks": dy,
             "fills_per_layer": len(strips), "forceload_commands": len(tiles),
-            "landmarks": marks,
+            "landmarks": marks, "probes": len(probes),
             "chunks": chunks}

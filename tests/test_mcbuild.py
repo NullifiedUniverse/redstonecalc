@@ -162,9 +162,10 @@ def test_datapack_replays_to_the_same_world():
     """Replay the generated commands and demand an identical world."""
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        info = mcbuild.export_datapack(w, d, name="t", per_file=500)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=500, ns="t")
         fdir = os.path.join(d, "data", "t", "function")
-        parts = sorted(f for f in os.listdir(fdir) if f.startswith("part"))
+        pdir = os.path.join(fdir, "part")
+        parts = sorted(os.listdir(pdir))
         assert parts, "no command files written"
 
         setb = re.compile(r"^setblock ~(-?\d+) ~(-?\d+) ~(-?\d+) (\S+) replace$")
@@ -172,7 +173,7 @@ def test_datapack_replays_to_the_same_world():
                           r"~(-?\d+) ~(-?\d+) ~(-?\d+) (\S+) replace$")
         placed, n_cmds = {}, 0
         for part in parts:
-            for line in open(os.path.join(fdir, part)):
+            for line in open(os.path.join(pdir, part)):
                 line = line.strip()
                 if not line:
                     continue
@@ -249,7 +250,13 @@ def _chain(fdir, ns):
                 and not l.startswith("#")]
 
     score, ran, ticks, guard = {}, [], 0, 0
-    pending = "tick"
+    # The chain now starts behind a gate: `build` force-loads and hands off to
+    # `sys/wait`, which re-schedules itself until every chunk of the footprint
+    # answers `execute if loaded`. That gate is what stops the build racing the
+    # chunk loader and placing half the machine into chunks that are not there
+    # yet — but it is not something this interpreter can evaluate, so the chain
+    # is picked up at `sys/go`, the function the gate opens onto.
+    pending = "sys/go"
     setre = _re.compile(r"scoreboard players set (\S+) (\S+) (-?\d+)")
     addre = _re.compile(r"scoreboard players add (\S+) (\S+) (-?\d+)")
     ifre = _re.compile(r"execute if score (\S+) (\S+) matches "
@@ -283,19 +290,19 @@ def _chain(fdir, ns):
             if rest.startswith("execute as @e") and "run function" in rest:
                 rest = "function " + rest.split("run function ", 1)[1]
             if rest.startswith("function "):
-                target = rest.split()[1].split(":")[1]
-                if target == "dispatch":
-                    for d in load("dispatch"):
+                target = rest.split()[1].split(":", 1)[1]
+                if target == "sys/dispatch":
+                    for d in load("sys/dispatch"):
                         md = ifre.match(d)
                         if md and matches(md.group(3),
                                           score.get((md.group(1), md.group(2)), 0)):
-                            ran.append(md.group(4).split()[1].split(":")[1])
-                elif target == "done":
+                            ran.append(md.group(4).split()[1].split(":", 1)[1])
+                elif target == "sys/done":
                     ran.append("done")
                 elif target == "tick":
                     pending = "tick"
             elif rest.startswith("schedule function "):
-                pending = rest.split()[2].split(":")[1]
+                pending = rest.split()[2].split(":", 1)[1]
             m = addre.match(rest)
             if m:
                 key = (m.group(1), m.group(2))
@@ -312,9 +319,10 @@ def test_the_build_is_paced_over_ticks_and_not_run_in_one():
     """
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40, ns="t")
         fdir = os.path.join(d, "data", "t", "function")
-        parts = sorted(f[:-11] for f in os.listdir(fdir) if f.startswith("part"))
+        pdir = os.path.join(fdir, "part")
+        parts = sorted("part/" + f[:-11] for f in os.listdir(pdir))
         ran, ticks = _chain(fdir, "t")
 
         assert ran[-1] == "done", f"the chain never finished: {ran[-3:]}"
@@ -327,15 +335,67 @@ def test_the_build_is_paced_over_ticks_and_not_run_in_one():
               f"exactly once, then reports done: OK")
 
 
+def test_nothing_is_placed_until_the_chunks_have_actually_arrived():
+    """`/forceload add` does not load a chunk. It marks it to be loaded.
+
+    This is the bug that put redstone on the floor. The build force-loaded
+    2,135 chunks and started placing on the *very next tick*, so it ran a mile
+    ahead of the chunk loader; a `/fill` into a chunk that has not arrived
+    fails silently, and where loading finished part-way through a batch, dust
+    went down onto a support that had not. No ordering fixes that, because the
+    ordering was already right.
+
+    `execute if loaded` (1.19.4) is true only when a position's chunk is fully
+    loaded and entity-ticking — which is what both `/fill` and redstone need.
+    One probe per chunk, every tick, until they all answer.
+    """
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40, ns="t")
+        fdir = os.path.join(d, "data", "t", "function")
+        build = open(os.path.join(fdir, "build.mcfunction")).read()
+        assert "function t:sys/wait" in build, \
+            "build must hand off to the wait, not straight to the first batch"
+        assert "function t:tick" not in build, \
+            "build must not start placing before the gate"
+
+        probe = [l.strip() for l in
+                 open(os.path.join(fdir, "sys", "probe.mcfunction"))
+                 if l.strip() and not l.startswith("#")]
+        assert len(probe) == info["chunks"] == info["probes"], (
+            f"{len(probe)} probes for {info['chunks']} chunks — sampling is "
+            f"not enough, chunks arrive in whatever order the loader gets to "
+            f"them")
+        assert all("execute if loaded" in l for l in probe), probe[:2]
+
+        wait = open(os.path.join(fdir, "sys", "wait.mcfunction")).read()
+        assert f"matches {info['chunks']}.. run function t:sys/go" in wait, \
+            "the gate must open only when every probe has answered"
+        assert "sys/waiting" in wait, "and keep waiting otherwise"
+        waiting = open(os.path.join(fdir, "sys", "waiting.mcfunction")).read()
+        assert "schedule function t:sys/wait 1t" in waiting
+        assert "sys/wait_gave_up" in waiting, \
+            "a silent hang is worse than a slow build; it has to time out"
+
+        # and clear waits too, for exactly the same reason
+        clear = open(os.path.join(fdir, "clear.mcfunction")).read()
+        assert "function t:sys/clear_wait" in clear
+        print(f"  the build waits on {len(probe)} `execute if loaded` probes, "
+              f"one per chunk, and so does clear: OK")
+
+
 def test_no_function_in_the_pack_is_unreachable():
     """The exporter used to leave `partNNNN` files from earlier, differently
     chunked runs in the directory — the shipped pack carried two of them, from
     two different machines, uncalled but distributed."""
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40, ns="t")
         fdir = os.path.join(d, "data", "t", "function")
-        on_disk = {f[:-11] for f in os.listdir(fdir)}
+        pdir = os.path.join(fdir, "part")
+        on_disk = {os.path.relpath(os.path.join(dp, f), fdir)[:-11]
+                   .replace(os.sep, "/")
+                   for dp, _, fs in os.walk(fdir) for f in fs}
         # seeded from what the exporter *declares* as entry points, so a
         # function can only be excused by being advertised to the player
         called = {v.split(":")[1] for k, v in info.items()
@@ -364,10 +424,14 @@ def test_the_control_files_the_bundle_ships_are_the_files_on_disk():
     """
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40, ns="t")
         fdir = os.path.join(d, "data", "t", "function")
-        written = {f for f in os.listdir(fdir)
-                   if f.endswith(".mcfunction") and not f.startswith("part")}
+        pdir = os.path.join(fdir, "part")
+        written = {os.path.relpath(os.path.join(dp, f), fdir)
+                   .replace(os.sep, "/")
+                   for dp, _, fs in os.walk(fdir) for f in fs
+                   if f.endswith(".mcfunction") and "part" + os.sep not in
+                   os.path.relpath(os.path.join(dp, f), fdir)}
         shipped = info["control_files"]
         assert written == set(shipped), (
             f"on disk {sorted(written)}, in the bundle {sorted(shipped)}")
@@ -393,7 +457,7 @@ def test_the_exported_pack_lints_clean():
     from rscalc import packlint
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        mcbuild.export_datapack(w, d, name="t", per_file=40,
+        mcbuild.export_datapack(w, d, name="t", per_file=40, ns="t",
                                 landmarks={"corner": (1, 2, 3)})
         bad = packlint.lint(d)
         assert not bad, "\n  ".join([""] + bad)
@@ -449,11 +513,12 @@ def test_nothing_is_placed_before_the_block_holding_it_up():
     w.torch((1, 4, 0), attach="west")
     w.lever((-1, 4, 0), attach="east", on=False)
     with tempfile.TemporaryDirectory() as d:
-        info = mcbuild.export_datapack(w, d, name="t", per_file=4000)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=4000, ns="t")
         fdir = os.path.join(d, "data", "t", "function")
+        pdir = os.path.join(fdir, "part")
         placed, bad = set(), []
-        for i in range(len(os.listdir(fdir))):
-            path = os.path.join(fdir, f"part{i:04d}.mcfunction")
+        for i in range(len(os.listdir(pdir))):
+            path = os.path.join(pdir, f"{i:04d}.mcfunction")
             if not os.path.exists(path):
                 continue
             for line in open(path):
@@ -503,13 +568,14 @@ def test_the_whole_footprint_is_force_loaded():
     """
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40, ns="t")
         fdir = os.path.join(d, "data", "t", "function")
+        pdir = os.path.join(fdir, "part")
         (x0, y0, z0), (x1, y1, z1) = w.bounds()
         dx, dz = x1 - x0 + 1, z1 - z0 + 1
 
         got = set()
-        for line in open(os.path.join(fdir, "load_tiles.mcfunction")):
+        for line in open(os.path.join(fdir, "sys", "load_tiles.mcfunction")):
             m = re.match(r"forceload add ~(-?\d+) ~(-?\d+) ~(-?\d+) ~(-?\d+)",
                          line.strip())
             if not m:
@@ -528,9 +594,9 @@ def test_the_whole_footprint_is_force_loaded():
 
         # and every one is released again
         rem = {l.strip().replace("remove", "add")
-               for l in open(os.path.join(fdir, "unload_tiles.mcfunction"))
+               for l in open(os.path.join(fdir, "sys", "unload_tiles.mcfunction"))
                if l.startswith("forceload remove")}
-        add = {l.strip() for l in open(os.path.join(fdir, "load_tiles.mcfunction"))
+        add = {l.strip() for l in open(os.path.join(fdir, "sys", "load_tiles.mcfunction"))
                if l.startswith("forceload add")}
         assert rem == add, "unload does not undo exactly what load does"
         print(f"  {len(want)} chunks of footprint covered by "

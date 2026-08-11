@@ -1640,6 +1640,9 @@ function lookAt(e,c,u){const z=norm([e[0]-c[0],e[1]-c[1],e[2]-c[2]]);
     -dot(x,e),-dot(y,e),-dot(z,e),1]);}
 
 let world,eng,circ;
+/* every file of the datapack except the block batches, written by
+   `rscalc/mcbuild.py` and inflated at boot — see `datapackFiles` */
+let packFiles=null;
 let inst,instOf,offs,scales,cols,tiles;
 const FOV=0.85;
 const cam={az:1.62,el:0.80,dist:1.0};
@@ -2939,6 +2942,7 @@ const PACK_PER_FILE=2000;
 function datapackFiles(){
   const mc=circ.mc;
   if(!mc)throw new Error("this bundle carries no Minecraft table");
+  if(!packFiles)throw new Error("the pack's own files never unpacked");
   const [dx,dy,dz]=world.dims;
   /* The namespace comes from the exporter, not from this file. It used to be
      composed here as `machine_mk3` while `rscalc/mcbuild.py` derived
@@ -3007,75 +3011,35 @@ function datapackFiles(){
   const parts=[];
   for(let i=0;i<lines.length;i+=PACK_PER_FILE)
     parts.push(lines.slice(i,i+PACK_PER_FILE));
-  const name=n=>`part${String(n).padStart(4,"0")}`;
+  const name=n=>`part/${String(n).padStart(4,"0")}`;
   const out={};
   parts.forEach((p,i)=>{out[`data/${ns}/function/${name(i)}.mcfunction`]=p.join("\n")+"\n";});
 
   /* And that is everything this page writes.
 
-     `build`, `clear`, `load`, `status`, the teleports — none of them are
-     generated here any more. They used to be, and having two implementations
-     of one artifact went wrong three ways in a single round: the page named
-     the pack `machine_mk3` where the exporter named it `rscalc_mk3_10bit`, its
-     `clear` lost a message, and it force-loaded nothing at all, which is the
-     failure that stops the machine ticking in a real world.
+     `build`, `clear`, `load`, `status`, the teleports, the grappling hook —
+     none of them are generated here. They used to be, and having two
+     implementations of one artifact went wrong three ways in a single round:
+     a different namespace from the exporter's, a `clear` missing its message,
+     and no force-loading at all.
 
-     So the exporter ships the finished text and this copies the bytes. There
-     is nothing left to get wrong except the one thing the shipped text assumes:
-     that the parts it dispatches are the parts that exist. The merge here is
-     independent of the one in `rscalc/mcbuild.py`, so that assumption is
-     checked rather than trusted — and a mismatch is fatal, because a `dispatch`
-     calling `part0036` in a pack of 36 would place a machine with a hole in it
-     and report success. */
+     So the exporter ships every file of the pack except these block batches,
+     and this writes the bytes out. They arrive gzipped because one of them is
+     not small: `sys/probe` is an `execute if loaded` per chunk of the
+     footprint, and at this size that is a hundred kilobytes of the most
+     compressible text imaginable.
+
+     What is left to check is the one thing the shipped text assumes: that the
+     parts it dispatches are the parts that exist. The merge here is
+     independent of the one in `rscalc/mcbuild.py`, so that is checked rather
+     than trusted — a `dispatch` calling part 36 in a pack of 36 would place a
+     machine with a hole in it and report success. */
   if(lines.length!==mc.commands||parts.length!==mc.parts)
     throw new Error(`this page merged ${lines.length} commands into ${parts.length} parts; `
       +`the exporter counted ${mc.commands} into ${mc.parts}. The shipped control `
       +`functions dispatch the exporter's parts, so the pack would be incomplete.`);
-  for(const k in mc.control_files)
-    out[`data/${ns}/function/${k}`]=mc.control_files[k];
+  for(const k in packFiles)out[k]=packFiles[k];
 
-  out["pack.mcmeta"]=JSON.stringify(mc.pack_meta,null,1);
-  const go=Object.keys(mc.landmarks||{}).sort();
-  out["README.txt"]=
-`${circ.title}
-
-${world.n.toLocaleString()} blocks, ${dx} x ${dy} x ${dz}, repeater delay ${circ.delay}.
-Generated in the browser from the same block data the page is simulating,
-using the control functions shipped by rscalc/mcbuild.py.
-
-Targets Minecraft ${mc.version}.  (What the launcher calls 1.26.2 the pack
-format table calls 26.2; the pack declares both the new min_format/max_format
-pair and a legacy pack_format, so it also loads on 1.21.)
-
-  1. Put this zip in <world>/datapacks/   — cheats on; a superflat world is easiest
-  2. /reload
-  3. Stand where you want the -X -Y -Z corner, facing +X, and run:
-       /function ${ns}:build
-
-It places itself over ${parts.length} game ticks (${(parts.length/20).toFixed(0)}s) and
-force-loads its ${mc.chunks} chunks first. Without that, redstone stops ticking a
-few hundred blocks out and the far end of the machine never answers — no error,
-no result. Solid blocks go down before any redstone, so nothing is ever placed
-into thin air and dropped as an item.
-
-You will be standing inside the footprint when it starts. Use spectator, or
-/function ${ns}:go_above.
-
-Everything else:
-
-       /function ${ns}:status     where it is and what it is doing
-       /function ${ns}:clear      remove it — from anywhere, not just the corner
-       /function ${ns}:load       force-load its chunks again
-       /function ${ns}:unload     release them (the machine stops ticking)
-       /function ${ns}:abort      stop a build or clear part way
-       /function ${ns}:help       this list, in game
-${go.map(k=>`       /function ${ns}:go_${k}${" ".repeat(Math.max(1,10-k.length))}teleport to the ${k}`).join("\n")}
-
-It needs ${dy} blocks of headroom, so start no higher than Y=${319-dy+1}.
-The control wall is at the -X end: ${circ.width} bits of A, ${circ.width} of B,
-and ${(circ.ops||[]).length} operation keys. Flip levers, press a key, read the lamps.
-The answer takes ${circ.settle.toLocaleString()} game ticks to arrive.
-`;
   return {files:out, commands:lines.length, parts:parts.length, ns,
           chunks:mc.chunks};
 }
@@ -3561,8 +3525,11 @@ addEventListener("resize",()=>{
   // by a different amount — the settle meter had `||2352` written into it.
   for(const k of ["settle","n","dims","gates","depth","delay","width","mc"])
     if(circ[k]===undefined)throw new Error(`the bundle is missing ${k}`);
+  for(const k of ["files_z","commands","parts","chunks","namespace","support"])
+    if(circ.mc[k]===undefined)throw new Error(`the bundle's mc table is missing ${k}`);
   await say("unpacking "+circ.n.toLocaleString()+" blocks…");
   const raw=await inflate(circ.data);
+  packFiles=JSON.parse(new TextDecoder().decode(await inflate(circ.mc.files_z)));
   const state=circ.state?await inflate(circ.state):null;
   world=new World(circ.n,circ.dims,raw,state);
   await say("wiring the simulator…");

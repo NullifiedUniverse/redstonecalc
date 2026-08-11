@@ -429,7 +429,7 @@ const pack = await page.evaluate(() => {
   const world_map = new Map(), kinds = new Set();
   let bad = 0, boxes = 0;
   for (const k in files) {
-    if (!/part\d+\.mcfunction$/.test(k)) continue;
+    if (!/\/part\/\d+\.mcfunction$/.test(k)) continue;
     for (const line of files[k].split("\n")) {
       if (!line) continue;
       let m = setb.exec(line);
@@ -462,15 +462,16 @@ const pack = await page.evaluate(() => {
   // drifted three ways in a single round — a different namespace, a `clear`
   // missing its message, and no force-loading at all.
   const ctrl = Object.keys(files)
-    .filter(k => k.endsWith(".mcfunction") && !/\/part\d+\./.test(k))
-    .map(k => k.replace(/^.*\/|\.mcfunction$/g, "")).sort();
-  const copied = Object.keys(mc.control_files).every(
-    k => files[`data/${ns}/function/${k}`] === mc.control_files[k]);
+    .filter(k => k.endsWith(".mcfunction") && !/\/part\/\d+\./.test(k))
+    // the same transform `want` uses: functions live in subfolders now, so
+    // stripping to the last slash would make sys/probe and move/probe collide
+    .map(k => k.replace(/^.*\/function\/|\.mcfunction$/g, "")).sort();
+  const copied = Object.keys(packFiles).every(k => files[k] === packFiles[k]);
   // and `load` has to actually cover the machine: one `forceload add` reaches
   // 256 chunks, so the footprint is tiled — miss a tile and the far corner is
   // frozen with nothing to see
   const covered = new Set();
-  for (const line of (files[`data/${ns}/function/load_tiles.mcfunction`] || "").split("\n")) {
+  for (const line of (files[`data/${ns}/function/sys/load_tiles.mcfunction`] || "").split("\n")) {
     const m = /^forceload add ~(\d+) ~(\d+) ~(\d+) ~(\d+)$/.exec(line);
     if (!m) continue;
     for (let x = +m[1]; x <= +m[3]; x += 16)
@@ -488,8 +489,10 @@ const pack = await page.evaluate(() => {
   const back = fflate.unzipSync(zip);
   return { commands, parts, ms: Math.round(ms), placed, bad, boxes, mismatched,
            blocks: world.n, ns, ctrl, copied,
-           want: Object.keys(mc.control_files)
-                   .map(k => k.replace(/\.mcfunction$/, "")).sort(),
+           want: Object.keys(packFiles)
+                   .filter(k => k.endsWith(".mcfunction"))
+                   .map(k => k.replace(/^.*\/function\/|\.mcfunction$/g, ""))
+                   .sort(),
            namespace: mc.namespace, uncovered, chunks: covered.size,
            shipped: mc.commands, shippedParts: mc.parts,
            shown: document.getElementById("dpTicks").textContent.trim(),
@@ -497,16 +500,38 @@ const pack = await page.evaluate(() => {
              .test(files[`data/${ns}/function/build.mcfunction`] || ""),
            // `clear` used to start from wherever the player stood and
            // force-load nothing, which is why it never took the whole machine
+           // clear used to start from wherever the player was standing and
+           // force-load nothing, so it took away the part of the machine near
+           // them and left the rest. It reads the recorded origin now — the
+           // `with storage` is in `sys/clear_wait`, which is what opens the
+           // gate onto the macro that positions the whole thing.
            clearAnchored:
-             /with storage \S+:origin/.test(files[`data/${ns}/function/clear.mcfunction`] || "")
-             && /\bfunction \S+:load\b/.test(files[`data/${ns}/function/clear.mcfunction`] || ""),
+             /\bfunction \S+:load\b/.test(files[`data/${ns}/function/clear.mcfunction`] || "")
+             && /function \S+:sys\/clear_wait/.test(files[`data/${ns}/function/clear.mcfunction`] || "")
+             && /function \S+:sys\/clear_at with storage \S+:origin/
+                  .test(files[`data/${ns}/function/sys/clear_wait.mcfunction`] || ""),
+           // /forceload marks chunks; it does not load them. Placing on the
+           // next tick races the loader and drops most of the machine into
+           // chunks that have not arrived — which is redstone on the floor.
+           waitsForChunks: (() => {
+             const build = files[`data/${ns}/function/build.mcfunction`] || "";
+             const probe = files[`data/${ns}/function/sys/probe.mcfunction`] || "";
+             // commands, not comments: the probe file explains itself in a
+             // header that also says "if loaded", which counted as a probe
+             const n = probe.split("\n")
+               .filter(l => l.startsWith("execute if loaded")).length;
+             return build.includes(`function ${ns}:sys/wait`)
+                    && !/function \S+:tick/.test(build) && n === mc.chunks;
+           })(),
+           gadgets: Object.keys(files)
+             .filter(k => k.includes("/function/move/")).length,
            supportsFirst: (() => {
              // the skeleton goes down before any redstone: walk the emitted
              // commands and refuse to find a component before the last support
              let lastSupport = -1, firstComponent = Infinity, i = 0;
              const sup = new Set(mc.palette.filter((_, k) => mc.support[k]));
              for (let p = 0; p < parts; p++) {
-               const body = files[`data/${ns}/function/part${String(p).padStart(4, "0")}.mcfunction`] || "";
+               const body = files[`data/${ns}/function/part/${String(p).padStart(4, "0")}.mcfunction`] || "";
                for (const line of body.split("\n")) {
                  if (!line) continue;
                  const st = line.replace(/ replace$/, "").split(" ").pop();
@@ -544,6 +569,11 @@ if (pack.ctrl.join(",") !== pack.want.join(","))
 if (!pack.copied)
   throw new Error(`a control function the page wrote is not the text the ` +
                   `exporter shipped — the page is generating them again`);
+if (!pack.waitsForChunks)
+  throw new Error(`the build does not wait for its chunks — it would race ` +
+                  `the loader and place dust onto supports that never arrived`);
+if (!pack.gadgets)
+  throw new Error(`the gadgets are not in the pack, so this is two downloads`);
 if (!pack.clearAnchored)
   throw new Error(`clear does not read the stored origin and force-load, so ` +
                   `it would only remove the part of the machine near the player`);
@@ -570,11 +600,11 @@ console.log(`datapack: ${pack.commands.toLocaleString()} commands in ` +
             `${pack.parts} parts rebuild all ${pack.placed.toLocaleString()} ` +
             `blocks exactly (${pack.kinds} block states, ${pack.zipKB} KB zip, ` +
             `${pack.ms}ms in the page)`);
-console.log(`  ${pack.ns}: ${pack.ctrl.length} control functions copied ` +
-            `byte-for-byte from the exporter, ${pack.chunks.toLocaleString()} ` +
-            `chunks force-loaded with none of the footprint left out, the ` +
-            `whole skeleton placed before any redstone, and clear anchored to ` +
-            `the stored origin`);
+console.log(`  ${pack.ns}: ${pack.ctrl.length} functions copied byte-for-byte ` +
+            `from the exporter (${pack.gadgets} of them gadgets in the same ` +
+            `pack), ${pack.chunks.toLocaleString()} chunks force-loaded and ` +
+            `waited for, none of the footprint left out, the whole skeleton ` +
+            `placed before any redstone, clear anchored to the stored origin`);
 
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written

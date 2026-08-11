@@ -14,6 +14,9 @@ that gets the answers wrong.
 """
 
 import argparse
+import base64
+import gzip
+import json
 import sys, os, tempfile
 from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -168,7 +171,7 @@ def main():
 
 
 
-def _mc_table(world, namespace, landmarks=None):
+def _mc_table(world, name, landmarks=None):
     """(kind, meta) -> Minecraft block state, as a palette and an index map.
 
     The bundle already carries every block's kind and meta byte. This is the
@@ -177,7 +180,7 @@ def _mc_table(world, namespace, landmarks=None):
     combination — so the page cannot disagree with the exporter about a
     convention, because it never forms an opinion about one.
     """
-    from rscalc import mcbuild
+    from rscalc import mcbuild, traverse
     from rscalc.export import DIR_ID, KIND_ID
     palette, index, table, support = [], {}, {}, []
     for b in world.blocks.values():
@@ -193,8 +196,11 @@ def _mc_table(world, namespace, landmarks=None):
         key = f"{KIND_ID[b.kind]}:{meta}"
         if key in table:
             continue
-        name, props = mcbuild.block_state(b)
-        state = name + ("" if not props else
+        # not `name`: that is this function's parameter, and rebinding it here
+        # made every message in the shipped pack introduce the machine as
+        # "minecraft:redstone_lamp" — whichever block the loop ended on
+        bname, props = mcbuild.block_state(b)
+        state = bname + ("" if not props else
                         "[" + ",".join(f"{k}={v}" for k, v in sorted(props.items()))
                         + "]")
         if state not in index:
@@ -216,33 +222,65 @@ def _mc_table(world, namespace, landmarks=None):
     commands = sum(1 for _ in mcbuild._runs(world, state_of))
     parts = -(-commands // mcbuild.PER_FILE_DEFAULT)
 
-    # And the control functions — `build`, `clear`, `load`, the teleports —
-    # as *finished text*, not as a list of names for the page to reimplement.
+    # And every file of the pack except the block batches, as finished text.
     #
-    # The page used to write its own copy of all of them. That is two
-    # implementations of one artifact, and they drifted three ways in a single
-    # round: a different namespace, a `clear` missing its notice, and no
-    # force-loading at all. Shipping the bytes removes the second implementation
-    # instead of testing it: the browser writes what this wrote.
-    ns = namespace.lower()
+    # The page used to write its own copy of `build`, `clear`, `load` and the
+    # rest. That is two implementations of one artifact, and they drifted three
+    # ways in a single round: a different namespace, a `clear` missing its
+    # message, and no force-loading at all. Shipping the bytes removes the
+    # second implementation instead of testing it.
+    #
+    # It is gzipped because one of those files is not small: `sys/probe` is one
+    # `execute if loaded` per chunk of the footprint, and at 2,135 chunks that
+    # is a hundred kilobytes of the most compressible text imaginable.
+    ns = mcbuild.NAMESPACE
     (bx0, by0, bz0), (bx1, by1, bz1) = world.bounds()
     with tempfile.TemporaryDirectory() as d:
+        # `write_paced_entry` takes the *function* directory, not the pack root
+        fdir = os.path.join(d, "data", ns, "function")
+        os.makedirs(fdir, exist_ok=True)
         paced = mcbuild.write_paced_entry(
-            d, ns, namespace, [f"part{i:04d}" for i in range(parts)],
+            fdir, ns, name, [f"part/{i:04d}" for i in range(parts)],
             commands, (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1),
             landmarks=landmarks)
+        machine_help = [
+            ("build", "place it, from the -X -Y -Z corner"),
+            ("clear", "take it away again, from anywhere"),
+            ("status", "where it is and what it is doing"),
+            ("load", "force-load its chunks so it ticks"),
+            ("unload", "release them again"),
+            ("abort", "stop a build or clear part way"),
+        ] + [(f"go/{k}", f"teleport to the {k}")
+             for k in sorted(paced["landmarks"])]
+        move = traverse.build(d, ns=ns, machine_help=machine_help)
+        traverse.write_hooks(d, ns=ns)
+        meta = mcbuild.pack_meta(f"{name} — a redstone calculator")
+        with open(os.path.join(d, "pack.mcmeta"), "w") as f:
+            json.dump(meta, f, indent=1)
+        with open(os.path.join(d, "README.txt"), "w") as f:
+            f.write(mcbuild.pack_readme(
+                name, ns, world.n if hasattr(world, "n") else len(world.blocks),
+                world.bounds(), commands, paced))
+        files = {}
+        for dirpath, _, names in os.walk(d):
+            for n in sorted(names):
+                full = os.path.join(dirpath, n)
+                rel = os.path.relpath(full, d).replace(os.sep, "/")
+                if "/part/" in rel:
+                    continue          # the page writes those itself
+                with open(full) as f:
+                    files[rel] = f.read()
+    blob = base64.b64encode(gzip.compress(
+        json.dumps(files, separators=(",", ":")).encode(), 9)).decode()
     return {"palette": palette, "map": table,
             "support": support,
             "commands": commands, "parts": parts,
-            "control_files": paced["control_files"],
+            "files_z": blob, "file_count": len(files),
             "landmarks": {k: list(v) for k, v in paced["landmarks"].items()},
-            "chunks": paced["chunks"],
+            "chunks": paced["chunks"], "probes": paced["probes"],
+            "gadgets": len(move["functions"]),
             "version": mcbuild.MC_VERSION_DEFAULT,
-            "pack_meta": mcbuild.pack_meta(
-                f"{namespace} — a redstone calculator"),
-            # `export_datapack` lowercases the export name into the namespace,
-            # and the page has to name the same one or its README tells readers
-            # to type a command their pack does not answer to
+            "pack_meta": meta,
             "namespace": ns}
 
 
