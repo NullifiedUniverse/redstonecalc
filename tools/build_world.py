@@ -32,7 +32,10 @@ repository and verified in a tick-accurate simulator before export.
 * **{blocks:,} blocks**, {dx} x {dy} x {dz} (X x Y x Z)
 * Repeaters are set to **{delay}**, which is the setting this build is verified
   stable at. Lower settings are faster and burn torches out — see DESIGN §13.
-* Targets Java Edition data version {dv} — a newer world upgrades it on load.
+* Targets **Minecraft {mc}** (pack format {fmt}). What the launcher calls
+  *1.26.2* the pack format table calls **26.2**; the pack declares the new
+  `min_format`/`max_format` pair *and* a legacy `pack_format`, so the same file
+  also loads on 1.21. Structure files target data version {dv}.
 * Solid blocks are `{solid}`; change `--solid` to build it out of something else.
 * It grows **+X, +Y, +Z** from where you stand, so start at or below **Y={maxy}**
   — above that it runs out of world at Y=319.
@@ -58,7 +61,42 @@ transitions do to torches.
 
 Placement follows a marker entity summoned where you ran the command, because a
 `schedule`d function forgets where it was called from and would otherwise build
-the machine at world origin.
+the machine at world origin. The marker is *aligned to the block grid* and its
+position is written into `data storage`, which is what lets `clear`, `status`
+and the teleports find the machine later without you standing anywhere in
+particular.
+
+**The skeleton goes down before any redstone.** Every solid, glass and lamp
+block is placed first, across the whole build, and only then the dust,
+repeaters, torches and levers. This is not cosmetic: `/setblock
+minecraft:redstone_wire` into thin air does not fail — the block is placed, the
+game updates it, and it drops as an item. A build this size would lose a few
+hundred wires that way and still look finished.
+
+You will be standing **inside** the footprint when it starts, because you are
+standing on its minimum corner. Use spectator mode, or `/function {name}:go_above`.
+
+### Knowing what it is doing
+
+```
+/function {name}:status
+/function {name}:help
+```
+
+`status` reports where the machine was built, how big it is, and — while a
+build or clear is running — which part or layer it is on. Progress also goes to
+the action bar rather than to chat, because 36 lines of "placing..." is not
+progress reporting.
+
+### Getting around
+
+The control wall is at one end and the lamps are at the other, {dz} blocks away.
+
+```
+{gos}```
+
+There is a companion pack for the rest of it — a grappling hook, a dash and a
+waypoint — in `out/build/rscalc_move/`, built by `tools/build_traversal.py`.
 
 ### It will not run unless you force-load it — **read this one**
 
@@ -81,7 +119,14 @@ server for as long as it is set.
 {clear}
 ```
 
-from the same corner. It clears one Y layer per tick over {clear_ticks} ticks.
+**From anywhere.** It reads the origin the build recorded, force-loads the
+footprint, and clears one Y layer per tick over {clear_ticks} ticks. It used to
+start from wherever you happened to be standing and force-load nothing, which
+is why it would take away the part of the machine near you and leave the rest
+standing — the chunks further out were not loaded, so the `fill` commands had
+nothing to act on.
+
+`/function {name}:abort` stops a build or a clear part way if you need it to.
 
 ## Option 2 — structure files
 
@@ -132,19 +177,67 @@ def target(what, width, delay):
         from rscalc.machine import build_machine, SETTLE_GT
         m = build_machine(width=width or 10, repeater_delay=delay)
         return pack_name(m.width), m.world, dict(
-            m.stats, settle=SETTLE_GT, controls=controls_note(m))
+            m.stats, settle=SETTLE_GT, controls=controls_note(m)), landmarks(m)
     if what == "console":
         from rscalc.console import build_console
         nl, w, L, pads, lamps, stats, ready = build_console(repeater_delay=delay)
-        return "rscalc_console", w, stats
+        return "rscalc_console", w, stats, {}
     if what == "alu":
         from rscalc.alu import build_alu
         nl = build_alu(width=width or 8, carry="cla")
         w = World()
         compile_netlist(nl, w, repeater_delay=delay)
         return f"rscalc_alu_{width or 8}bit", w, {
-            "gates": nl.gate_count(), "depth": nl.depth()}
+            "gates": nl.gate_count(), "depth": nl.depth()}, {}
     raise SystemExit(f"unknown target {what!r}")
+
+
+def landmarks(m):
+    """Places worth teleporting to, as offsets from the minimum corner.
+
+    The README has said for several sections that walking from the control wall
+    to the lamps "is a long walk, and that is the one part of using this thing
+    that is still bad". It is 973 blocks down a trench. These are the fix, and
+    the pack turns each one into `/function <ns>:go_<name>`.
+
+    Every point is checked against the world before it is offered: a teleport
+    into the middle of the machine buries the player inside a solid block, so a
+    landmark that is not standing room is not a landmark. The check is the
+    reason these are computed here rather than guessed.
+    """
+    from rscalc.panel import WALK_X
+    (x0, y0, z0), (x1, y1, z1) = m.world.bounds()
+    dx, dy, dz = x1 - x0 + 1, y1 - y0 + 1, z1 - z0 + 1
+
+    def rel(p):
+        return (p[0] - x0, p[1] - y0, p[2] - z0)
+
+    levers = [rel(p) for p in
+              list(m.levers.values()) + list(m.keys.values())]
+    # the digit groups only: `lamps["F"]` holds the flag lamps, one position
+    # each rather than a list, and they sit off to the side of the readout
+    lamps = [rel(p) for d in map(str, range(m.ndigits))
+             for s in m.lamps[d] for p in m.lamps[d][s]]
+
+    # on the walkway, halfway along the control wall, feet on the glass
+    walk = (WALK_X[0] - x0,
+            min(p[1] for p in levers) - 1,
+            (min(p[2] for p in levers) + max(p[2] for p in levers)) // 2)
+    marks = {
+        "controls": (walk[0], walk[1] + 1, walk[2]),
+        # standing off the end of the build, looking back at the digits
+        "display": (max(p[0] for p in lamps) + 8,
+                    (min(p[1] for p in lamps) + max(p[1] for p in lamps)) // 2,
+                    (min(p[2] for p in lamps) + max(p[2] for p in lamps)) // 2),
+        "above": (dx // 2, dy + 12, dz // 2),
+    }
+    solid = {rel(p) for p in m.world.blocks}
+    bad = {k: v for k, v in marks.items()
+           if v in solid or (v[0], v[1] + 1, v[2]) in solid}
+    if bad:
+        raise SystemExit(f"landmarks inside the machine, which would bury the "
+                         f"player: {bad}")
+    return marks
 
 
 def controls_note(m):
@@ -213,6 +306,14 @@ def main():
     ap.add_argument("--delay", type=int, default=None,
                     help="repeater setting; defaults to the verified one")
     ap.add_argument("--solid", default=mcbuild.DEFAULT_SOLID)
+    ap.add_argument("--mc", default=mcbuild.MC_VERSION_DEFAULT,
+                    choices=sorted(mcbuild.MC_FORMATS),
+                    help=f"target game version (default "
+                         f"{mcbuild.MC_VERSION_DEFAULT}; what a player calls "
+                         f"1.26.2 the pack format table calls 26.2)")
+    ap.add_argument("--zip", action="store_true",
+                    help="also write the datapack as a .zip, which is what "
+                         "drops straight into <world>/datapacks/")
     ap.add_argument("--settle", type=int, default=0,
                     help="worst-case settle in game ticks, for the README")
     args = ap.parse_args()
@@ -222,7 +323,7 @@ def main():
         args.delay = VERIFIED_DELAY[args.what] or DEFAULT_DELAY
 
     t0 = time.time()
-    name, world, stats = target(args.what, args.width, args.delay)
+    name, world, stats, marks = target(args.what, args.width, args.delay)
     problems = world.lint()
     if problems:
         raise SystemExit(f"refusing to export a world with {len(problems)} "
@@ -234,13 +335,19 @@ def main():
     man = mcbuild.export_structures(world, os.path.join(root, "structures"),
                                     name=name, solid=args.solid)
     pack = mcbuild.export_datapack(world, os.path.join(root, "datapack"),
-                                   name=name, solid=args.solid)
+                                   name=name, solid=args.solid,
+                                   mc_version=args.mc,
+                                   landmarks=marks)
 
     with open(os.path.join(root, "README.md"), "w") as f:
         f.write(README.format(
             name=name, blocks=len(world.blocks),
             dx=x1 - x0 + 1, dy=y1 - y0 + 1, dz=z1 - z0 + 1,
-            dv=mcbuild.DATA_VERSION, solid=args.solid,
+            dv=mcbuild.DATA_VERSION, solid=args.solid, mc=args.mc,
+            fmt=pack["pack_meta"]["pack"].get("max_format")
+                or pack["pack_meta"]["pack"]["pack_format"],
+            gos="".join(f"/function {name}:go_{k}\n"
+                        for k in sorted(pack["landmarks"])),
             entry="/" + pack["entry"], commands=pack["commands"],
             files=pack["files"], pieces=len(man["pieces"]),
             clear="/" + pack["clear"], ticks=pack["ticks"],
@@ -254,6 +361,17 @@ def main():
             settle=args.settle or stats.get("settle", 0),
             secs=(args.settle or stats.get("settle", 0)) / 20))
 
+    zipped = None
+    if args.zip:
+        import zipfile
+        src = os.path.join(root, "datapack")
+        zipped = os.path.join(root, f"{name}_datapack.zip")
+        with zipfile.ZipFile(zipped, "w", zipfile.ZIP_DEFLATED, 6) as z:
+            for dp, _, fs in os.walk(src):
+                for f in sorted(fs):
+                    full = os.path.join(dp, f)
+                    z.write(full, os.path.relpath(full, src))
+
     size = sum(os.path.getsize(os.path.join(dp, f))
                for dp, _, fs in os.walk(root) for f in fs)
     print(f"{name}: {len(world.blocks):,} blocks, "
@@ -262,6 +380,12 @@ def main():
     print(f"  datapack:   {pack['commands']:,} commands in {pack['files']} "
           f"functions ({len(world.blocks)/max(1,pack['commands']):.1f} blocks "
           f"per command)")
+    if zipped:
+        print(f"  zip:        {os.path.relpath(zipped)} "
+              f"({os.path.getsize(zipped)/1024:.0f} KB) — drop this straight "
+              f"into <world>/datapacks/")
+    print(f"  targets Minecraft {args.mc} "
+          f"(pack format {pack['pack_meta']['pack']. get('max_format') or pack['pack_meta']['pack']['pack_format']})")
     print(f"  total {size/1024/1024:.1f} MB in {root} ({time.time()-t0:.0f}s)")
 
 

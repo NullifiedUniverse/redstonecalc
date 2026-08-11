@@ -121,6 +121,9 @@ ANCHORS = [
     (README, r"less — ([\d,]+) repeaters against", "repeater"),
     (README, r"\*\*([\d,]+) blocks become [\d,]+ commands\*\*", "blocks"),
     (README, r"requires all\s+([\d,]+) blocks back", "blocks"),
+    # §34's teleports exist because this distance is the thing that made the
+    # machine unpleasant to use, so the number gets an anchor like any other
+    (README, r"wall and the lamps are ([\d,]+) blocks apart", "z"),
     # ---- DESIGN -------------------------------------------------------
     (DESIGN, r"is ([\d,]+) blocks: an 8-operation ALU", "blocks"),
     (DESIGN, r"the torch count did not move at all, it is ([\d,]+)", "torch"),
@@ -146,6 +149,10 @@ ANCHORS = [
     # machine ticks at all in a real world
     (DESIGN, r"The Mk III is\s+(\d+) x (\d+) blocks", "x", "z"),
     (DESIGN, r"A settle is ([\d,]+) game ticks", "settle"),
+    # §35: the two figures that carry its argument — every block having a
+    # support, and the distance the teleports exist to remove
+    (DESIGN, r"every one of the ([\d,]+) blocks has a sturdy", "blocks"),
+    (DESIGN, r"Getting around a machine ([\d,]+) blocks long", "z"),
     # §22 quotes figures while explaining why quoting figures needs a guard,
     # so it is anchored by its own rule
     (DESIGN, r"one occurrence of `([\d,]+)` in README", "blocks"),

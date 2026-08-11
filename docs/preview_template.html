@@ -2977,6 +2977,23 @@ function datapackFiles(){
     const cell={state:r.state,y:r.y,x:r.x0,z0:r.z,z1:r.z};
     single.set(k,cell);kept.push(cell);
   }
+  /* Supports first, then everything that hangs off one — the same order
+     `rscalc/mcbuild.py` uses, from the same data.
+
+     Minecraft breaks a component whose support is missing and says nothing
+     about it: `/setblock minecraft:redstone_wire` into thin air places the
+     block, updates it, and drops it as an item. Half a million blocks later
+     the build looks finished and some of the wire is lying on the floor.
+     Ascending Y alone covers a support directly underneath and nothing else —
+     a wall torch's support is a horizontal neighbour, and the (z, x) tiebreak
+     puts half of those after the block they hang on. */
+  const startOf=r=>[r.y, r.z0!==undefined?r.z0:r.z, r.x0!==undefined?r.x0:r.x];
+  kept.sort((a,b)=>{
+    const ka=[mc.support[a.state]?0:1,...startOf(a)];
+    const kb=[mc.support[b.state]?0:1,...startOf(b)];
+    for(let i=0;i<4;i++)if(ka[i]!==kb[i])return ka[i]-kb[i];
+    return 0;
+  });
   for(const r of kept){
     const st=mc.palette[r.state];
     if(r.x0!==undefined)
@@ -2991,120 +3008,76 @@ function datapackFiles(){
   for(let i=0;i<lines.length;i+=PACK_PER_FILE)
     parts.push(lines.slice(i,i+PACK_PER_FILE));
   const name=n=>`part${String(n).padStart(4,"0")}`;
-  const obj=ns+"_step",tag=ns+"_origin";
   const out={};
   parts.forEach((p,i)=>{out[`data/${ns}/function/${name(i)}.mcfunction`]=p.join("\n")+"\n";});
 
-  out[`data/${ns}/function/build.mcfunction`]=[
-    `# ${lines.length} commands in ${parts.length} parts, one part per tick.`,
-    `# Stand at the machine's -X -Y -Z corner and run this.`,
-    `scoreboard objectives add ${obj} dummy`,
-    `kill @e[type=marker,tag=${tag}]`,
-    `summon marker ~ ~ ~ {Tags:["${tag}"]}`,
-    `scoreboard players set #build ${obj} 0`,
-    `tellraw @a {"text":"${ns}: ${lines.length} commands over ${parts.length} ticks...","color":"gray"}`,
-    `function ${ns}:load`,
-    `function ${ns}:tick`,
-  ].join("\n")+"\n";
-  out[`data/${ns}/function/tick.mcfunction`]=[
-    `execute as @e[type=marker,tag=${tag},limit=1] at @s run function ${ns}:dispatch`,
-    `scoreboard players add #build ${obj} 1`,
-    `execute if score #build ${obj} matches ..${parts.length-1} run schedule function ${ns}:tick 1t replace`,
-    `execute if score #build ${obj} matches ${parts.length}.. run function ${ns}:done`,
-  ].join("\n")+"\n";
-  out[`data/${ns}/function/dispatch.mcfunction`]=
-    parts.map((_,i)=>`execute if score #build ${obj} matches ${i} run function ${ns}:${name(i)}`).join("\n")+"\n";
-  out[`data/${ns}/function/done.mcfunction`]=[
-    `kill @e[type=marker,tag=${tag}]`,
-    `scoreboard objectives remove ${obj}`,
-    `tellraw @a {"text":"${ns} placed. The control wall is at the -X end.","color":"green"}`,
-  ].join("\n")+"\n";
+  /* And that is everything this page writes.
 
-  const zstep=Math.max(1,Math.floor(32768/Math.max(1,dx)));
-  const strips=[];
-  for(let z=0;z<dz;z+=zstep)
-    strips.push(`fill ~ ~ ~${z} ~${dx-1} ~ ~${Math.min(dz-1,z+zstep-1)} minecraft:air replace`);
-  out[`data/${ns}/function/clear.mcfunction`]=[
-    `# Run from the same corner build was run from.`,
-    `scoreboard objectives add ${obj}c dummy`,
-    `kill @e[type=marker,tag=${tag}c]`,
-    `summon marker ~ ~ ~ {Tags:["${tag}c"]}`,
-    `scoreboard players set #clear ${obj}c 0`,
-    `tellraw @a {"text":"${ns}: clearing ${dy} layers...","color":"gray"}`,
-    `function ${ns}:clear_tick`,
-  ].join("\n")+"\n";
-  out[`data/${ns}/function/clear_tick.mcfunction`]=[
-    `execute as @e[type=marker,tag=${tag}c,limit=1] at @s run function ${ns}:clear_slice`,
-    `execute as @e[type=marker,tag=${tag}c,limit=1] at @s run tp @s ~ ~1 ~`,
-    `scoreboard players add #clear ${obj}c 1`,
-    `execute if score #clear ${obj}c matches ..${dy-1} run schedule function ${ns}:clear_tick 1t replace`,
-    `execute if score #clear ${obj}c matches ${dy}.. run function ${ns}:clear_done`,
-  ].join("\n")+"\n";
-  out[`data/${ns}/function/clear_slice.mcfunction`]=strips.join("\n")+"\n";
-  out[`data/${ns}/function/clear_done.mcfunction`]=[
-    `kill @e[type=marker,tag=${tag}c]`,
-    `scoreboard objectives remove ${obj}c`,
-    `tellraw @a {"text":"${ns} removed.","color":"gray"}`,
-  ].join("\n")+"\n";
+     `build`, `clear`, `load`, `status`, the teleports — none of them are
+     generated here any more. They used to be, and having two implementations
+     of one artifact went wrong three ways in a single round: the page named
+     the pack `machine_mk3` where the exporter named it `rscalc_mk3_10bit`, its
+     `clear` lost a message, and it force-loaded nothing at all, which is the
+     failure that stops the machine ticking in a real world.
 
-  /* Force-loading, which matters more than anything else here: redstone only
-     ticks in chunks the game is simulating, and this machine covers a couple
-     of thousand of them. A player at the control wall sees a fraction of that at
-     the default simulation distance, so the far end of the machine simply does
-     not run — no error, no answer. One `forceload add` covers at most 256
-     chunks, so the footprint is tiled 256 blocks a side, exactly as
-     `mcbuild.write_paced_entry` does it. */
-  const cw=Math.ceil(dx/16),ch=Math.ceil(dz/16),chunks=cw*ch;
-  const tiles=[];
-  for(let x=0;x<dx;x+=256)for(let z=0;z<dz;z+=256)
-    tiles.push(`forceload add ~${x} ~${z} ~${Math.min(dx-1,x+255)} ~${Math.min(dz-1,z+255)}`);
-  out[`data/${ns}/function/load.mcfunction`]=[
-    `# Redstone only ticks in simulated chunks, and this is ${cw} x ${ch} = ${chunks} of them.`,
-    `# Run from the same corner as build, or the machine's far end never moves.`,
-    ...tiles,
-    `tellraw @a {"text":"${ns}: ${chunks} chunks force-loaded.","color":"green"}`,
-  ].join("\n")+"\n";
-  out[`data/${ns}/function/unload.mcfunction`]=[
-    ...tiles.map(t=>t.replace("forceload add","forceload remove")),
-    `tellraw @a {"text":"${ns}: chunks released.","color":"gray"}`,
-  ].join("\n")+"\n";
+     So the exporter ships the finished text and this copies the bytes. There
+     is nothing left to get wrong except the one thing the shipped text assumes:
+     that the parts it dispatches are the parts that exist. The merge here is
+     independent of the one in `rscalc/mcbuild.py`, so that assumption is
+     checked rather than trusted — and a mismatch is fatal, because a `dispatch`
+     calling `part0036` in a pack of 36 would place a machine with a hole in it
+     and report success. */
+  if(lines.length!==mc.commands||parts.length!==mc.parts)
+    throw new Error(`this page merged ${lines.length} commands into ${parts.length} parts; `
+      +`the exporter counted ${mc.commands} into ${mc.parts}. The shipped control `
+      +`functions dispatch the exporter's parts, so the pack would be incomplete.`);
+  for(const k in mc.control_files)
+    out[`data/${ns}/function/${k}`]=mc.control_files[k];
 
-  out["pack.mcmeta"]=JSON.stringify({pack:{pack_format:mc.pack_format,
-    description:`${ns} — a ${circ.width}-bit calculator made of redstone`}},null,1);
+  out["pack.mcmeta"]=JSON.stringify(mc.pack_meta,null,1);
+  const go=Object.keys(mc.landmarks||{}).sort();
   out["README.txt"]=
 `${circ.title}
 
 ${world.n.toLocaleString()} blocks, ${dx} x ${dy} x ${dz}, repeater delay ${circ.delay}.
-Generated in the browser from the same block data the page is simulating.
+Generated in the browser from the same block data the page is simulating,
+using the control functions shipped by rscalc/mcbuild.py.
 
-  1. Put this zip in <world>/datapacks/  (cheats on, a superflat world is easiest)
+Targets Minecraft ${mc.version}.  (What the launcher calls 1.26.2 the pack
+format table calls 26.2; the pack declares both the new min_format/max_format
+pair and a legacy pack_format, so it also loads on 1.21.)
+
+  1. Put this zip in <world>/datapacks/   — cheats on; a superflat world is easiest
   2. /reload
-  3. Stand at the machine's -X -Y -Z corner, facing +X, and run:
+  3. Stand where you want the -X -Y -Z corner, facing +X, and run:
        /function ${ns}:build
-     It places itself over ${parts.length} game ticks (${(parts.length/20).toFixed(0)}s), and
-     force-loads its ${chunks} chunks first — without that, redstone stops
-     ticking a few hundred blocks out and the far end never answers.
 
-  To release the chunks again (the machine stops running):
-       /function ${ns}:unload
-  To remove it, from the same corner:
-       /function ${ns}:clear
+It places itself over ${parts.length} game ticks (${(parts.length/20).toFixed(0)}s) and
+force-loads its ${mc.chunks} chunks first. Without that, redstone stops ticking a
+few hundred blocks out and the far end of the machine never answers — no error,
+no result. Solid blocks go down before any redstone, so nothing is ever placed
+into thin air and dropped as an item.
+
+You will be standing inside the footprint when it starts. Use spectator, or
+/function ${ns}:go_above.
+
+Everything else:
+
+       /function ${ns}:status     where it is and what it is doing
+       /function ${ns}:clear      remove it — from anywhere, not just the corner
+       /function ${ns}:load       force-load its chunks again
+       /function ${ns}:unload     release them (the machine stops ticking)
+       /function ${ns}:abort      stop a build or clear part way
+       /function ${ns}:help       this list, in game
+${go.map(k=>`       /function ${ns}:go_${k}${" ".repeat(Math.max(1,10-k.length))}teleport to the ${k}`).join("\n")}
 
 It needs ${dy} blocks of headroom, so start no higher than Y=${319-dy+1}.
 The control wall is at the -X end: ${circ.width} bits of A, ${circ.width} of B,
 and ${(circ.ops||[]).length} operation keys. Flip levers, press a key, read the lamps.
+The answer takes ${circ.settle.toLocaleString()} game ticks to arrive.
 `;
-  /* The exporter ships the list of control functions it writes, and this
-     generator has to write the same ones. Checking it here rather than only in
-     `tools/check_preview.mjs` means a pack that is missing one can never leave
-     the page: force-loading was added to the Python side alone and the
-     browser's pack went out without it, which is exactly the failure this
-     costs four lines to make impossible. */
-  const want=(mc.functions||[]).slice().sort().join(",");
-  const got=Object.keys(out).filter(k=>k.endsWith(".mcfunction")&&!/\/part\d+\./.test(k))
-    .map(k=>k.replace(/^.*\/|\.mcfunction$/g,"")).sort().join(",");
-  if(want&&want!==got)throw new Error(`control functions differ from the exporter: ${got} vs ${want}`);
-  return {files:out, commands:lines.length, parts:parts.length, ns, chunks};
+  return {files:out, commands:lines.length, parts:parts.length, ns,
+          chunks:mc.chunks};
 }
 
 /* Whether a click on `<a download>` actually delivers a file is not something a

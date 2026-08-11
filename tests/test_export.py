@@ -289,16 +289,25 @@ def test_the_page_gets_its_minecraft_table_from_the_exporter():
     mc = circ.get("mc")
     assert mc, "the bundle carries no Minecraft table, so the page cannot " \
                "write a datapack without inventing one"
-    assert mc["pack_format"] == mcbuild.PACK_FORMAT_DEFAULT
-    # The same argument covers the pack's *shape*, not just its blocks. The
-    # page generates a second copy of the control functions, and force-loading
-    # was added to the exporter alone: the browser's pack went out without a
-    # `load`, which in a real world means the far end of the machine never
-    # ticks. The list of functions and the namespace are shipped as data for
-    # the same reason the block states are.
-    assert mc["functions"] == sorted(mcbuild.CONTROL_FUNCTIONS)
+    assert mc["pack_meta"] == mcbuild.pack_meta(mc["pack_meta"]["pack"]
+                                                ["description"])
+    # The same argument covers the pack's *shape*, not just its blocks — and it
+    # is settled differently now. The page used to write its own copy of the
+    # control functions, and force-loading went into the exporter alone: the
+    # browser's pack shipped with no `load`, so in a real world the far end of
+    # the machine never ticks. There is no second copy any more. The exporter
+    # ships the finished text and the page writes those bytes out, so the only
+    # thing left to check is that the text is there and covers the entry points
+    # the page's own README tells a reader to type.
+    files = mc["control_files"]
+    ns = mc["namespace"]
+    for entry in ("build", "clear", "load", "unload", "status", "help"):
+        assert f"{entry}.mcfunction" in files, entry
+    assert f"function {ns}:load" in files["build.mcfunction"], \
+        "build must force-load before it places anything"
+    assert "forceload add" in files["load_tiles.mcfunction"]
     from tools.build_world import pack_name
-    assert mc["namespace"] == pack_name(circ["width"]).lower(), \
+    assert ns == pack_name(circ["width"]).lower(), \
         "the page would name the pack something the README's /function is not"
 
     w = build()

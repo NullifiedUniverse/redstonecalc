@@ -354,25 +354,138 @@ def test_no_function_in_the_pack_is_unreachable():
               f"{len(entries)} advertised entry points: OK")
 
 
-def test_the_declared_control_functions_are_the_ones_written():
-    """`CONTROL_FUNCTIONS` is what the page is told to generate.
+def test_the_control_files_the_bundle_ships_are_the_files_on_disk():
+    """The page no longer writes the control functions; it copies them.
 
-    It is shipped in the bundle so the browser's copy of this generator can be
-    checked against it — which is only worth anything if the list matches what
-    *this* file actually writes. A constant that has drifted from its own
-    exporter would hand the page a wrong answer with full confidence.
+    That is the point of `control_files`: one implementation of `build`,
+    `clear`, `load` and the rest, exported as finished text, so the browser's
+    pack cannot differ from this one by a character. It is only worth anything
+    if what the bundle carries is byte-for-byte what the exporter put on disk.
     """
     w = _sample_world()
     with tempfile.TemporaryDirectory() as d:
-        mcbuild.export_datapack(w, d, name="t", per_file=40)
+        info = mcbuild.export_datapack(w, d, name="t", per_file=40)
         fdir = os.path.join(d, "data", "t", "function")
-        written = {f[:-11] for f in os.listdir(fdir)
+        written = {f for f in os.listdir(fdir)
                    if f.endswith(".mcfunction") and not f.startswith("part")}
-        assert written == set(mcbuild.CONTROL_FUNCTIONS), (
-            f"declared {sorted(mcbuild.CONTROL_FUNCTIONS)}, "
-            f"wrote {sorted(written)}")
-        print(f"  all {len(written)} declared control functions are written, "
-              f"and nothing else is: OK")
+        shipped = info["control_files"]
+        assert written == set(shipped), (
+            f"on disk {sorted(written)}, in the bundle {sorted(shipped)}")
+        for fname, body in shipped.items():
+            with open(os.path.join(fdir, fname)) as f:
+                assert f.read() == body, f"{fname} differs from its shipped copy"
+        assert sorted(info["control_functions"]) == sorted(
+            f[:-11] for f in written)
+        print(f"  all {len(written)} control functions ship in the bundle "
+              f"byte-identical to the files on disk: OK")
+
+
+def test_the_exported_pack_lints_clean():
+    """Nothing runs these commands before a player does, so read them back.
+
+    `rscalc/packlint.py` resolves every function reference, objective, entity
+    tag, block tag, macro argument and `minecraft:tick` hook, and balances the
+    brackets. It is the closest thing this repository has to loading the pack,
+    and it exists because the two worst bugs in the export so far — a pack that
+    named its own functions wrongly and one that force-loaded nothing — both
+    look correct in a diff.
+    """
+    from rscalc import packlint
+    w = _sample_world()
+    with tempfile.TemporaryDirectory() as d:
+        mcbuild.export_datapack(w, d, name="t", per_file=40,
+                                landmarks={"corner": (1, 2, 3)})
+        bad = packlint.lint(d)
+        assert not bad, "\n  ".join([""] + bad)
+        print(f"  the exported pack resolves every reference it makes: OK")
+
+
+def test_the_pack_declares_a_version_the_game_still_recognises():
+    """`pack_format` alone stopped being enough, and a stale one is invisible.
+
+    Two things moved. Mojang renamed the game — what a player calls "1.26.2" the
+    format table calls **26.2** — and since 25w31a `pack_format` was replaced by
+    `min_format`/`max_format`, written as `[major, minor]` pairs. A pack
+    carrying only the old integer is not read as "close enough"; it is read as a
+    pack for a version that no longer exists, and the game asks the player to
+    confirm they want to load something incompatible.
+
+    Both spellings go in, so one file serves a 26.x world and a 1.21 one.
+    """
+    meta = mcbuild.pack_meta("x")["pack"]
+    assert meta["max_format"] == list(mcbuild.MC_FORMATS["26.2"]), meta
+    assert meta["max_format"] == [107, 1], meta
+    assert meta["min_format"] == [48, 0], meta
+    assert meta["pack_format"] == 48, "a 1.21 world reads this one"
+    old = mcbuild.pack_meta("x", "1.21")["pack"]
+    assert old == {"description": "x", "pack_format": 48}, old
+    try:
+        mcbuild.pack_meta("x", "1.19")
+    except ValueError as e:
+        assert "1.19" in str(e)
+    else:
+        raise AssertionError("an unknown version has to be refused, not guessed")
+    print(f"  pack.mcmeta declares {meta['min_format']}..{meta['max_format']} "
+          f"and a legacy pack_format {meta['pack_format']}: OK")
+
+
+def test_nothing_is_placed_before_the_block_holding_it_up():
+    """Minecraft breaks a component whose support is missing, and says nothing.
+
+    `/setblock minecraft:redstone_wire` into thin air does not fail: the block
+    is placed, the game updates it, and it drops as an item. Half a million
+    blocks later the build looks finished and a few hundred wires are lying on
+    the floor — with no error anywhere and no way to find them.
+
+    Ascending Y made this true by accident, and only for supports directly
+    underneath. `block_state` also emits wall torches and wall levers, whose
+    support is a horizontal neighbour at the same Y, and the (z, x) tiebreak
+    would have placed one of those against nothing. This replays the command
+    stream in order and requires every support to already be standing.
+    """
+    w = _sample_world()
+    # a wall torch and a wall lever, which is the case Y-ordering cannot cover
+    w.solid((0, 4, 0))
+    w.torch((1, 4, 0), attach="west")
+    w.lever((-1, 4, 0), attach="east", on=False)
+    with tempfile.TemporaryDirectory() as d:
+        info = mcbuild.export_datapack(w, d, name="t", per_file=4000)
+        fdir = os.path.join(d, "data", "t", "function")
+        placed, bad = set(), []
+        for i in range(len(os.listdir(fdir))):
+            path = os.path.join(fdir, f"part{i:04d}.mcfunction")
+            if not os.path.exists(path):
+                continue
+            for line in open(path):
+                m = re.match(r"(setblock|fill) (.+?) (minecraft:\S+?)"
+                             r"(?:\[.*\])? replace", line.strip())
+                assert m, line
+                nums = [int(v) for v in re.findall(r"~(-?\d+)", m.group(2))]
+                pts = [tuple(nums[:3])]
+                if len(nums) == 6:
+                    a, b = tuple(nums[:3]), tuple(nums[3:])
+                    ax = [k for k in range(3) if a[k] != b[k]]
+                    if ax:
+                        pts = []
+                        for v in range(min(a[ax[0]], b[ax[0]]),
+                                       max(a[ax[0]], b[ax[0]]) + 1):
+                            q = list(a)
+                            q[ax[0]] = v
+                            pts.append(tuple(q))
+                for p in pts:
+                    world_pos = (p[0] + min(q[0] for q in w.blocks),
+                                 p[1] + min(q[1] for q in w.blocks),
+                                 p[2] + min(q[2] for q in w.blocks))
+                    b = w.blocks[world_pos]
+                    sup = mcbuild.support_of(world_pos, b)
+                    if sup is not None and sup not in placed:
+                        bad.append((world_pos, b.kind, sup))
+                    placed.add(world_pos)
+        assert not bad, (f"{len(bad)} blocks placed before their support: "
+                         f"{bad[:3]}")
+        assert len(placed) == len(w.blocks)
+        print(f"  all {len(placed)} blocks land on a support that is already "
+              f"standing, wall torches and levers included: OK")
 
 
 def test_the_whole_footprint_is_force_loaded():
@@ -396,7 +509,7 @@ def test_the_whole_footprint_is_force_loaded():
         dx, dz = x1 - x0 + 1, z1 - z0 + 1
 
         got = set()
-        for line in open(os.path.join(fdir, "load.mcfunction")):
+        for line in open(os.path.join(fdir, "load_tiles.mcfunction")):
             m = re.match(r"forceload add ~(-?\d+) ~(-?\d+) ~(-?\d+) ~(-?\d+)",
                          line.strip())
             if not m:
@@ -415,9 +528,9 @@ def test_the_whole_footprint_is_force_loaded():
 
         # and every one is released again
         rem = {l.strip().replace("remove", "add")
-               for l in open(os.path.join(fdir, "unload.mcfunction"))
+               for l in open(os.path.join(fdir, "unload_tiles.mcfunction"))
                if l.startswith("forceload remove")}
-        add = {l.strip() for l in open(os.path.join(fdir, "load.mcfunction"))
+        add = {l.strip() for l in open(os.path.join(fdir, "load_tiles.mcfunction"))
                if l.startswith("forceload add")}
         assert rem == add, "unload does not undo exactly what load does"
         print(f"  {len(want)} chunks of footprint covered by "

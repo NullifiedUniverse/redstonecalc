@@ -231,6 +231,27 @@ are still 657 blocks away and 192 up — see DESIGN §15.
 
 ### Getting it into Minecraft
 
+**Just the file:**
+
+```
+curl -LO https://github.com/NullifiedUniverse/redstonecalc/raw/claude/minecraft-redstone-calculator-r0si6x/dist/rscalc_mk3_10bit_datapack.zip
+```
+
+Drop that zip into `<your world>/datapacks/`, `/reload`, then stand where you
+want the machine's minimum corner and run `/function rscalc_mk3_10bit:build`.
+`dist/rscalc_move_datapack.zip` beside it is the traversal pack — a grappling
+hook, a dash and a waypoint, for getting around a build this size.
+
+Both are built from source by the tools below; the zips are committed so that
+getting one is a single command rather than a checkout and a three-minute
+build.
+
+**Targets Minecraft 26.2** — what the launcher calls *1.26.2*. Two things moved
+under this project and both break a pack silently: the game was renamed, and
+since 25w31a `pack_format` was replaced by `min_format`/`max_format` written as
+`[major, minor]` pairs. The pack declares both spellings, so one file loads on
+26.x and on 1.21. `--mc` targets another version.
+
 `python3 tools/build_world.py` exports the build two vanilla ways — a grid of
 structure-block `.nbt` files with a placement manifest, and a datapack of
 `/fill` and `/setblock` commands placed relative to where you stand. Runs of
@@ -254,6 +275,26 @@ would otherwise build at world origin. There is a `clear` function to take it
 back out, and `tests/test_mcbuild.py` interprets the whole chain to prove every
 part runs exactly once, in order, with no function in the pack unreachable.
 
+**The skeleton goes down before any redstone.** Every solid, glass and lamp
+block is placed across the whole build first, and only then the dust,
+repeaters, torches and levers. `/setblock minecraft:redstone_wire` into thin air
+does not fail — the block is placed, the game updates it, and it drops as an
+item — so a build this size would quietly lose a few hundred wires and still
+look finished. `tests/test_mcbuild.py` replays the command stream and requires
+every support to already be standing, wall torches included.
+
+**`clear` works from anywhere, and removes all of it.** The build records its
+origin in `data storage` from a block-aligned marker; `clear` reads that back,
+force-loads the footprint and then removes it. It used to start from wherever
+the player happened to be standing and force-load nothing, so it took away the
+part of the machine near you and left the rest — the chunks further out were not
+loaded, so the `fill` commands had nothing to act on.
+
+There is also `status` (where it is, what it is doing), `help`, `abort`, and
+`go_controls` / `go_display` / `go_above` / `go_origin`, because the control
+wall and the lamps are 973 blocks apart and walking it was the worst part of
+using the thing.
+
 The pack also **force-loads its own footprint**, which is the difference between
 a machine that answers and one that does not. Redstone only ticks in chunks the
 server is simulating, and this build covers 35 × 61 = 2,135 chunks; at Java's
@@ -262,9 +303,18 @@ fifth of it live, so a lever throw would propagate a few hundred blocks and
 stop, with no error anywhere. `build` calls `load` before it places anything —
 12 `/forceload add` commands, since one covers at most 256 chunks — and `unload`
 gives the chunks back. The page's in-browser generator writes the same ten
-control functions; `tools/check_preview.mjs` compares its function list against
-the exporter's and expands every `forceload` to prove no chunk of the footprint
-is left out.
+control functions — not by generating them a second time, but by copying the
+finished text the exporter ships in the bundle. Two implementations of one
+artifact drifted three ways in a single round, so there is only one now:
+`tools/check_preview.mjs` checks the browser's pack against the exporter's file
+by file, and every one of the 71 files plus `pack.mcmeta` comes out identical.
+
+**Nothing here runs Minecraft**, so the commands are the one artefact a player
+executes first. `rscalc/packlint.py` reads a pack back the way the loader
+would — resolving every function reference, objective, entity tag, block tag,
+macro argument and `minecraft:tick` hook, and balancing every bracket — and
+`tests/test_traverse.py` proves it catches nine kinds of deliberate damage
+before trusting it on a clean pack.
 
 One convention matters more than anything else, because getting it wrong fails
 *silently* — the build looks perfect and computes nothing. Minecraft's repeater

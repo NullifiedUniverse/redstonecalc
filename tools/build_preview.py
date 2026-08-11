@@ -14,7 +14,7 @@ that gets the answers wrong.
 """
 
 import argparse
-import sys, os
+import sys, os, tempfile
 from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -24,7 +24,7 @@ from rscalc.pla import compile_netlist
 from rscalc.export import export_circuit, write_bundle
 from rscalc.display import build_digit, DIGIT_SEGMENTS, SEGS
 from tools.prototype_decimal import seven_seg
-from tools.build_world import pack_name
+from tools.build_world import pack_name, landmarks
 
 LANE_LEN = 6              # how far the feed lanes reach out to -X
 DIGIT_PITCH = 14          # X spacing between digits; feed lanes need the room
@@ -168,7 +168,7 @@ def main():
 
 
 
-def _mc_table(world, namespace):
+def _mc_table(world, namespace, landmarks=None):
     """(kind, meta) -> Minecraft block state, as a palette and an index map.
 
     The bundle already carries every block's kind and meta byte. This is the
@@ -179,7 +179,7 @@ def _mc_table(world, namespace):
     """
     from rscalc import mcbuild
     from rscalc.export import DIR_ID, KIND_ID
-    palette, index, table = [], {}, {}
+    palette, index, table, support = [], {}, {}, []
     for b in world.blocks.values():
         meta = 0
         if b.kind == "repeater":
@@ -200,6 +200,12 @@ def _mc_table(world, namespace):
         if state not in index:
             index[state] = len(palette)
             palette.append(state)
+            # Whether this state holds other blocks up, per palette entry.
+            # The exporter puts the whole skeleton down before any redstone, so
+            # nothing is ever placed into thin air and dropped as an item; the
+            # page merges its own runs and has to sort them the same way, and
+            # one boolean per palette entry is all it needs to.
+            support.append(b.kind in mcbuild.SUPPORT_KINDS)
         table[key] = index[state]
     # How many commands the pack comes to, and so how many game ticks it takes
     # to place itself. The page prints that number in its own prose, and it was
@@ -208,17 +214,36 @@ def _mc_table(world, namespace):
     # two seconds to merge the runs here and ship the real one.
     _, state_of = mcbuild.palette_of(world)
     commands = sum(1 for _ in mcbuild._runs(world, state_of))
+    parts = -(-commands // mcbuild.PER_FILE_DEFAULT)
+
+    # And the control functions — `build`, `clear`, `load`, the teleports —
+    # as *finished text*, not as a list of names for the page to reimplement.
+    #
+    # The page used to write its own copy of all of them. That is two
+    # implementations of one artifact, and they drifted three ways in a single
+    # round: a different namespace, a `clear` missing its notice, and no
+    # force-loading at all. Shipping the bytes removes the second implementation
+    # instead of testing it: the browser writes what this wrote.
+    ns = namespace.lower()
+    (bx0, by0, bz0), (bx1, by1, bz1) = world.bounds()
+    with tempfile.TemporaryDirectory() as d:
+        paced = mcbuild.write_paced_entry(
+            d, ns, namespace, [f"part{i:04d}" for i in range(parts)],
+            commands, (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1),
+            landmarks=landmarks)
     return {"palette": palette, "map": table,
-            "commands": commands,
-            "parts": -(-commands // mcbuild.PER_FILE_DEFAULT),
-            "pack_format": mcbuild.PACK_FORMAT_DEFAULT,
-            # the control functions the page's own generator has to produce, so
-            # the two cannot drift the way they did over force-loading
-            "functions": sorted(mcbuild.CONTROL_FUNCTIONS),
+            "support": support,
+            "commands": commands, "parts": parts,
+            "control_files": paced["control_files"],
+            "landmarks": {k: list(v) for k, v in paced["landmarks"].items()},
+            "chunks": paced["chunks"],
+            "version": mcbuild.MC_VERSION_DEFAULT,
+            "pack_meta": mcbuild.pack_meta(
+                f"{namespace} — a redstone calculator"),
             # `export_datapack` lowercases the export name into the namespace,
             # and the page has to name the same one or its README tells readers
             # to type a command their pack does not answer to
-            "namespace": namespace.lower()}
+            "namespace": ns}
 
 
 def export_machine(delay=None):
@@ -270,7 +295,7 @@ def export_machine(delay=None):
         # knows a repeater's facing flips on the way out; the page looks the
         # answer up by (kind, meta) rather than deriving it a second time, and
         # `tests/test_export.py` checks the table against mcbuild directly.
-        "mc": _mc_table(m.world, pack_name(m.width)),
+        "mc": _mc_table(m.world, pack_name(m.width), landmarks(m)),
         "ops": OPS,
         "flags": FLAGS,
         "digits": [str(k) for k in reversed(range(m.ndigits))],

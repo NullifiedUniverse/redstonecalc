@@ -456,19 +456,21 @@ const pack = await page.evaluate(() => {
   }
   const placed = world_map.size;
 
-  // The control functions, which are a separate claim from the blocks: the
-  // exporter ships the list it writes, and this generator has to write the
-  // same one. It did not — force-loading went into `rscalc/mcbuild.py` alone,
-  // and the pack a reader downloaded from the page had no `load`, so its
-  // redstone would have stopped ticking a few hundred blocks from the player.
+  // The control functions, which are a separate claim from the blocks. The
+  // page does not write them any more: the exporter ships their finished text
+  // and this copies the bytes, because two implementations of one artifact
+  // drifted three ways in a single round — a different namespace, a `clear`
+  // missing its message, and no force-loading at all.
   const ctrl = Object.keys(files)
     .filter(k => k.endsWith(".mcfunction") && !/\/part\d+\./.test(k))
     .map(k => k.replace(/^.*\/|\.mcfunction$/g, "")).sort();
+  const copied = Object.keys(mc.control_files).every(
+    k => files[`data/${ns}/function/${k}`] === mc.control_files[k]);
   // and `load` has to actually cover the machine: one `forceload add` reaches
   // 256 chunks, so the footprint is tiled — miss a tile and the far corner is
   // frozen with nothing to see
   const covered = new Set();
-  for (const line of (files[`data/${ns}/function/load.mcfunction`] || "").split("\n")) {
+  for (const line of (files[`data/${ns}/function/load_tiles.mcfunction`] || "").split("\n")) {
     const m = /^forceload add ~(\d+) ~(\d+) ~(\d+) ~(\d+)$/.exec(line);
     if (!m) continue;
     for (let x = +m[1]; x <= +m[3]; x += 16)
@@ -485,12 +487,36 @@ const pack = await page.evaluate(() => {
   const zip = fflate.zipSync(zin, { level: 6 });
   const back = fflate.unzipSync(zip);
   return { commands, parts, ms: Math.round(ms), placed, bad, boxes, mismatched,
-           blocks: world.n, ns, ctrl, want: (mc.functions || []).slice().sort(),
+           blocks: world.n, ns, ctrl, copied,
+           want: Object.keys(mc.control_files)
+                   .map(k => k.replace(/\.mcfunction$/, "")).sort(),
            namespace: mc.namespace, uncovered, chunks: covered.size,
            shipped: mc.commands, shippedParts: mc.parts,
            shown: document.getElementById("dpTicks").textContent.trim(),
            buildLoads: /\bfunction \S+:load\b/
              .test(files[`data/${ns}/function/build.mcfunction`] || ""),
+           // `clear` used to start from wherever the player stood and
+           // force-load nothing, which is why it never took the whole machine
+           clearAnchored:
+             /with storage \S+:origin/.test(files[`data/${ns}/function/clear.mcfunction`] || "")
+             && /\bfunction \S+:load\b/.test(files[`data/${ns}/function/clear.mcfunction`] || ""),
+           supportsFirst: (() => {
+             // the skeleton goes down before any redstone: walk the emitted
+             // commands and refuse to find a component before the last support
+             let lastSupport = -1, firstComponent = Infinity, i = 0;
+             const sup = new Set(mc.palette.filter((_, k) => mc.support[k]));
+             for (let p = 0; p < parts; p++) {
+               const body = files[`data/${ns}/function/part${String(p).padStart(4, "0")}.mcfunction`] || "";
+               for (const line of body.split("\n")) {
+                 if (!line) continue;
+                 const st = line.replace(/ replace$/, "").split(" ").pop();
+                 if (sup.has(st)) lastSupport = i;
+                 else firstComponent = Math.min(firstComponent, i);
+                 i++;
+               }
+             }
+             return lastSupport < firstComponent;
+           })(),
            readme: files["README.txt"] || "",
            kinds: kinds.size, zipKB: Math.round(zip.length / 1024),
            entries: Object.keys(back).length,
@@ -515,6 +541,15 @@ if (pack.ns !== pack.namespace)
 if (pack.ctrl.join(",") !== pack.want.join(","))
   throw new Error(`control functions differ from the exporter: ` +
                   `[${pack.ctrl}] vs [${pack.want}]`);
+if (!pack.copied)
+  throw new Error(`a control function the page wrote is not the text the ` +
+                  `exporter shipped — the page is generating them again`);
+if (!pack.clearAnchored)
+  throw new Error(`clear does not read the stored origin and force-load, so ` +
+                  `it would only remove the part of the machine near the player`);
+if (!pack.supportsFirst)
+  throw new Error(`a redstone component is placed before the last support ` +
+                  `block, so the game would drop it as an item`);
 if (!pack.buildLoads)
   throw new Error(`build never calls load, so the machine is placed into ` +
                   `chunks the server is not simulating`);
@@ -535,9 +570,11 @@ console.log(`datapack: ${pack.commands.toLocaleString()} commands in ` +
             `${pack.parts} parts rebuild all ${pack.placed.toLocaleString()} ` +
             `blocks exactly (${pack.kinds} block states, ${pack.zipKB} KB zip, ` +
             `${pack.ms}ms in the page)`);
-console.log(`  ${pack.ns}: ${pack.ctrl.length} control functions match the ` +
-            `exporter, ${pack.chunks.toLocaleString()} chunks force-loaded, ` +
-            `none of the footprint left out`);
+console.log(`  ${pack.ns}: ${pack.ctrl.length} control functions copied ` +
+            `byte-for-byte from the exporter, ${pack.chunks.toLocaleString()} ` +
+            `chunks force-loaded with none of the footprint left out, the ` +
+            `whole skeleton placed before any redstone, and clear anchored to ` +
+            `the stored origin`);
 
 // --- nothing the animation touches may be left invisible -------------------
 // Every reveal is a GSAP `from` tween, which means the start state is written

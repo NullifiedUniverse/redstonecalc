@@ -40,28 +40,109 @@ import struct
 DATA_VERSION = 3953
 STRUCTURE_MAX = 48          # a structure block's limit, per side
 DEFAULT_SOLID = "minecraft:light_gray_concrete"
-#: 1.21's datapack format, in one place so the page and the
-#: exporter cannot disagree about it
+#: Data pack formats, by the version string a player would recognise.
+#:
+#: Two things changed under this project's feet and both break a pack silently
+#: rather than loudly. Mojang renamed the game itself — what a player calls
+#: "1.26.2" the pack format table calls **26.2** — and since 25w31a the
+#: `pack_format` integer is gone, replaced by `min_format`/`max_format` written
+#: as `[major, minor]` pairs. A pack carrying only the old field is not read as
+#: "close enough"; it is read as a pack for a version that no longer exists.
+#:
+#: Values are (major, minor). Anything at or above 88 gets the new fields; the
+#: older entries stay because they are what a 1.21 world still wants.
+MC_FORMATS = {
+    "1.21":   (48, 0),
+    "1.21.9": (88, 0),
+    "1.21.11": (94, 1),
+    "26.1":   (101, 1),
+    "26.2":   (107, 1),
+}
+#: What this project targets. The machine uses `/fill`, `/setblock`,
+#: `/forceload`, `/schedule`, `/scoreboard`, `/execute`, `/summon marker` and
+#: `/tellraw`, and the pack-format table records **no breaking change to any of
+#: them** between 48 and 107 — so the same commands really do serve both. Only
+#: the metadata had to move.
+MC_VERSION_DEFAULT = "26.2"
+#: The first format that speaks `min_format`/`max_format` instead of
+#: `pack_format`.
+MC_RANGE_FORMAT = 88
+#: 1.21's datapack format, kept as the legacy fallback written alongside the
+#: range so an older world still recognises the pack.
 PACK_FORMAT_DEFAULT = 48
+
+
+def pack_meta(description, version=MC_VERSION_DEFAULT):
+    """The `pack.mcmeta` body for a target version.
+
+    Both spellings go in. A 26.x client reads `min_format`/`max_format` and
+    ignores the integer; a 1.21 client reads the integer and ignores the pair.
+    Neither errors on the other's field, so one file serves both, and the range
+    is opened down to 1.21 rather than pinned so a pack built today still loads
+    on the version it was tested against.
+    """
+    if version not in MC_FORMATS:
+        raise ValueError(f"unknown Minecraft version {version!r}; "
+                         f"known: {', '.join(sorted(MC_FORMATS))}")
+    major, minor = MC_FORMATS[version]
+    pack = {"description": description}
+    if major >= MC_RANGE_FORMAT:
+        pack["min_format"] = list(MC_FORMATS["1.21"])
+        pack["max_format"] = [major, minor]
+        pack["pack_format"] = PACK_FORMAT_DEFAULT
+    else:
+        pack["pack_format"] = major
+    return {"pack": pack}
 #: Commands per `partNNNN` function, which is also what sets how many game ticks
 #: the paced build takes. Named because the page prints the tick count in its
 #: prose and has to arrive at the same one.
 PER_FILE_DEFAULT = 2000
 
-#: Every function a pack carries besides the numbered `partNNNN` batches.
-#: Named here rather than left implicit because there are now **two**
-#: generators — this file and the one in `docs/preview_template.html` — and the
-#: first thing that went wrong with having two was that force-loading was added
-#: to one of them. A reader downloading from the page would have got a pack
-#: whose machine ticks in a fifth of its own chunks, which is the failure §33
-#: describes as the one that decides whether any of this works.
-CONTROL_FUNCTIONS = ("build", "tick", "dispatch", "done",
-                     "clear", "clear_tick", "clear_slice", "clear_done",
-                     "load", "unload")
+#: There are two generators of this pack — this file and the one in
+#: `docs/preview_template.html` — and the first thing that went wrong with
+#: having two was that force-loading went into one of them. A reader
+#: downloading from the page got a pack whose machine ticks in a fifth of its
+#: own chunks: §33's failure, silently.
+#:
+#: The list of control functions used to be duplicated here as a constant for
+#: the page to check itself against. It is not any more, because the page does
+#: not write them at all now — `export_datapack` returns their finished text in
+#: `control_files` and the bundle carries it, so the browser copies bytes it
+#: cannot get wrong. What is left to check is that the two agree, which
+#: `tools/check_preview.mjs` does directly.
 
 OPPOSITE = {"north": "south", "south": "north",
             "east": "west", "west": "east",
             "up": "down", "down": "up"}
+
+#: Kinds that hold other blocks up — a full cube with a sturdy face. Everything
+#: else in this project is a redstone component that breaks the instant its
+#: support is missing, which is why the two go down in that order.
+SUPPORT_KINDS = frozenset({"solid", "glass", "lamp", "redstone_block"})
+#: Which neighbour each component needs, as an offset from its own position.
+#: `None` means "read it off the block" — a torch or lever carries its `attach`.
+NEEDS_SUPPORT = frozenset({"redstone_wire", "repeater", "comparator",
+                           "redstone_torch", "lever"})
+
+
+def support_of(pos, b):
+    """Where the block holding `b` up has to be, or None if nothing holds it.
+
+    Minecraft breaks a component the moment this neighbour stops being a sturdy
+    face, and a command that places one into thin air does not fail — the block
+    appears, the game updates it, and it drops as an item. A build of half a
+    million blocks loses a few hundred that way and still looks finished.
+    """
+    if b.kind not in NEEDS_SUPPORT:
+        return None
+    attach = getattr(b, "attach", "down")
+    if b.kind in ("redstone_torch", "lever") and attach != "down":
+        # a wall torch hangs off the block it points away from; a ceiling lever
+        # off the one above. Same layer or higher — not the row beneath.
+        d = {"up": (0, 1, 0), "north": (0, 0, -1), "south": (0, 0, 1),
+             "east": (1, 0, 0), "west": (-1, 0, 0)}[attach]
+        return (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
+    return (pos[0], pos[1] - 1, pos[2])
 
 
 # --- NBT writing ------------------------------------------------------------
@@ -285,8 +366,24 @@ def _runs(world, state_of):
     for state, a, b in scan(rows_z, lambda k, c: (k[1], k[0], c)):
         out.append((state, a, b))
 
-    # ascending Y, because dust and torches need the row beneath them to exist
-    out.sort(key=lambda r: (r[1][1], r[1][2], r[1][0]))
+    # Supports first, then everything that hangs off one.
+    #
+    # Ascending Y alone was *nearly* right and was right by luck. Dust, torches,
+    # repeaters and floor levers all need the block beneath them, and the row
+    # beneath is a lower Y, so sorting by Y put every support first — as long as
+    # nothing ever attached **sideways**. `block_state` already emits
+    # `redstone_wall_torch` and wall levers, whose support is a horizontal
+    # neighbour at the *same* Y, and the tiebreak here is (z, x): a wall torch
+    # whose wall sits at +X would have been placed against nothing, popped off
+    # as an item, and left a hole in a machine too big to find it in.
+    #
+    # Sorting the whole skeleton ahead of the whole circuit costs nothing — runs
+    # are homogeneous, so the merge and the command count are untouched — and it
+    # turns a coincidence into an invariant `tests/test_mcbuild.py` can state:
+    # no block is ever placed before the thing holding it up.
+    def phase(run):
+        return 0 if world.blocks[run[1]].kind in SUPPORT_KINDS else 1
+    out.sort(key=lambda r: (phase(r), r[1][1], r[1][2], r[1][0]))
     yield from out
 
 
@@ -301,7 +398,8 @@ def _command(name, props, a, b):
 
 
 def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
-                    per_file=PER_FILE_DEFAULT, pack_format=PACK_FORMAT_DEFAULT):
+                    per_file=PER_FILE_DEFAULT,
+                    mc_version=MC_VERSION_DEFAULT, landmarks=None):
     """A datapack whose functions rebuild the machine relative to the player.
 
     Commands are relative (``~``), so running the entry function places the
@@ -346,12 +444,13 @@ def export_datapack(world, outdir, name="rscalc", solid=DEFAULT_SOLID,
 
     (bx0, by0, bz0), (bx1, by1, bz1) = world.bounds()
     paced = write_paced_entry(fdir, ns, name, files, count,
-                              (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1))
+                              (bx1 - bx0 + 1, by1 - by0 + 1, bz1 - bz0 + 1),
+                              landmarks=landmarks)
+    meta = pack_meta(f"{name} — a redstone calculator", mc_version)
     with open(os.path.join(outdir, "pack.mcmeta"), "w") as f:
-        json.dump({"pack": {"pack_format": pack_format,
-                            "description": f"{name} — a redstone calculator"}},
-                  f, indent=1)
-    return {"commands": count, "files": len(os.listdir(fdir)), **paced}
+        json.dump(meta, f, indent=1)
+    return {"commands": count, "files": len(os.listdir(fdir)),
+            "mc_version": mc_version, "pack_meta": meta, **paced}
 
 
 def _write(path, lines):
@@ -359,140 +458,313 @@ def _write(path, lines):
         f.write("\n".join(lines) + "\n")
 
 
-def write_paced_entry(fdir, ns, name, files, count, dims):
-    """The entry point, spread over ticks instead of run in one.
+def write_paced_entry(fdir, ns, name, files, count, dims, landmarks=None):
+    """Everything in the pack that is not a batch of blocks.
 
-    The obvious entry function calls every part in a row, and that is what this
-    wrote first: 71,768 commands in a single game tick. A server executes all of
-    it before the tick ends, and every block of a half-million-block redstone
-    machine appears in the same instant — the most hostile possible starting
-    transient for the thing §13 spends a table on.
+    The parts run one per tick rather than all at once: 71,768 commands inside a
+    single game tick freezes a server and drops half a million redstone blocks
+    into the world in the same instant, which is the most hostile possible
+    starting transient for a machine 36 stages deep. A `schedule` chain paces
+    them.
 
-    So the parts run one per tick, driven by a `schedule` chain. That has a trap
-    in it which is not obvious: **a scheduled function does not remember where
-    it was called from.** It executes at the world origin with no executor, so
-    every `~` in the commands — all of them, because the build is relative —
-    would place the machine at 0, 0, 0 instead of at the player.
+    That chain has a trap in it: **a scheduled function does not remember where
+    it was called from.** It runs at the world origin with no executor, so every
+    `~` — all of them, because the build is relative — would place the machine
+    at 0, 0, 0. A `marker` entity carries the position through the chain.
 
-    The fix is the standard one: drop a `marker` where the build was started and
-    run each part `as` that marker `at` its position, so the origin rides
-    through the chain. A scoreboard holds which part is next, which keeps the
-    parts themselves pure command lists — that is what lets the replay test read
-    them without interpreting any control flow.
+    The marker is now an *anchor*: aligned to the block grid, written into
+    `data storage`, and kept after the build finishes. Everything else in the
+    pack reads it, which is what makes `clear` reliable. `clear` used to start
+    from wherever the player happened to be standing and force-load nothing, so
+    it cleared 195 layers of whatever was under their feet and stopped at the
+    edge of the chunks the server was already simulating — the reason it never
+    took the whole machine away.
     """
-    obj, tag = f"{ns}_step", f"{ns}_origin"
+    obj, tag = f"{ns}_step", f"{ns}_anchor"
+    store = f"{ns}:origin"
     dx, dy, dz = dims
+    nparts = len(files)
+    marks = {"origin": (0, 0, 0),
+             "above": (dx // 2, dy + 12, dz // 2), **(landmarks or {})}
+    out = {}
 
-    _write(os.path.join(fdir, "build.mcfunction"), [
-        f"# {count:,} commands in {len(files)} parts, one part per tick.",
+    def fn(fname, lines):
+        out[fname] = list(lines)
+
+    # --- placing it ---------------------------------------------------------
+    fn("build", [
+        f"# {count:,} commands in {nparts} parts, one part per tick.",
         f"# Stand at the machine's -X -Y -Z corner and run this.",
         f"scoreboard objectives add {obj} dummy",
-        f"kill @e[type=marker,tag={tag}]",
-        f'summon marker ~ ~ ~ {{Tags:["{tag}"]}}',
+        # A second build on top of a running one interleaves two schedule
+        # chains through one scoreboard and places the machine twice, wrongly.
+        f"execute if score #run {obj} matches 1 run function {ns}:busy",
+        f"execute if score #run {obj} matches 1 run return fail",
+        f"scoreboard players set #run {obj} 1",
         f"scoreboard players set #build {obj} 0",
-        f'tellraw @a {{"text":"{name}: {count} commands over {len(files)} '
-        f'ticks...","color":"gray"}}',
-        # load it before placing it, so the chunks it lands in are ticking
+        f"data remove storage {ns}:ui layer",
+        f"kill @e[type=marker,tag={tag}]",
+        # `align xyz` floors the position before summoning, so the anchor sits
+        # exactly on the block corner. Without it the stored origin is the
+        # player's fractional position, and truncating that towards zero is off
+        # by one for every negative coordinate — a machine 555 blocks wide,
+        # placed one block from where `clear` would later look for it.
+        f'execute at @s align xyz run summon marker ~ ~ ~ {{Tags:["{tag}"]}}',
+        f"execute store result storage {store} x int 1 run "
+        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[0]",
+        f"execute store result storage {store} y int 1 run "
+        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[1]",
+        f"execute store result storage {store} z int 1 run "
+        f"data get entity @e[type=marker,tag={tag},limit=1] Pos[2]",
+        f'tellraw @a {{"text":"{name}: {count:,} commands over {nparts} ticks '
+        f'({nparts / 20:.1f}s). You are standing inside the footprint — use '
+        f'spectator, or /function {ns}:go_above.","color":"gray"}}',
+        # load before placing, so nothing lands in a chunk that is not ticking
         f"function {ns}:load",
         f"function {ns}:tick",
     ])
 
-    _write(os.path.join(fdir, "tick.mcfunction"), [
+    fn("tick", [
         f"execute as @e[type=marker,tag={tag},limit=1] at @s "
         f"run function {ns}:dispatch",
         f"scoreboard players add #build {obj} 1",
-        f"execute if score #build {obj} matches ..{len(files) - 1} run "
+        f"execute store result storage {ns}:ui part int 1 run "
+        f"scoreboard players get #build {obj}",
+        f"function {ns}:progress with storage {ns}:ui",
+        f"execute if score #build {obj} matches ..{nparts - 1} run "
         f"schedule function {ns}:tick 1t replace",
-        f"execute if score #build {obj} matches {len(files)}.. run "
+        f"execute if score #build {obj} matches {nparts}.. run "
         f"function {ns}:done",
     ])
 
-    # `execute if score` rather than a macro, so this runs on any 1.21 build
-    _write(os.path.join(fdir, "dispatch.mcfunction"),
-           [f"execute if score #build {obj} matches {i} run function {ns}:{fn}"
-            for i, fn in enumerate(files)])
-
-    _write(os.path.join(fdir, "done.mcfunction"), [
-        f"kill @e[type=marker,tag={tag}]",
-        f"scoreboard objectives remove {obj}",
-        f'tellraw @a {{"text":"{name} placed. The control wall is at the '
-        f'-X end.","color":"green"}}',
+    # the action bar rather than chat: 36 lines of "placing..." is not progress
+    # reporting, it is a wall of text you scroll past to find the answer
+    fn("progress", [
+        f'$title @a actionbar {{"text":"{name}: placing part $(part) of '
+        f'{nparts}","color":"gray"}}',
     ])
 
-    # --- and a way back out ---------------------------------------------
-    # A half-million-block machine in the wrong place is not something anyone
-    # should dig out by hand. `fill` caps at 32,768 blocks a command, and one Y
-    # layer here is 555 x 973, so the layer is cut into Z strips that fit; the
-    # marker climbs one layer per tick, which paces the removal exactly the way
-    # the build is paced.
+    # `execute if score` rather than a macro, so this runs on any 1.21+ build
+    fn("dispatch",
+       [f"execute if score #build {obj} matches {i} run function {ns}:{f}"
+        for i, f in enumerate(files)])
+
+    fn("done", [
+        f"scoreboard players set #run {obj} 0",
+        # the anchor stays: `clear`, `status` and the teleports all read it,
+        # and it is the only record of where the machine actually went
+        f'tellraw @a {{"text":"{name} placed: {count:,} blocks, {dx} x {dy} x '
+        f'{dz}. The control wall is at the -X end. /function {ns}:help for '
+        f'what to do next.","color":"green"}}',
+        f'title @a actionbar {{"text":"{name}: placed","color":"green"}}',
+    ])
+
+    fn("busy", [
+        f'tellraw @a {{"text":"{name}: a build or clear is already running. '
+        f'Wait for it, or /function {ns}:abort.","color":"red"}}',
+    ])
+
+    fn("abort", [
+        f"schedule clear {ns}:tick",
+        f"schedule clear {ns}:clear_tick",
+        f"scoreboard players set #run {obj} 0",
+        f"kill @e[type=marker,tag={tag}_clear]",
+        f'tellraw @a {{"text":"{name}: stopped. The machine is half-placed; '
+        f'run build again or clear it.","color":"yellow"}}',
+    ])
+
+    # --- taking it away -----------------------------------------------------
+    # `fill` caps at 32,768 blocks a command and one Y layer is dx by dz, so the
+    # layer is cut into Z strips that fit and a marker climbs one layer a tick.
     zstep = max(1, 32768 // max(1, dx))
     strips = [f"fill ~ ~ ~{z} ~{dx - 1} ~ ~{min(dz - 1, z + zstep - 1)} "
               f"minecraft:air replace"
               for z in range(0, dz, zstep)]
 
-    _write(os.path.join(fdir, "clear.mcfunction"), [
-        f"# Run from the same corner `build` was run from.",
-        f"scoreboard objectives add {obj}c dummy",
-        f"kill @e[type=marker,tag={tag}c]",
-        f'summon marker ~ ~ ~ {{Tags:["{tag}c"]}}',
-        f"scoreboard players set #clear {obj}c 0",
-        f'tellraw @a {{"text":"{name}: clearing {dy} layers...",'
-        f'"color":"gray"}}',
+    fn("clear", [
+        f"# Removes the machine wherever it was built. Run it from anywhere.",
+        f"scoreboard objectives add {obj} dummy",
+        f"execute if score #run {obj} matches 1 run function {ns}:busy",
+        f"execute if score #run {obj} matches 1 run return fail",
+        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run return fail",
+        f"scoreboard players set #run {obj} 1",
+        f"scoreboard players set #clear {obj} 0",
+        # force-load first. This is the whole bug: the fills only ever touched
+        # chunks the server already had loaded, so `clear` took away the part of
+        # the machine near the player and left the rest standing.
+        f"function {ns}:load",
+        f"function {ns}:clear_at with storage {store}",
+    ])
+
+    fn("clear_at", [
+        f"$execute positioned $(x) $(y) $(z) run function {ns}:clear_begin",
+    ])
+
+    fn("clear_begin", [
+        f"data remove storage {ns}:ui part",
+        f"kill @e[type=marker,tag={tag}_clear]",
+        f'summon marker ~ ~ ~ {{Tags:["{tag}_clear"]}}',
+        f'tellraw @a {{"text":"{name}: clearing {dy} layers '
+        f'({dy / 20:.1f}s)...","color":"gray"}}',
         f"function {ns}:clear_tick",
     ])
-    _write(os.path.join(fdir, "clear_tick.mcfunction"), [
-        f"execute as @e[type=marker,tag={tag}c,limit=1] at @s "
+
+    fn("clear_tick", [
+        f"execute as @e[type=marker,tag={tag}_clear,limit=1] at @s "
         f"run function {ns}:clear_slice",
-        f"execute as @e[type=marker,tag={tag}c,limit=1] at @s "
+        f"execute as @e[type=marker,tag={tag}_clear,limit=1] at @s "
         f"run tp @s ~ ~1 ~",
-        f"scoreboard players add #clear {obj}c 1",
-        f"execute if score #clear {obj}c matches ..{dy - 1} run "
+        f"scoreboard players add #clear {obj} 1",
+        f"execute store result storage {ns}:ui layer int 1 run "
+        f"scoreboard players get #clear {obj}",
+        f"function {ns}:clear_progress with storage {ns}:ui",
+        f"execute if score #clear {obj} matches ..{dy - 1} run "
         f"schedule function {ns}:clear_tick 1t replace",
-        f"execute if score #clear {obj}c matches {dy}.. run "
+        f"execute if score #clear {obj} matches {dy}.. run "
         f"function {ns}:clear_done",
     ])
-    _write(os.path.join(fdir, "clear_slice.mcfunction"), strips)
-    _write(os.path.join(fdir, "clear_done.mcfunction"), [
-        f"kill @e[type=marker,tag={tag}c]",
-        f"scoreboard objectives remove {obj}c",
-        f'tellraw @a {{"text":"{name} removed.","color":"gray"}}',
+
+    fn("clear_progress", [
+        f'$title @a actionbar {{"text":"{name}: clearing layer $(layer) of '
+        f'{dy}","color":"gray"}}',
     ])
-    # --- keeping it loaded ------------------------------------------------
+
+    fn("clear_slice", strips)
+
+    fn("clear_done", [
+        f"kill @e[type=marker,tag={tag}_clear]",
+        f"kill @e[type=marker,tag={tag}]",
+        f"function {ns}:unload",
+        f"data remove storage {store} x",
+        f"data remove storage {store} y",
+        f"data remove storage {store} z",
+        f"scoreboard players set #run {obj} 0",
+        f'tellraw @a {{"text":"{name} removed: {dy} layers, chunks released.",'
+        f'"color":"gray"}}',
+        f'title @a actionbar {{"text":"{name}: removed","color":"gray"}}',
+    ])
+
+    # --- keeping it loaded --------------------------------------------------
     # The single most important thing about running a machine this size in a
-    # real world, and the one nothing here said: **redstone only ticks in
-    # chunks the game is simulating.** This build is 35 x 61 = 2,135 chunks.
-    # At Java's default simulation distance of 10 a player sees a 21 x 21
-    # square — 441 chunks, about a fifth of it — so somebody standing at the
-    # control wall would throw a lever and the far end of the machine would
-    # simply be frozen. The answer never arrives, nothing looks broken, and
-    # there is no error anywhere.
+    # real world: **redstone only ticks in chunks the game is simulating.** This
+    # build is dx x dz blocks; at Java's default simulation distance a player
+    # sees a 21 x 21 square of chunks, so somebody at the control wall would
+    # throw a lever and the far end would simply be frozen. No error, no answer.
     #
-    # `/forceload` fixes it: force-loaded chunks are held at the ticket level
-    # that grants block ticking, which is what redstone runs on. One command
-    # covers at most 256 chunks, so the footprint is tiled 256 blocks a side.
+    # `/forceload` holds chunks at the ticket level that grants block ticking.
+    # One command covers at most 256 chunks, so the footprint is tiled.
     tiles = []
     for x in range(0, dx, 256):
         for z in range(0, dz, 256):
             tiles.append(f"forceload add ~{x} ~{z} "
                          f"~{min(dx - 1, x + 255)} ~{min(dz - 1, z + 255)}")
-    _write(os.path.join(fdir, "load.mcfunction"), [
-        f"# Redstone only ticks in simulated chunks, and this is "
-        f"{-(-dx // 16)} x {-(-dz // 16)} = {(-(-dx // 16)) * (-(-dz // 16))} "
-        f"of them.",
-        f"# Run from the same corner as `build`, or the machine's far end "
-        f"never moves.",
+    chunks = (-(-dx // 16)) * (-(-dz // 16))
+
+    fn("load", [
+        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run return fail",
+        f"function {ns}:load_at with storage {store}",
+    ])
+    fn("load_at",
+       [f"$execute positioned $(x) $(y) $(z) run function {ns}:load_tiles"])
+    fn("load_tiles", [
+        f"# {-(-dx // 16)} x {-(-dz // 16)} = {chunks} chunks, "
+        f"{len(tiles)} commands (256 chunks each is the cap).",
     ] + tiles + [
-        f'tellraw @a {{"text":"{name}: '
-        f'{(-(-dx // 16)) * (-(-dz // 16))} chunks force-loaded.",'
+        f'tellraw @a {{"text":"{name}: {chunks} chunks force-loaded — the '
+        f'machine ticks even where nobody is standing.","color":"green"}}',
+    ])
+
+    fn("unload", [
+        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute unless data storage {store} x run return fail",
+        f"function {ns}:unload_at with storage {store}",
+    ])
+    fn("unload_at",
+       [f"$execute positioned $(x) $(y) $(z) run function {ns}:unload_tiles"])
+    fn("unload_tiles",
+       [t.replace("forceload add", "forceload remove") for t in tiles] +
+       [f'tellraw @a {{"text":"{name}: chunks released. The machine stops '
+        f'ticking away from you.","color":"gray"}}'])
+
+    fn("no_origin", [
+        f'tellraw @a {{"text":"{name}: nothing built yet — no origin on '
+        f'record. Stand at the -X -Y -Z corner and run /function '
+        f'{ns}:build.","color":"red"}}',
+    ])
+
+    # --- saying where things are -------------------------------------------
+    fn("status", [
+        f"scoreboard objectives add {obj} dummy",
+        f"execute unless data storage {store} x run function {ns}:no_origin",
+        f"execute if data storage {store} x run "
+        f"function {ns}:status_show with storage {store}",
+        f"execute if score #run {obj} matches 1 if data storage {ns}:ui part "
+        f"run function {ns}:status_running with storage {ns}:ui",
+        f"execute if score #run {obj} matches 1 if data storage {ns}:ui layer "
+        f"run function {ns}:status_clearing with storage {ns}:ui",
+        f"execute if data storage {store} x unless entity "
+        f"@e[type=marker,tag={tag}] run function {ns}:status_lost",
+    ])
+    fn("status_show", [
+        f'$tellraw @a {{"text":"{name}: built at $(x) $(y) $(z), {dx} x {dy} x '
+        f'{dz}, {count:,} blocks in {chunks} force-loaded chunks.",'
         f'"color":"green"}}',
     ])
-    _write(os.path.join(fdir, "unload.mcfunction"),
-           [t.replace("forceload add", "forceload remove") for t in tiles] +
-           [f'tellraw @a {{"text":"{name}: chunks released.","color":"gray"}}'])
+    fn("status_running", [
+        f'$tellraw @a {{"text":"{name}: working — part $(part) of {nparts}.",'
+        f'"color":"yellow"}}',
+    ])
+    fn("status_clearing", [
+        f'$tellraw @a {{"text":"{name}: clearing — layer $(layer) of {dy}.",'
+        f'"color":"yellow"}}',
+    ])
+    fn("status_lost", [
+        f'tellraw @a {{"text":"{name}: the origin marker is missing (chunks '
+        f'unloaded, or it was killed). Coordinates above still work; run '
+        f'/function {ns}:load to bring the chunks back.","color":"yellow"}}',
+    ])
+
+    fn("help", [
+        f'tellraw @a {{"text":"{name} — {dx} x {dy} x {dz}, {count:,} blocks",'
+        f'"color":"white"}}',
+    ] + [
+        f'tellraw @a {{"text":"  /function {ns}:{c}  — {d}","color":"gray"}}'
+        for c, d in [
+            ("build", "place it, from the -X -Y -Z corner"),
+            ("clear", "take it away again, from anywhere"),
+            ("status", "where it is and what it is doing"),
+            ("load", "force-load its chunks so it ticks"),
+            ("unload", "release them again"),
+            ("abort", "stop a build or clear part way"),
+        ] + [(f"go_{k}", f"teleport to the {k}") for k in sorted(marks)]
+    ])
+
+    # Teleports, because the control wall is one corner of a 555 x 973 machine
+    # and walking to it is a minute of holding W in a trench.
+    for key, (mx, my, mz) in sorted(marks.items()):
+        fn(f"go_{key}", [
+            f"execute unless data storage {store} x run function {ns}:no_origin",
+            f"execute unless data storage {store} x run return fail",
+            f"function {ns}:go_{key}_at with storage {store}",
+        ])
+        fn(f"go_{key}_at", [
+            f"$execute positioned $(x) $(y) $(z) run "
+            f"tp @s ~{mx} ~{my} ~{mz}",
+            f'tellraw @s {{"text":"{name}: {key}","color":"gray"}}',
+        ])
+
+    for fname, lines in out.items():
+        _write(os.path.join(fdir, f"{fname}.mcfunction"), lines)
 
     return {"entry": f"function {ns}:build", "clear": f"function {ns}:clear",
             "load": f"function {ns}:load", "unload": f"function {ns}:unload",
-            "control_functions": sorted(CONTROL_FUNCTIONS),
-            "ticks": len(files), "clear_ticks": dy,
+            "status": f"function {ns}:status", "help": f"function {ns}:help",
+            "control_functions": sorted(out),
+            "control_files": {f"{k}.mcfunction": "\n".join(v) + "\n"
+                              for k, v in out.items()},
+            "ticks": nparts, "clear_ticks": dy,
             "fills_per_layer": len(strips), "forceload_commands": len(tiles),
-            "chunks": (-(-dx // 16)) * (-(-dz // 16))}
+            "landmarks": marks,
+            "chunks": chunks}

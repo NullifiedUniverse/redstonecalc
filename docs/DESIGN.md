@@ -2920,3 +2920,167 @@ both templates and fails on any top-level statement that dereferences `circ`,
 `world` or `eng` — anything past the line's first `=>` or `function` is a body
 that runs later, so `bStep.onclick = () => eng.tick()` stays legal. It finds the
 line in a tenth of a second, and it was checked by putting the bug back.
+
+## 35. The version it actually targets, and the parts that only looked right — **measured**
+
+Six things, from a report that the machine misbehaves in 26.2, that `clear`
+leaves most of itself standing, and that redstone ends up on the floor.
+
+### The pack was declaring a version that no longer exists
+
+This is the one that makes everything else moot, and nothing in the repository
+could have caught it, because it is a fact about the world outside.
+
+| | what this shipped | what 26.2 reads |
+|---|---|---|
+| version naming | "1.21" | the format table calls the game **26.2**, not 1.26.2 |
+| the field | `pack_format: 48` | `min_format` / `max_format`, since 25w31a |
+| the value | a bare integer | `[major, minor]` — 26.2 is **107.1**, and the minor is not decoration |
+
+A pack carrying only the old field is not read as "close enough". It is read as
+a pack for a version that is gone, and the game asks the player to confirm they
+want to load something incompatible. `pack_meta` now writes both spellings —
+`min_format [48, 0]`, `max_format [107, 1]`, and the legacy integer — so one
+file serves a 26.x world and a 1.21 one, and `--mc` targets the rest.
+
+The other half of that lookup was the useful half: **no command this pack uses
+has a breaking change between format 48 and 107.** `/fill`, `/setblock`,
+`/forceload`, `/schedule`, `/scoreboard`, `/execute`, `/summon marker`,
+`/tellraw` and the `data/<ns>/function/` directory are all unchanged. So the
+machine itself needed nothing; only its label did.
+
+### Redstone on the floor: right by accident, and only for one case
+
+The report was that dust ends up placed on air. It does not, and the
+measurement says so plainly — every one of the 456,558 blocks has a sturdy
+support beneath it, and replaying the whole command stream in order finds
+**zero** placed before the thing holding them up. Ascending Y put every support first.
+
+But that was luck, not design, and it covers exactly one case. `block_state`
+also emits `redstone_wall_torch` and wall levers, whose support is a
+*horizontal* neighbour at the same Y — and the sort's tiebreak is (z, x), which
+places half of those against nothing. The machine has none today. The exporter
+has supported them for eleven sections.
+
+So the ordering is now a phase rather than a coincidence: the entire skeleton —
+solid, glass, lamp, redstone block — goes down across the whole build, and only
+then every component. It costs nothing (runs are homogeneous, so the merge and
+the command count are untouched at 71,768) and it turns an accident into
+something `tests/test_mcbuild.py` can state, with a wall torch and a wall lever
+added to the fixture so the case that was uncovered is the case it checks.
+
+Why it matters even though nothing is currently wrong: `/setblock
+minecraft:redstone_wire` into thin air **does not fail**. The block is placed,
+the game updates it, and it drops as an item. A build this size loses a few
+hundred wires and still looks finished.
+
+### `clear` never could have worked
+
+Two independent reasons, both of which leave most of the machine standing:
+
+| | what it did | why that fails |
+|---|---|---|
+| where it started | from wherever the player was standing | one step off the corner and it clears a column of the wrong thing, the machine's full width and depth |
+| what was loaded | nothing — it never called `load` | `/fill` only touches loaded chunks, so it removed the fifth of the machine near the player and silently skipped the rest |
+
+Both are fixed by giving the pack a memory. `build` now summons its marker
+through `execute at @s align xyz`, which floors the position onto the block grid
+before the summon, and stores those coordinates in `data storage`. That
+alignment is not tidiness: `store result ... int` truncates towards zero, so an
+unaligned origin is off by one for **every negative coordinate** — a machine
+half a kilometre wide, and `clear` looking for it one block away.
+
+`clear` reads that origin back through a function macro, force-loads the
+footprint, and only then starts. It runs from anywhere in the world now, and
+`clear_done` releases the chunks and forgets the origin.
+
+### Saying what it is doing
+
+`build` used to print one line and then go quiet for 36 ticks; `clear` printed
+nothing at all. Both now report to the **action bar** rather than to chat —
+36 lines of "placing part 12" is not progress reporting, it is a wall of text
+you scroll past to find the answer — and the pack gained `status` (where the
+machine is, how big, and which part or layer is running), `help`, `abort`, and a
+guard that refuses a second build on top of a running one.
+
+It also says the thing nobody had said: **you are standing inside the footprint
+when you start it.** You are on its minimum corner, so the floor is placed
+through you.
+
+### Getting around a machine 973 blocks long
+
+The README has admitted since §15 that walking from the control wall to the
+lamps "is the one part of using this thing that is still bad". The pack now
+ships `go_controls`, `go_display`, `go_above` and `go_origin`, computed from the
+build rather than typed — and *checked against the world*, because a teleport
+into the middle of the machine buries the player in a solid block. A landmark
+that is not standing room is refused at export time.
+
+For everything between the two ends there is a second pack: a grappling hook, a
+dash and a waypoint. The hook is a fishing rod; while it is cast you are pulled
+along the line to the bobber at 0.85 blocks a tick. Two details are worth
+stating because they are what make it feel like a tool rather than a teleport:
+
+* `execute ... facing entity ... positioned ^ ^ ^0.85 ... run tp @s ~ ~ ~` moves
+  you towards the hook **without touching your rotation** — `facing` changes the
+  execution context's rotation, not the entity's, so the camera stays where you
+  put it;
+* every step is gated on `if block ~ ~ ~ #passable`, so the hook stops you
+  against a wall instead of pulling you inside it. `tests/test_traverse.py`
+  requires every teleport in the pack to carry that guard.
+
+### Two implementations became one
+
+§34 made the page's datapack generator agree with the exporter's by checking
+them against each other. That was the wrong fix — it tested a duplicate instead
+of removing it. The exporter now returns the **finished text** of every control
+function, the bundle carries it, and the page writes those bytes.
+
+What is left to check is the one thing the shipped text assumes: that the parts
+it dispatches are the parts that exist. The page's run-merge is still its own,
+so it is checked rather than trusted — and a mismatch is fatal, because a
+`dispatch` calling `part0036` in a pack of 36 places a machine with a hole in it
+and reports success. The supports-first ordering had to cross the same gap, and
+did it as one boolean per palette entry rather than as a second copy of the rule.
+
+Generating both packs and diffing them, file by file:
+
+| | result |
+|---|---|
+| control functions | 35, **byte-identical** |
+| `partNNNN` batches | 36, **byte-identical** |
+| `pack.mcmeta` | identical |
+| files that differ | **none** |
+
+### And a linter, because nothing here runs Minecraft
+
+That is the honest position: these commands are the one artefact in this project
+that a player executes before any test does. The two worst bugs so far — a pack
+that named its own functions wrongly, and one that force-loaded nothing — both
+look perfectly fine in a diff.
+
+`rscalc/packlint.py` reads a pack back the way the loader would: every
+`function` and `schedule` reference resolved, every scoreboard objective created
+before it is read, every entity tag applied by something, every block tag
+shipped, every `$(placeholder)` supplied by the storage its caller passes, every
+`minecraft:tick` hook pointing at a function that exists, and every bracket and
+quote balanced. Both packs come out clean.
+
+A linter that passes everything is worse than none, so it was damaged on
+purpose — nine ways, and it catches all nine:
+
+| break | caught as |
+|---|---|
+| a call to a function that is gone | `calls rscalc_move:onn, which does not exist` |
+| a scheduled function that is gone | `schedules ..., which does not exist` |
+| an objective nothing creates | `selects on objective 'nope_dash'` |
+| an entity tag nothing applies | `selects tag 'nope_on'` |
+| a block tag the pack does not ship | `uses tag #rscalc_move:walkable` |
+| a macro placeholder nothing supplies | `needs ['ex'] from rscalc_move:wp` |
+| an unbalanced `tellraw` | `unbalanced brackets or quotes` |
+| a misspelled command | `unknown command 'telraw'` |
+| a `minecraft:tick` hook pointing nowhere | `hooks rscalc_move:tock, which does not exist` |
+
+What it does not prove: that the grappling hook feels right, or that 0.85 blocks
+a tick is a good speed. Nothing here can. That is said out loud in the module
+rather than left for a reader to assume.
