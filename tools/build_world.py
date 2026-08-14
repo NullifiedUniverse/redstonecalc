@@ -522,6 +522,12 @@ def main():
         print(f"  zip:        {os.path.relpath(zipped)} "
               f"({os.path.getsize(zipped)/1024:.0f} KB) — drop this straight "
               f"into <world>/datapacks/")
+    # what the pack *needs*, as distinct from what it claims. The format number
+    # in pack.mcmeta is a compatibility claim; this is measured from the
+    # commands, and it is the figure that decides whether it works.
+    floor, needs = packlint.requires(packdir)
+    what, where = needs[floor][0]
+    print(f"  needs at least Minecraft {floor} ({what}, {where})")
     print(f"  targets Minecraft {args.mc} "
           f"(pack format {pack['pack_meta']['pack']. get('max_format') or pack['pack_meta']['pack']['pack_format']})")
     print(f"  total {size/1024/1024:.1f} MB in {root} ({time.time()-t0:.0f}s)")

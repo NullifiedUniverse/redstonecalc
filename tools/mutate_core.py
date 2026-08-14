@@ -108,6 +108,13 @@ MUTATIONS = [
      '        "max_format": major,',
      '        "max_format": [major, 0],',
      "a pack.mcmeta format written as a pair rather than an integer"),
+    # a construct newer than the pack's floor deletes the function that uses it
+    # on every older world — see DESIGN §39
+    ("traverse.gear-components", "rscalc/traverse.py",
+     f'        f"give @s minecraft:fishing_rod",',
+     f'        f\'give @s minecraft:fishing_rod[custom_name={{text:"Hook"}}]\',',
+     "a decorative 1.20.5 item component that costs every older world the "
+     "whole of move/gear"),
     # a value from the wrong closed vocabulary: the command does not parse, so
     # the whole function fails to load and the entry point a player types comes
     # back "Unknown function" while the rest of the pack works — see DESIGN §38

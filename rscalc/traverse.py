@@ -144,13 +144,23 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
     # version-fragile thing this could depend on, and if it were wrong the hook
     # would do nothing with no error to say why. The names are decoration, and
     # decoration is allowed to break.
+    # Plain items, with no components on them.
+    #
+    # These used to carry `custom_name` and `custom_data`, which are **1.20.5**
+    # syntax — and they bought nothing. The comment above already said so:
+    # nothing reads the custom_data, the pack keys off a player tag, and the
+    # names are decoration. What they cost is real, because an item component on
+    # a version that predates them is a *parse* error, and a parse error takes
+    # the whole function down: `move/gear` would simply not exist, with the same
+    # "Unknown function" that §38 chased twice.
+    #
+    # Dropping them puts the gadgets on the same floor as the machine itself
+    # (1.20.3), so the only thing in this pack still asking for 1.20.5 is the
+    # pet's head, where the profile component *is* the feature.
     fn("gear", [
-        f'give @s minecraft:fishing_rod[custom_name={{text:"Grappling Hook",'
-        f'color:"aqua",italic:false}},custom_data={{{ns}:1b}}]',
-        f'give @s minecraft:carrot_on_a_stick[custom_name={{text:"Dash Charm",'
-        f'color:"gold",italic:false}},custom_data={{{ns}:1b}}]',
-        f'give @s minecraft:compass[custom_name={{text:"Recall Compass",'
-        f'color:"light_purple",italic:false}},custom_data={{{ns}:1b}}]',
+        f"give @s minecraft:fishing_rod",
+        f"give @s minecraft:carrot_on_a_stick",
+        f"give @s minecraft:compass",
         # mark where they are standing, so the compass works the first time
         # they press it rather than telling them off for not reading the help
         f"function {ns}:{p}/mark",

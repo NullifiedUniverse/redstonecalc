@@ -170,6 +170,58 @@ def _balanced(line):
     return not quoted and not any(depth.values())
 
 
+#: Constructs this pack uses that did not always exist, and the version each
+#: one arrived in. A datapack has no way to say "I need at least X" — the format
+#: number in `pack.mcmeta` is a compatibility *claim*, not a requirement, and
+#: the game will happily load a pack and then fail to parse half of it.
+#:
+#: The failure is the one §38 traced twice: a command the version does not know
+#: is a **parse** error, the whole function is rejected at load, and the player
+#: sees "Unknown function" for something that is plainly in the zip. Knowing
+#: which construct sets the floor, and where it is used, is the difference
+#: between "it does not work" and "move/gear needs 1.20.5, the rest does not".
+NEEDS = [
+    (re.compile(r"\bgive @\S+ \S+\["), "1.20.5", "item components on /give"),
+    (re.compile(r"\bwith minecraft:\S+\["), "1.20.5",
+     "item components on /item replace"),
+    (re.compile(r"\breturn (?:fail|run)\b"), "1.20.3", "return fail / return run"),
+    (re.compile(r"^\$|\bwith storage\b"), "1.20.2", "function macros"),
+    (re.compile(r"\{(?:front|back)_text:"), "1.20", "the 1.20 sign text format"),
+    (re.compile(r"\bexecute\b.*\bif loaded\b"), "1.19.4", "execute if loaded"),
+    (re.compile(r"\bexecute\b.*\bon vehicle\b"), "1.19.4", "execute on vehicle"),
+    (re.compile(r"^\s*ride\s"), "1.19.4", "the /ride command"),
+    (re.compile(r"^\s*damage\s"), "1.19.4", "the /damage command"),
+    (re.compile(r"\bsummon (?:minecraft:)?marker\b"), "1.17", "marker entities"),
+]
+
+
+def _ver_key(v):
+    return tuple(int(p) for p in v.split("."))
+
+
+def requires(root):
+    """What the *newest* thing in this pack is, and which files need it.
+
+    Returns ``(version, {version: [(what, where), ...]})``. Nothing here can run
+    Minecraft, so this is the closest available thing to knowing whether a pack
+    will work on a given world: a list of the constructs it leans on and when
+    each one arrived.
+    """
+    found = {}
+    for fid, path in sorted(_functions(root).items()):
+        for i, line in enumerate(open(path), 1):
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            for pat, ver, what in NEEDS:
+                if pat.search(s):
+                    found.setdefault(ver, {}).setdefault(what, f"{fid}:{i}")
+    if not found:
+        return "1.13", {}
+    floor = max(found, key=_ver_key)
+    return floor, {v: sorted(d.items()) for v, d in found.items()}
+
+
 def lint(root):
     """Return a list of problems with the pack at `root`. Empty means clean."""
     bad = []

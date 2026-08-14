@@ -136,6 +136,16 @@ def build(outdir, ns=mcbuild.NAMESPACE):
         f"summon minecraft:armor_stand ~ ~ ~ {{Small:1b,Invisible:1b,"
         f"Invulnerable:1b,NoBasePlate:1b,PersistenceRequired:1b,Silent:1b,"
         f'DisabledSlots:4144959,Tags:["{pet}","{pet}_new"]}}',
+        # A plain head first, then the skin on top of it. The profile component
+        # is 1.20.5 syntax and lives alone in `pet/head` for that reason: if the
+        # game is older, that one function fails to load and this line has
+        # already put a visible head on the stand. The difference between "not
+        # your face" and "an invisible armour stand" is the whole pet.
+        #
+        # Function references resolve when they run, not when the pack loads,
+        # so a missing `pet/head` costs one red line and nothing else.
+        f"item replace entity @e[type=armor_stand,tag={pet}_new,limit=1] "
+        f"armor.head with minecraft:player_head",
         f"function {ns}:{p}/head with storage {store}",
         f"execute as @e[type=armor_stand,tag={pet}_new] run "
         f"scoreboard players operation @s {obj} = #next {obj}",

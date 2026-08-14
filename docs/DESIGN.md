@@ -3544,3 +3544,73 @@ The tag is the design, and what is missing from it is most of the design:
 `zombified_piglin` and `wolf` (angering a pack is worse than the mob), and every
 passive mob — a pet that kills the cows is not a feature. 31 kinds of prey, 29
 of them `required: false` so one renamed id cannot disable the whole tag.
+
+## 39. What the pack needs, as opposed to what it claims — **measured**
+
+One word, "debug". Three rounds had each ended the same way: a command the
+linter did not understand, found in a world rather than here. So rather than
+wait for a fourth, every command in the pack was normalised into its **shape**
+— arguments replaced by placeholders — and the resulting list read end to end.
+
+| | |
+|---|---|
+| commands in the pack | 71,768 |
+| distinct command shapes | **251** |
+| enum values from the wrong vocabulary | 0 (§38 was the only one) |
+| particle, sound, damage-type, slot and criterion ids | all real |
+
+That is the good news, and it is worth stating plainly because it is a null
+result: after the boss bar, there is no second `aqua` hiding in here.
+
+### The thing the shapes did show
+
+A datapack has **no way to say "I need at least version X"**. The format number
+in `pack.mcmeta` is a compatibility *claim* — the game reads it, decides whether
+to warn, and then loads the pack regardless. What actually decides whether the
+pack works is whether the parser recognises each command, and a command from the
+future is a parse error, which takes its whole function down. §38's failure, one
+version further along.
+
+So `packlint.requires()` measures it: which constructs the pack leans on, when
+each arrived, and where it is first used.
+
+```
+needs at least Minecraft 1.20.5 (item components on /item replace, rscalc:pet/head:1)
+  1.20.5  item components on /give           rscalc:move/gear:1
+  1.20.5  item components on /item replace   rscalc:pet/head:1
+  1.20.3  return fail / return run           rscalc:build:5
+  1.20.2  function macros                    rscalc:go/above:3
+  1.20    the 1.20 sign text format          rscalc:sys/signs:2
+  1.19.4  execute if loaded                  rscalc:sys/probe:4
+  1.19.4  execute on vehicle                 rscalc:move/motion:1
+  1.19.4  the /damage command                rscalc:pet/bite:1
+  1.19.4  the /ride command                  rscalc:move/arrive:3
+  1.17    marker entities                    rscalc:build:11
+```
+
+Reading that list is the whole point of writing it. The machine needs **1.20.3**.
+The gadgets were dragging the floor two versions higher than the machine — and
+for *nothing*: three `give` lines carried `custom_name` and `custom_data`
+components, and the module's own comment already said the data is never read and
+the names are decoration. Decoration that, on a 1.20.3 world, deletes
+`move/gear` entirely.
+
+| | before | after |
+|---|---|---|
+| the machine | 1.20.3 | 1.20.3 |
+| the movement gadgets | 1.20.5 | **1.20.3** |
+| the pet | 1.20.5 | 1.20.5 |
+
+### The pet keeps its 1.20.5, and degrades instead of vanishing
+
+`minecraft:player_head[profile={id:…}]` is what puts *your* face on the pet.
+There is no older spelling that does the same thing, so that one stays — but it
+now sits alone in `pet/head`, and `pet/get` fits a **plain** player head before
+calling it. Function references resolve when they run rather than when the pack
+loads, so on an older game `pet/head` is one red line and the pet is a generic
+head instead of an invisible armour stand. Losing your face is a feature
+degrading; losing the head is the pet not existing.
+
+`tests/test_traverse.py` pins the movement floor at 1.20.3, so raising it is a
+decision somebody makes on purpose rather than a component someone adds for the
+look of it.

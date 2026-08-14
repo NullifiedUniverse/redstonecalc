@@ -113,6 +113,37 @@ def test_the_linter_can_fail():
         shutil.rmtree(d)
 
 
+def test_the_pack_does_not_quietly_raise_the_version_it_needs():
+    """A datapack cannot say "I need at least X", so this measures it instead.
+
+    The format number in `pack.mcmeta` is a compatibility *claim*. What decides
+    whether the pack works is whether the game can parse its commands, and a
+    command from the future is a parse error that takes its whole function down
+    — "Unknown function" for a file that is plainly in the zip, which is the
+    failure §38 chased twice.
+
+    The floor is pinned so that raising it is a decision somebody makes on
+    purpose. It was 1.20.5 for a while, entirely because three `give` lines
+    carried decorative `custom_name` components that the pack never read.
+    """
+    d, _ = _built()
+    try:
+        floor, needs = packlint.requires(d)
+        assert floor == "1.20.3", (
+            f"the gadgets now need {floor}, raised by "
+            f"{needs[floor]} — every player below that loses the whole "
+            f"function, not the feature")
+        for line in open(os.path.join(d, "data", NS, "function",
+                                      traverse.PREFIX, "gear.mcfunction")):
+            if line.startswith("give "):
+                assert "[" not in line, (
+                    f"an item component on a give that nothing reads: {line!r}")
+        print(f"  the movement half needs Minecraft {floor} and no more, and "
+              f"the gear is plain items: OK")
+    finally:
+        shutil.rmtree(d)
+
+
 def test_the_hook_never_moves_you_into_a_block():
     """Every teleport in the pack is gated on the destination being passable.
 

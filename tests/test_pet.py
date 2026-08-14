@@ -161,6 +161,15 @@ def test_the_head_goes_on_with_a_command_not_with_nbt():
         # and the uuid it substitutes is read off the player, not typed
         assert f"data modify storage {NS}:pet uuid set from entity @s UUID" \
             in get
+        # the profile component is 1.20.5 syntax, so it lives alone in its own
+        # function and a plain head goes on first: an older game loses the skin
+        # rather than the entire pet
+        assert "armor.head with minecraft:player_head\n" in get, \
+            "no plain head, so an older game gets an invisible armour stand"
+        assert "[" not in get.split("armor.head with ")[1].split("\n")[0], \
+            "the fallback head carries a component, so it fails with the macro"
+        assert get.index("armor.head with minecraft:player_head") \
+            < get.index(f"function {NS}:pet/head"), "the fallback comes second"
         print("  the head is fitted with /item and the skin is the owner's "
               "own uuid: OK")
     finally:
