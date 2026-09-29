@@ -296,39 +296,37 @@ typed-in claim. Put the `aqua` boss-bar colour back and the exporter prints the
 game's own message and writes nothing. `tests/test_mccheck.py` re-checks the
 checker against twelve thousand recorded verdicts from the game itself, offline.
 
-**It ships both directory layouts, so it works on 1.20.x and 1.21+.** 24w21a
-renamed every data directory to the singular on the way to 1.21 —
-`data/<ns>/functions/` became `data/<ns>/function/`, `tags/blocks/` became
-`tags/block/`. Which one is needed is decided by the game, not the pack, and the
-wrong one produces **no warning at all**: `/datapack list` shows the pack
-*enabled*, and every `/function` in it answers "Unknown function", because the
-game loaded a pack it found nothing inside. Nothing in this repository can run
-Minecraft to detect a player's version, and a player should not have to know it,
-so every directory is written twice. That is what doubles the zip to 828 KB, and
-it is worth it. See DESIGN §38.
+**It ships both directory layouts, because it loads from 1.20.3.** 24w21a
+renamed every data directory to the singular on the way to 1.21 — the game's own
+data shows it: 1.20.3 and 1.20.5 ship `loot_tables` and `tags/blocks`, 1.21 and
+26.2 ship `loot_table` and `tags/block`. A directory a version does not recognise
+is not a warning, it is never looked at, so a pack meant to load from 1.20.3 up
+carries both. That is what doubles the zip. (On 1.21 and later the singular
+layout is all that is read; this was once blamed for a report of "Unknown
+function" and did not cause it. DESIGN §38 carries the correction.)
 
-If `/function rscalc:build` is still unknown, `/datapack list` is the first
-thing to check: if `rscalc` is not in the *enabled* list, it is a `/reload`
-away, or the zip is in the wrong folder — it goes in `<world>/datapacks/`, and
-`pack.mcmeta` must be at the **root** of the zip, not inside a folder.
+**"Unknown function" usually means one bad command.** A function is parsed when
+the pack loads, whole: a single command in it that does not parse gets the entire
+function rejected, and from in game that is indistinguishable from a missing
+file. That is what happened to `rscalc:build` — `bossbar set … color aqua`,
+where `aqua` is a *text* colour and a boss bar takes one of seven different ones.
+One wrong word on line 20, and the one command the README tells you to type did
+not exist while every other function worked. It cannot happen again: the build
+walks every command through the game's own grammar for the version it targets
+and refuses to write a pack that version would not load. If it is still unknown,
+`/datapack list` is the first thing to check — `rscalc` should be in the
+*enabled* list, and if it is not, it is a `/reload` away or the zip is in the
+wrong folder (`<world>/datapacks/`, with `pack.mcmeta` at the **root** of the
+zip, not inside a folder).
 
-**"Unknown function" can also mean one bad command.** A function is parsed when
-the pack loads, whole: a single command in it that does not parse gets the
-entire function rejected, and from in game that is indistinguishable from a
-missing file. That is what actually happened here — `bossbar set … color aqua`,
-where `aqua` is a *text* colour and a boss bar takes one of seven different
-ones. One wrong word on line 20 meant the one command the README tells you to
-type did not exist, while all 165 other functions worked. `rscalc/packlint.py`
-now knows the closed vocabularies the pack emits (boss bar colours and styles,
-`playsound` sources) and `tools/build_world.py` refuses to write a pack it
-rejects, so that build cannot be produced again. DESIGN §38 has the reasoning.
-
-The format fields are all plain integers (`pack_format`, `min_format`,
-`max_format`) plus a `supported_formats` range of 48..107. The range is wide on
-purpose: this pack is `/fill`, `/setblock`, `/execute` and `/scoreboard`, whose
-syntax has not moved in years, so being refused over a version number is a worse
-failure than running on a version that has drifted. `--mc` targets a different
-one.
+**`pack.mcmeta` is the range that was measured, and the game's own codec agrees.**
+Formats 26 to 121 — Minecraft 1.20.3 to 26.3 — as plain integers, with
+`supported_formats` *and* `min_format`/`max_format`, because the game requires
+all three for a range that spans 81. The rules are not obvious and two shapes
+this project shipped broke them: the `[major, minor]` arrays it first wrote are
+refused outright, and the range it wrote last, capped at 107, is not compatible
+with 26.3 (format 121). DESIGN §40 has the six shapes and the game's verdict on
+each. `--mc` targets a different version.
 
 **It waits for its chunks, and that wait is the fix for redstone on the floor.**
 `/forceload add` does not load a chunk; it marks it to be loaded, and the server

@@ -376,7 +376,23 @@ input:focus-visible{outline:2px solid var(--redstone);outline-offset:2px}
 .takeaway-txt span{font-size:.85rem;color:var(--ash);line-height:1.5}
 .takeaway-txt span b{font-family:var(--mono);font-size:inherit;
   letter-spacing:0;text-transform:none;color:var(--ink)}
-#bPack{flex:0 0 auto}
+/* The one thing on this page a reader is meant to walk away with, and it was the
+   only button that looked like nothing. `.prim` is scoped to `.transport`, so
+   outside it the class did nothing and the page's call to action rendered as a
+   browser-default grey rectangle beside a properly red "run to the answer". */
+#bPack{flex:0 0 auto;font-family:var(--mono);font-size:.7rem;font-weight:600;
+  padding:.55rem .95rem;border:1px solid var(--prim);border-radius:5px;
+  background:var(--prim);color:#fff;cursor:pointer}
+#bPack:hover{filter:brightness(1.12)}
+#bPack:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+#bPack:disabled{opacity:.65;cursor:progress}
+/* two classes deep on purpose: `.takeaway-txt span` (one class, one element)
+   sets the description's size and colour and would otherwise win */
+.takeaway-txt .takeaway-steps{font-family:var(--mono);font-size:.68rem;
+  color:var(--dim);line-height:1.6;margin-top:.3rem}
+.takeaway-txt .takeaway-steps code{font-family:inherit;color:var(--ink);
+  background:none;padding:0;font-weight:600}
+.takeaway-txt .takeaway-steps span{font-size:inherit;color:inherit}
 /* `flex:0 0 auto` was fine while this said "410 KB". Framed, it says a whole
    sentence about why the file may not have arrived, and a note that cannot
    shrink pushes the button off the row. */
@@ -690,6 +706,10 @@ footer{border-top:1px solid var(--seam);margin-top:2.4rem;
       <b>Put it in your own world</b>
       <span>A vanilla datapack — no mods. Stand at a corner, run one command,
         and it places itself over <b id="dpTicks">…</b> game ticks.</span>
+      <span class="takeaway-steps">then: the zip goes in <code>&lt;world&gt;/datapacks/</code>,
+        then <code>/reload</code>, then stand on the corner you want and run
+        <code>/function <span id="dpNs">rscalc</span>:build</code>. <code>/function
+        <span id="dpNs2">rscalc</span>:help</code> lists the rest.</span>
     </div>
     <button type="button" id="bPack" class="prim">get the datapack</button>
     <span class="takeaway-note" id="dpNote"></span>
@@ -4022,7 +4042,7 @@ addEventListener("resize",()=>{
     // how many ticks the pack takes to place itself: written into the markup
     // by hand until now, the one number on this page nobody measured. The
     // exporter merges the runs, counts the commands and ships the figure.
-    dpTicks:circ.mc.parts,
+    dpTicks:circ.mc.parts,dpNs:circ.mc.namespace,dpNs2:circ.mc.namespace,
     hWidth:circ.width+"-bit",hDelay:"delay "+circ.delay}))
     if($(k))$(k).textContent=v;
   speed=+$("speed").value||speed;setFadeWindows();

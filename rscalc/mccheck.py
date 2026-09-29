@@ -1105,6 +1105,27 @@ def format_of(version):
     return pv.get("data_major", pv.get("data"))
 
 
+def mcmeta_compatible(meta, version):
+    """Would the game call a pack with this `pack` section compatible with
+    ``version``? Compatible means loading quietly; anything else is the
+    "made for an older version" warning a player reads as "this is broken".
+
+    The game compares its own data-pack format with the pack's declared range,
+    and a pack that declares only `pack_format` claims exactly that one format.
+    """
+    sup = meta.get("supported_formats")
+    lo = (sup or {}).get("min_inclusive", meta.get("min_format",
+                                                   meta.get("pack_format")))
+    hi = (sup or {}).get("max_inclusive", meta.get("max_format",
+                                                   meta.get("pack_format")))
+    cur = format_of(version)
+    # a malformed range (the `[major, minor]` arrays this project once wrote)
+    # is simply not compatible; it is `packlint.mcmeta_problems` that says why
+    if not (isinstance(lo, int) and isinstance(hi, int)):
+        return False
+    return lo <= cur <= hi
+
+
 def _key(v):
     return tuple(int(p) for p in re.findall(r"\d+", v))
 

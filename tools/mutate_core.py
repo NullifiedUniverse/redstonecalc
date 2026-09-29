@@ -105,8 +105,8 @@ MUTATIONS = [
     # value the game cannot parse makes the whole pack invisible, with every
     # /function in it reported as an unknown command and nothing to say why.
     ("mcbuild.pack-version", "rscalc/mcbuild.py",
-     '        "max_format": major,',
-     '        "max_format": [major, 0],',
+     '        "max_format": hi,',
+     '        "max_format": [hi, 0],',
      "a pack.mcmeta format written as a pair rather than an integer"),
     # ---- DESIGN §40: the vehicle, and the game's own grammar ------------------
     ("traverse.hook-motion", "rscalc/traverse.py",

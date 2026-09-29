@@ -431,9 +431,9 @@ def test_the_pack_ships_both_directory_spellings():
     `functions/` -> `function/`, `tags/blocks/` -> `tags/block/`. Which one a
     pack needs is decided by the game, not the pack — 1.21+ reads only the
     singular, 1.20.x only the plural — and getting it wrong produces no warning
-    whatsoever. The report that found this was a screenshot: `/datapack list`
-    showing the pack enabled, and `/function rscalc:build` answering "Unknown
-    function", because the game had loaded a pack it found nothing in.
+    whatsoever. The game's own generated data shows it: 1.20.3 and 1.20.5 ship
+    `loot_tables` and `tags/blocks`, 1.21 and 26.2 ship `loot_table` and
+    `tags/block`. The pack's measured floor is 1.20.3, so it needs both.
 
     Nothing here can run Minecraft to detect the player's version, and the
     player should not have to know it either, so the pack carries both. A client

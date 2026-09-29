@@ -3352,6 +3352,25 @@ first run.
 > me a pet build using armor stand and path tracing that follows me and attacks
 > nearby mobs, it should only be shown as a player head on the ground.
 
+> **Corrections, from §40, which asked the game instead of reasoning about it.**
+> Three claims in this section are wrong, and they are left in place so the
+> mistake stays legible.
+>
+> 1. *"Two reports, probably one cause"* — they were **two** bugs. `build` was
+>    missing because of the boss-bar `aqua`; the hook was broken because its
+>    vehicle could never move (a Marker/NoGravity armour stand never runs
+>    `travel`). A pack that did not load would not explain one and not the other.
+> 2. *"It was the directory name"* — it was not, for the version in question.
+>    The singular layout is what 1.21 and later read, and the screenshot that
+>    prompted this (`build` unknown, pack enabled) is exactly what the `aqua`
+>    bug produces on its own. The plural layout is real — 1.20.3 and 1.20.5 ship
+>    `loot_tables` and `tags/blocks` — and *is* needed now that the pack's
+>    measured floor is 1.20.3, but it never explained this symptom.
+> 3. *"the format rewrite … fixed nothing"* — it fixed a real defect. The game's
+>    codec **refuses** the `[major, minor]` arrays outright (§40 has the six
+>    shapes it was asked about), so that pack could not have loaded on 26.2 at
+>    all.
+
 ### Two reports, probably one cause
 
 `/function rscalc:build` missing and the gadgets doing nothing are not two
@@ -3746,6 +3765,38 @@ which is a real bug class. `tests/data/oracle_26.2.json.gz` holds twelve thousan
 of the game's own verdicts, so `tests/test_mccheck.py` re-checks all of this
 offline, without a JDK: **zero false accepts is a hard requirement**.
 
+### `pack.mcmeta`, asked of the game's own codec
+
+The last thing being asserted rather than known was the file that decides whether
+a pack is even considered. `Oracle --mcmeta` feeds it to the game's real
+`PackMetadataSection` and asks whether it parses and whether the game would call
+the pack *compatible*:
+
+| shape | 26.2 (format 107.1) | 26.3 (format 121.0) |
+|---|---|---|
+| `[major, minor]` arrays, `pack_format: 48` — shipped first | **refused**: *"Pack declares support for format 48, but game versions supporting formats 17 to 81 require a supported_formats field"* | refused |
+| integers, ceiling 107 — shipped last round | compatible | **incompatible** |
+| `pack_format: 48` alone | parses, incompatible | incompatible |
+| `pack_format: 107` alone | **refused**: *"missing mandatory fields min_format and max_format"* | refused |
+| `min_format`/`max_format` without `supported_formats` | **refused** | refused |
+| `supported_formats` as a `[lo, hi]` pair | **refused** | refused |
+| **the measured range, 26 to 121** | **compatible** | **compatible** |
+
+The rule is not obvious and the game states it: a range that reaches down to a
+format of 81 or below needs `supported_formats`; one that reaches above 81 needs
+`min_format` and `max_format`; a pack spanning both needs all three. `packlint`
+now enforces exactly that, `tests/test_mccheck.py` pins the six verdicts, and
+`mccheck.mcmeta_compatible` lets the test assert that the range this project
+writes is compatible with every version it was measured on.
+
+### The directory layout, from the game's own data
+
+The generated vanilla data settles the other thing §38 asserted. 1.20.3 and
+1.20.5 ship `loot_tables`, `recipes` and `tags/blocks`; 1.21 and 26.2 ship
+`loot_table`, `recipe` and `tags/block`. So both spellings are genuinely needed
+for a pack that loads from 1.20.3 — and neither was ever the reason `build` was
+unknown on a modern game.
+
 ### And it found things
 
 Being able to read the game meant the mechanism I could not test could finally
@@ -3816,3 +3867,34 @@ To reproduce all of it: `python3 tools/mc_reports.py` refreshes the grammar,
 `python3 tools/oracle.py compare --pack <pack dir> --jdk <JDK 25>` re-runs the
 differential test with a fresh seed, and `python3 tests/test_mccheck.py` needs
 neither.
+
+### Smaller things that fell out of it
+
+**One source of truth for "does it parse".** `packlint` used to carry its own list
+of command names, its own table of legal values and its own bracket balancer —
+the hand-written vocabulary that let `aqua` through. All of that is gone; `lint`
+now calls `mccheck` for the version the pack targets and keeps only what no
+grammar knows: whether the functions, objectives, tags and macros the commands
+*refer to* exist. It is about a quarter shorter and the deliberate-break tests
+pass through the game's grammar unchanged.
+
+**The page's own call to action was unstyled.** "Get the datapack" — the one
+thing the page exists to hand over — rendered as a browser-default grey button
+beside a properly red "run to the answer", because `.prim` was only defined inside
+`.transport` and the download panel is outside it. It is a real button now, and
+the panel says what to do once the file arrives (`<world>/datapacks/`, `/reload`,
+stand on the corner, `/function <ns>:build`), with the namespace read from the
+bundle like the tick count beside it.
+
+**A mistake worth keeping on the page.** §38 explained the reported "Unknown
+function" by a directory-layout change, the README repeated it, two code comments
+carried it, and it was wrong for the version in question: the layout is real and
+is needed for a 1.20.3 floor, but the report was the boss-bar colour. It survived
+three commits because it was plausible and there was nothing to test it against.
+The corrections are now at the top of §38 and in each place the claim was made.
+
+The mutation sweep grew from 34 to 42 and all 42 are caught: four for the hook
+(writing `Motion`, releasing for everyone, dropping the 0.6 lift, releasing by
+killing whatever you ride), one for the pet's step, three for the checker itself
+(`run` no longer starting a new command, the single-entity rule, the `$`
+placeholder rule).

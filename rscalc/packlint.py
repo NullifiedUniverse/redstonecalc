@@ -3,20 +3,27 @@
 Everything else in this project is checked by running it. A datapack cannot be:
 there is no Minecraft in the test rig, so the commands are the one artefact
 here that nothing executes before a player does. That is exactly the situation
-that produced the two worst bugs so far — a pack that named its own functions
-wrongly, and one that force-loaded nothing — both of which look fine in a diff
-and fail silently in a world.
+that produced the worst bugs so far — a pack that named its own functions
+wrongly, one that force-loaded nothing, one whose build command did not parse —
+all of which look fine in a diff and fail silently in a world.
 
-So this reads the pack the way the game's loader would, and checks the things
-the game checks at load time or fails on at run time:
+There are two halves, and they are kept apart on purpose:
+
+**Whether a command parses is the game's to say**, and `rscalc/mccheck.py` asks
+it: the Brigadier tree Mojang generates for each version, walked the way the game
+walks it. That used to be duplicated here as a hand-written list of command names
+and a hand-written table of legal values, which is precisely how `aqua` got past
+as a boss-bar colour. `lint` calls `mccheck` for the version the pack targets.
+
+**What the commands refer to is checked here**, because no grammar knows it:
 
 * every `function` and `schedule function` names a file that exists;
 * a function containing macro lines is only ever called `with` arguments, and
   every `$(placeholder)` it uses is written into that storage first;
 * scoreboard objectives are created before anything reads them;
 * entity tags in selectors are ones something actually applies;
-* braces, brackets and quotes balance, which is what a malformed `tellraw`
-  looks like from the outside.
+* block, entity and function tags the pack uses are ones it ships;
+* `pack.mcmeta` declares its formats the way the game requires.
 
 None of that proves the machine computes. It proves the pack loads and the
 commands refer to things that exist, which is the failure mode that costs an
@@ -28,54 +35,6 @@ from __future__ import annotations
 import json
 import os
 import re
-
-#: Arguments that are a **fixed vocabulary**, and the words allowed in each.
-#:
-#: These matter more than they look. A wrong enum value is not a run-time
-#: failure that misbehaves once — the command does not *parse*, and a function
-#: containing one command that does not parse **fails to load in its entirety**.
-#: The symptom is that `/function <ns>:<name>` answers "Unknown function" while
-#: every other function in the same pack works perfectly, which reads like a
-#: missing file rather than a typo on line 20 of a file that is right there.
-#:
-#: This list exists because `bossbar set … color aqua` shipped. A boss bar takes
-#: one of seven colours; `aqua` is a *text* colour, from the vocabulary two
-#: lines further down the same function. Nothing here objected, and
-#: `rscalc:build` — the one command the README tells a player to type — did not
-#: exist in game. See DESIGN §38.
-ENUMS = {
-    # `bossbar set <id> color <colour>`
-    ("bossbar", "color"): {"blue", "green", "pink", "purple", "red", "white",
-                           "yellow"},
-    # `bossbar set <id> style <style>`
-    ("bossbar", "style"): {"progress", "notched_6", "notched_10", "notched_12",
-                           "notched_20"},
-    # `playsound <sound> <source> …`
-    ("playsound", None): {"master", "music", "record", "weather", "block",
-                          "hostile", "neutral", "player", "ambient", "voice"},
-}
-
-#: Text-component colours, which are a *different* vocabulary from the boss
-#: bar's and overlap it only partly. Named here so the two cannot be confused
-#: again without something noticing.
-TEXT_COLOURS = {
-    "black", "dark_blue", "dark_green", "dark_aqua", "dark_red",
-    "dark_purple", "gold", "gray", "dark_gray", "blue", "green", "aqua",
-    "red", "light_purple", "yellow", "white", "reset",
-}
-
-#: Commands this project actually emits. A typo in a command name is accepted
-#: by no parser here but by the game's, which reports it once per execution and
-#: then carries on — 2,000 times a tick, in a pack this size.
-KNOWN = {
-    "advancement", "attribute", "bossbar", "clear", "damage", "data",
-    "difficulty", "effect",
-    "execute", "fill", "forceload", "function", "gamemode", "gamerule", "give",
-    "item", "kill", "particle", "playsound", "return", "ride", "say",
-    "schedule", "scoreboard", "setblock", "stopsound", "summon", "tag", "team",
-    "teleport", "tellraw", "time", "title", "tp", "weather", "worldborder",
-}
-
 
 def _functions(root):
     """{'ns:name': path} for every function file in the pack."""
@@ -97,77 +56,57 @@ def _functions(root):
     return out
 
 
-def _enum_problems(body):
-    """Fixed-vocabulary arguments whose value is not in the vocabulary.
+def mcmeta_problems(meta):
+    """What the game's own codec would refuse about a `pack.mcmeta` `pack` section.
 
-    Only the run of the command *outside* any quoted string is examined, so a
-    boss bar named "…: loading chunks" cannot be mistaken for an argument.
+    The rules were read off the game's error messages, by handing candidate files
+    to its `PackMetadataSection` codec (`tools/oracle.py pack`, DESIGN §40). They
+    are not obvious, and two of the shapes this project shipped broke them:
 
-    A macro line (`$…`) may hold `$(x)` where a word belongs; those are skipped
-    rather than guessed at, since the value is not known until it runs.
+      * every format is a plain integer;
+      * a pack that uses `min_format`/`max_format` and reaches down to a format
+        <= 81 must carry `supported_formats`, or the codec refuses it outright;
+      * one whose range reaches above 81 must carry `min_format` and
+        `max_format`, or the codec refuses it outright;
+      * so a pack spanning both — 1.20 to 26.x — needs all three.
+
+    The `[major, minor]` pairs this project once wrote, on a hunch about the
+    newer format table, fail the second rule: they were never accepted.
     """
-    out = []
-    # everything after `run` is a fresh command; check each piece
-    for part in re.split(r"(?:^|\s)run\s", body):
-        words, quoted = [], False
-        for tok in re.findall(r'"[^"]*"|\S+', part):
-            if tok.startswith('"'):
-                quoted = True
-                continue
-            words.append(tok)
-        del quoted
-        if not words:
-            continue
-        head = words[0]
-        for (cmd, key), allowed in ENUMS.items():
-            if head != cmd:
-                continue
-            if key is None:
-                # positional: `playsound <sound> <source>`
-                if len(words) >= 3 and "$(" not in words[2] \
-                        and words[2] not in allowed:
-                    out.append(f"{cmd} source {words[2]!r} is not one of "
-                               f"{', '.join(sorted(allowed))}")
-                continue
-            for i, w in enumerate(words[:-1]):
-                if w != key:
-                    continue
-                v = words[i + 1]
-                if "$(" in v or v in allowed:
-                    continue
-                extra = ""
-                if cmd == "bossbar" and key == "color" and v in TEXT_COLOURS:
-                    extra = (" — that is a *text* colour, not a boss bar one; "
-                             "the two vocabularies are different")
-                out.append(f"{cmd} {key} {v!r} is not one of "
-                           f"{', '.join(sorted(allowed))}{extra}")
-    return out
-
-
-def _balanced(line):
-    """Do the brackets and quotes close? A broken component is a silent no-op."""
-    depth = {"{": 0, "[": 0, "(": 0}
-    close = {"}": "{", "]": "[", ")": "("}
-    quoted = esc = False
-    for ch in line:
-        if esc:
-            esc = False
-            continue
-        if ch == "\\":
-            esc = True
-            continue
-        if ch == '"':
-            quoted = not quoted
-            continue
-        if quoted:
-            continue
-        if ch in depth:
-            depth[ch] += 1
-        elif ch in close:
-            depth[close[ch]] -= 1
-            if depth[close[ch]] < 0:
-                return False
-    return not quoted and not any(depth.values())
+    bad = []
+    for k in ("min_format", "max_format", "pack_format"):
+        v = meta.get(k)
+        if v is not None and not isinstance(v, int):
+            bad.append(f"pack.mcmeta {k} must be a plain integer, got {v!r}")
+    sup = meta.get("supported_formats")
+    if sup is not None and not (
+            isinstance(sup, dict)
+            and isinstance(sup.get("min_inclusive"), int)
+            and isinstance(sup.get("max_inclusive"), int)
+            and sup["min_inclusive"] <= sup["max_inclusive"]):
+        bad.append(f"pack.mcmeta supported_formats must be "
+                   f"{{min_inclusive, max_inclusive}}, got {sup!r}")
+    ints = [v for v in (meta.get("min_format"), meta.get("max_format"),
+                        meta.get("pack_format")) if isinstance(v, int)]
+    if isinstance(sup, dict):
+        ints += [v for v in (sup.get("min_inclusive"),
+                             sup.get("max_inclusive")) if isinstance(v, int)]
+    if ints and not bad:
+        lo, hi = min(ints), max(ints)
+        # (a legacy pack with only `pack_format` is fine at any old format: the
+        # game parses it and merely calls it incompatible with a newer version)
+        if lo <= 81 and sup is None and ("min_format" in meta
+                                         or "max_format" in meta):
+            bad.append(f"pack.mcmeta reaches down to format {lo}, which the game "
+                       f"only accepts together with supported_formats")
+        if hi > 81 and not ("min_format" in meta and "max_format" in meta):
+            bad.append(f"pack.mcmeta reaches up to format {hi}, which the game "
+                       f"only accepts together with min_format and max_format")
+        if (isinstance(meta.get("min_format"), int)
+                and isinstance(meta.get("max_format"), int)
+                and meta["min_format"] > meta["max_format"]):
+            bad.append("pack.mcmeta min_format is above max_format")
+    return bad
 
 
 def lint(root):
@@ -185,25 +124,7 @@ def lint(root):
         if not ({"min_format", "max_format"} <= set(meta)
                 or "pack_format" in meta):
             bad.append("pack.mcmeta declares no format at all")
-        # An integer, not a pair. The pair form is what the newer format table
-        # is written in, but nothing here can run a client to find out whether
-        # a given build parses it, and the cost of guessing wrong is not an
-        # error message — it is a pack that does not appear in the world at all,
-        # with every `/function` in it reported as an unknown command.
-        for k in ("min_format", "max_format", "pack_format"):
-            v = meta.get(k)
-            if v is not None and not isinstance(v, int):
-                bad.append(f"pack.mcmeta {k} must be a plain integer, got "
-                           f"{v!r} — a shape the game cannot parse makes the "
-                           f"whole pack invisible rather than an error")
-        sup = meta.get("supported_formats")
-        if sup is not None and not (
-                isinstance(sup, dict)
-                and isinstance(sup.get("min_inclusive"), int)
-                and isinstance(sup.get("max_inclusive"), int)
-                and sup["min_inclusive"] <= sup["max_inclusive"]):
-            bad.append(f"pack.mcmeta supported_formats must be "
-                       f"{{min_inclusive, max_inclusive}}, got {sup!r}")
+        bad += mcmeta_problems(meta)
 
     funcs = _functions(root)
     if not funcs:
@@ -241,13 +162,6 @@ def lint(root):
             if not s or s.startswith("#"):
                 continue
             body = s[1:].strip() if s.startswith("$") else s
-            if not _balanced(body):
-                bad.append(f"{where}: unbalanced brackets or quotes: {body[:60]}")
-            head = body.split(None, 1)[0] if body.split() else ""
-            if head and head not in KNOWN:
-                bad.append(f"{where}: unknown command {head!r}")
-            for problem in _enum_problems(body):
-                bad.append(f"{where}: {problem}")
             for m in re.finditer(r"(?:^|\s)function ([a-z0-9_.-]+:[a-z0-9_./-]+)",
                                  body):
                 ref = m.group(1)
@@ -318,6 +232,18 @@ def lint(root):
                 if fid.lstrip("#") not in funcs:
                     bad.append(f"minecraft/tags/function/{n} hooks {fid}, "
                                f"which does not exist")
+
+    # does it parse? That is the game's to say, and mccheck asks it, for the
+    # version this pack is for (or the newest one vendored, if that is missing)
+    from . import mcbuild, mccheck
+    if mccheck.versions():
+        target = (mcbuild.MC_VERSION_DEFAULT
+                  if mcbuild.MC_VERSION_DEFAULT in mccheck.versions()
+                  else mccheck.versions()[-1])
+        for fid, n, cmd, why in mccheck.problems(root, target):
+            bad.append(f"{fid}:{n}: {why}")
+        for rel, ent, why in mccheck.tag_problems(root, target):
+            bad.append(f"{rel}: {ent} {why}")
 
     # macro discipline: a macro function called without arguments is a run-time
     # error every single time, and the game reports it once and keeps going

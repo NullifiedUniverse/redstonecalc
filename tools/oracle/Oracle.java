@@ -1,4 +1,12 @@
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.JsonOps;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.metadata.pack.PackFormat;
+import net.minecraft.server.packs.metadata.pack.PackMetadataSection;
 import net.minecraft.SharedConstants;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
@@ -41,6 +49,11 @@ import java.util.stream.Stream;
  * Prints one `FAIL <function> <why>` line per function the game would reject,
  * and a final `SUMMARY <functions> <macro functions> <failed>`.
  *
+ * A third, `Oracle --mcmeta <file>`, reads a `pack.mcmeta` through the game's own
+ * PackMetadataSection codec and says whether it parses and whether the game
+ * would call the pack *compatible* with the version running it — which is the
+ * difference between loading quietly and "made for an older version".
+ *
  * A second mode, `Oracle --lines <file>`, treats every line of the file as its
  * own one-line function and prints `<index> OK` or `<index> ERR <why>`. That is
  * what lets rscalc/mccheck.py be tested against the game across thousands of
@@ -50,6 +63,26 @@ public class Oracle {
     private static final Pattern MACRO = Pattern.compile("\\$\\(([A-Za-z0-9_]+)\\)");
 
     public static void main(String[] args) throws Exception {
+        if (args[0].equals("--mcmeta")) {
+            SharedConstants.tryDetectVersion();
+            Bootstrap.bootStrap();
+            JsonObject root = JsonParser.parseString(Files.readString(Path.of(args[1]))).getAsJsonObject();
+            JsonElement pack = root.get("pack");
+            DataResult<PackMetadataSection> r =
+                PackMetadataSection.forPackType(PackType.SERVER_DATA).codec().parse(JsonOps.INSTANCE, pack);
+            PackFormat current = SharedConstants.getCurrentVersion().packVersion(PackType.SERVER_DATA);
+            if (r.isError()) {
+                Bootstrap.realStdoutPrintln("MCMETA ERR current=" + current + " "
+                    + r.error().get().message().replace('\n', ' '));
+            } else {
+                PackMetadataSection m = r.result().get();
+                boolean ok = m.supportedFormats().isValueInRange(current);
+                Bootstrap.realStdoutPrintln("MCMETA OK current=" + current + " range="
+                    + m.supportedFormats().minInclusive() + ".." + m.supportedFormats().maxInclusive()
+                    + " compatible=" + ok);
+            }
+            return;
+        }
         boolean lineMode = args[0].equals("--lines");
         Path pack = Path.of(lineMode ? args[1] : args[0]);
         int next = lineMode ? 2 : 1;

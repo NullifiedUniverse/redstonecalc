@@ -114,11 +114,20 @@ def _run(java, cp, *argv):
     r = subprocess.run([java, "-cp", cp, "Oracle", *argv], capture_output=True,
                        text=True, timeout=1800, cwd=_CWD)
     return [l for l in r.stdout.splitlines()
-            if l.startswith(("FAIL ", "SUMMARY ")) or re.match(r"\d+\t", l)]
+            if l.startswith(("FAIL ", "SUMMARY ", "MCMETA ")) or re.match(r"\d+\t", l)]
 
 
 def cmd_pack(args):
     java, cp = _setup(args)
+    meta = os.path.join(args.pack, "pack.mcmeta")
+    if os.path.exists(meta):
+        for l in _run(java, cp, "--mcmeta", meta):
+            if l.startswith("MCMETA"):
+                print(f"{args.version}: pack.mcmeta -> " + l[len("MCMETA "):])
+                if l.startswith("MCMETA ERR") or "compatible=false" in l:
+                    print("  the game does not accept this pack.mcmeta as "
+                          "compatible with this version")
+                    return 1
     lines = _run(java, cp, args.pack, MACRO_SNBT)
     bad = [l for l in lines if l.startswith("FAIL ")]
     summary = next((l for l in lines if l.startswith("SUMMARY")), "SUMMARY ? ? ?")

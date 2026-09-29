@@ -74,14 +74,17 @@ PACK_FORMAT_DEFAULT = 48
 
 #: The directories Minecraft renamed to the singular in 24w21a, on the way to
 #: 1.21 / pack format 48. `data/<ns>/functions/` became `data/<ns>/function/`,
-#: `tags/blocks/` became `tags/block/`, and so on for every registry.
+#: `tags/blocks/` became `tags/block/`, and so on for every registry. This is
+#: visible in the game's own generated data: 1.20.3 and 1.20.5 ship
+#: `loot_tables` and `tags/blocks`, 1.21 and 26.2 ship `loot_table` and
+#: `tags/block`.
 #:
-#: Which spelling a pack needs is decided by the *game*, not by the pack: a
-#: 1.21+ client reads only the singular, and a 1.20.x client reads only the
-#: plural. Get it wrong and the symptom is precisely the one reported here —
-#: `/datapack list` shows the pack **enabled**, and `/function <ns>:build` comes
-#: back "Unknown function", because the game loaded a pack it found no functions
-#: in. There is no warning; an unrecognised directory is simply not looked at.
+#: Which spelling a pack needs is decided by the *game*, and a directory it does
+#: not recognise is not a warning, it is simply never looked at — so a pack that
+#: is meant to load from 1.20.3 up has to carry both. That, and only that, is
+#: why it does. (It was once believed to explain a report of "Unknown function"
+#: on a modern game. It did not: the singular layout is what 1.21+ reads, and
+#: that report was a boss-bar colour. DESIGN §38 carries the correction.)
 LEGACY_DIRS = {
     "function": "functions",
     "advancement": "advancements",

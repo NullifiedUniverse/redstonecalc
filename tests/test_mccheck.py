@@ -283,6 +283,65 @@ def test_tag_files_name_things_that_exist():
         shutil.rmtree(d)
 
 
+def test_pack_mcmeta_rules_are_the_games_own():
+    """Six `pack.mcmeta` shapes, and what the game's real codec said about each.
+
+    These verdicts were recorded from `PackMetadataSection` itself on 26.2 and
+    26.3 (`tools/oracle.py pack`): not from documentation, and not from a
+    hypothesis. Two of the shapes are ones this project shipped. The `[major,
+    minor]` arrays it first wrote were **refused outright** — the game's own
+    message is *"Pack declares support for format 48, but game versions
+    supporting formats 17 to 81 require a supported_formats field"*. And the
+    range it wrote last, capped at 107, parses and is compatible on 26.2 and
+    is not on 26.3, whose data format is 121.
+    """
+    interval = {"min_inclusive": 48, "max_inclusive": 107}
+    shapes = {
+        # name: (section, game parses it, compatible with 26.2, with 26.3)
+        "integers, ceiling 107 (shipped last round)": (
+            {"pack_format": 107, "supported_formats": interval,
+             "min_format": 48, "max_format": 107}, True, True, False),
+        "[major, minor] arrays (shipped first)": (
+            {"min_format": [48, 0], "max_format": [107, 1], "pack_format": 48},
+            False, False, False),
+        "legacy pack_format 48 alone": ({"pack_format": 48}, True, False, False),
+        "pack_format 107 alone": ({"pack_format": 107}, False, False, False),
+        "min/max without supported_formats": (
+            {"min_format": 48, "max_format": 107}, False, False, False),
+        "supported_formats as a pair": (
+            {"pack_format": 107, "supported_formats": [48, 107]},
+            False, False, False),
+    }
+    from rscalc import packlint
+    for name, (meta, parses, c262, c263) in shapes.items():
+        meta = dict(meta, description="x")
+        assert bool(packlint.mcmeta_problems(meta)) == (not parses), (
+            name, packlint.mcmeta_problems(meta))
+        if parses:
+            assert mccheck.mcmeta_compatible(meta, "26.2") == c262, name
+            assert mccheck.mcmeta_compatible(meta, "26.3") == c263, name
+    # and what this project writes is accepted, and compatible on every version
+    # it was measured on
+    d = _pack()
+    try:
+        meta = json.load(open(os.path.join(d, "pack.mcmeta")))["pack"]
+        assert not packlint.mcmeta_problems(meta), packlint.mcmeta_problems(meta)
+        res = mccheck.floors(d, optional=[f"{NS}:{f}" for f in pet.OPTIONAL])
+        for v in mccheck.versions():
+            if _cmp(v, res["core"]) >= 0:
+                assert mccheck.mcmeta_compatible(meta, v), (v, meta)
+        print(f"  six pack.mcmeta shapes judged as the game judged them, and the "
+              f"one this project writes is compatible with every version "
+              f"from {res['core']} up: OK")
+    finally:
+        shutil.rmtree(d)
+
+
+def _cmp(a, b):
+    ka, kb = mccheck._key(a), mccheck._key(b)
+    return (ka > kb) - (ka < kb)
+
+
 def test_the_vendored_grammar_is_what_the_game_generated():
     """`vendor/mc/` is distilled from the servers themselves, so spot-check that
     it says what the game says about the things this project leans on."""
