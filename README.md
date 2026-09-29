@@ -264,21 +264,37 @@ for the four bugs that only showed up on reading the generated commands back —
 including a selector `limit` used as a count, which quietly turned the path
 tracing back into a beeline.
 
-**The hook pulls; it does not teleport.** The first version moved the player
-with one `tp @s` per tick towards the bobber, which is not a fast teleport that
-looks like movement — it is a teleport, twenty times a second, and it reads
-exactly like one. You cannot set a *player's* velocity from a command, but you
-can set an entity's, and a rider moves with its vehicle. So the hook summons an
-invisible marker armour stand, `/ride`s you onto it, and writes `Motion` on the
-vehicle each tick: the client interpolates it as ordinary entity movement, the
-speed ramps over eight ticks and eases inside eight blocks, and you keep your
-momentum when it lets go. There is no `tp` anywhere in the pull path, and
-`tests/test_traverse.py` asserts that. The direction is a unit vector with no
-trigonometry — `facing entity … positioned ^ ^ ^1` puts a marker one block along
-the line of sight, and the difference from the player's position, in
-thousandths through the scoreboard, is the vector. Every exit — release, arrive,
-`unstick`, and a sweep for stands with nobody riding them — dismounts and kills
-the stand.
+**The hook pulls the player on a mount, and the mount is moved by `tp`.** The
+first version teleported the *player* once a tick, which reads exactly like what
+it was. The second mounted you on an invisible armour stand and wrote its
+`Motion` — and **could not have moved you at all**: the game's own code for that
+stand is `travel(v) { if (!hasPhysics()) return; … }` with
+`hasPhysics() = !isMarker() && !isNoGravity()`, and the stand was both. The
+velocity was written and never read. It also dismounted you from every horse and
+boat, every tick, because release ran for everyone.
+
+It is now the way custom rideable things have always been done: you ride the
+stand, and the pack `tp`s the *stand* — an entity, whose positions the client is
+sent and interpolates, where a player is twenty corrections a second. The
+direction is one `facing entity` and a local `^ ^ ^d`, no vector maths. The stand
+is summoned 0.6 up, because a player's vehicle attachment is 0.6 and a Marker
+stand is zero tall; release kills only *your* mount, by tag, which dismounts you
+and can touch nothing else; and a cast that has not landed yet does not pull.
+There is no momentum on release — you get slow falling instead — and whether it
+*feels* good is the one thing that cannot be checked without a client. What can
+be checked, was: DESIGN §40 has the bytecode and the table of what is and is not
+verified.
+
+**The datapack is checked against the game's own command grammar, and its own
+function compiler.** `tools/mc_reports.py` pulls Mojang's data generator output
+for seven versions into `vendor/mc/`; `rscalc/mccheck.py` walks every command
+through each version's tree; `tools/oracle.py` hands the pack to the real
+`CommandFunction.fromLines` (26.1 and later, no server, no EULA, needs a JDK 25).
+The build refuses to write a pack the target version would not load, and
+`pack.mcmeta`'s format range is the measured one — 1.20.3 to 26.3 — rather than a
+typed-in claim. Put the `aqua` boss-bar colour back and the exporter prints the
+game's own message and writes nothing. `tests/test_mccheck.py` re-checks the
+checker against twelve thousand recorded verdicts from the game itself, offline.
 
 **It ships both directory layouts, so it works on 1.20.x and 1.21+.** 24w21a
 renamed every data directory to the singular on the way to 1.21 —

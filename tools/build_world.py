@@ -139,11 +139,14 @@ and lets go when you reel in. The charm dashes where you look. The compass
 returns to your mark. All three leave you with slow falling, so the landing is
 survivable.
 
-The pull is a **pull**, not a teleport: you ride an invisible mount whose
-velocity is written each tick, so the client interpolates the movement and you
-keep your momentum when it lets go. The speed ramps up from rest and eases off
-inside eight blocks of the hook, and a rope of particles shows you the line. If
-anything ever leaves you riding something, `/function {ns}:move/unstick`.
+The pull is done to a **mount**, not to you: you ride an invisible armour stand
+and the pack moves the stand with `tp` — an entity, whose positions the client
+interpolates, where a player would be twenty corrections a second. The speed
+ramps up from rest and eases off inside eight blocks of the hook, and a rope of
+particles shows you the line. Letting go removes only your own mount, so it never
+touches a horse or boat, and a cast that has not landed yet does not pull. There
+is no momentum on release; you get slow falling. If anything ever leaves you
+riding something, `/function {ns}:move/unstick`.
 
 ### It will not run unless you force-load it — **read this one**
 
@@ -469,6 +472,19 @@ def main():
             print(f"  {p}", file=sys.stderr)
         raise SystemExit(f"refusing to write a pack with {len(problems)} "
                          f"problems")
+    # The game's own grammar, for the version this pack is *for*. packlint reads
+    # a pack the way its author would; this reads it the way the game does, and
+    # a command that does not parse takes its whole function down at load —
+    # which is how `rscalc:build` once became "Unknown function".
+    measured = move["measured"]
+    if measured is not None:
+        refused = measured["per_version"].get(args.mc, [])
+        if refused:
+            for fid, n, cmd, why in refused[:10]:
+                print(f"  {fid}:{n}  {why}\n      {cmd}", file=sys.stderr)
+            raise SystemExit(f"refusing to write a pack that Minecraft "
+                             f"{args.mc} would not load: {len(refused)} "
+                             f"problems")
 
     with open(os.path.join(root, "README.md"), "w") as f:
         f.write(README.format(
@@ -522,14 +538,16 @@ def main():
         print(f"  zip:        {os.path.relpath(zipped)} "
               f"({os.path.getsize(zipped)/1024:.0f} KB) — drop this straight "
               f"into <world>/datapacks/")
-    # what the pack *needs*, as distinct from what it claims. The format number
-    # in pack.mcmeta is a compatibility claim; this is measured from the
-    # commands, and it is the figure that decides whether it works.
-    floor, needs = packlint.requires(packdir)
-    what, where = needs[floor][0]
-    print(f"  needs at least Minecraft {floor} ({what}, {where})")
-    print(f"  targets Minecraft {args.mc} "
-          f"(pack format {pack['pack_meta']['pack']. get('max_format') or pack['pack_meta']['pack']['pack_format']})")
+    # what the pack loads on, as measured against the game's own grammar
+    if measured is not None:
+        from rscalc import mccheck
+        core, full, newest = measured["core"], measured["full"], measured["newest"]
+        skin = (f"; the pet wears your skin from {full}" if full != core else "")
+        print(f"  loads on:   Minecraft {core} to {newest}{skin} "
+              f"(checked against {len(measured['per_version'])} versions' own "
+              f"command grammar, data formats {mccheck.format_of(core)}-"
+              f"{mccheck.format_of(newest)})")
+    print(f"  targets Minecraft {args.mc}")
     print(f"  total {size/1024/1024:.1f} MB in {root} ({time.time()-t0:.0f}s)")
 
 

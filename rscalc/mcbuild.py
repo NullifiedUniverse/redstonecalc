@@ -137,7 +137,7 @@ def mirror_legacy_layout(packdir):
     return copied
 
 
-def pack_meta(description, version=MC_VERSION_DEFAULT):
+def pack_meta(description, version=MC_VERSION_DEFAULT, lo=None, hi=None):
     """The `pack.mcmeta` body for a target version.
 
     **Every value here is an integer, deliberately.**
@@ -162,16 +162,21 @@ def pack_meta(description, version=MC_VERSION_DEFAULT):
         raise ValueError(f"unknown Minecraft version {version!r}; "
                          f"known: {', '.join(sorted(MC_FORMATS))}")
     major, _minor = MC_FORMATS[version]
-    lo = MC_FORMATS["1.21"][0]
+    # `lo` and `hi` are the range the pack was *measured* to load on
+    # (`mccheck.floors`): the oldest version whose grammar accepts every
+    # required command, and the newest one checked. Unmeasured, the claim is
+    # the conservative one — 1.21 up to the target.
+    lo = MC_FORMATS["1.21"][0] if lo is None else lo
+    hi = major if hi is None else max(hi, major)
     return {"pack": {
         "description": description,
-        # the classic field, still read by everything
+        # the classic field, still read by everything: the target's own format
         "pack_format": major,
         # the range, for anything from 1.20.2 on
-        "supported_formats": {"min_inclusive": lo, "max_inclusive": major},
+        "supported_formats": {"min_inclusive": lo, "max_inclusive": hi},
         # the new spelling, as plain integers rather than pairs
         "min_format": lo,
-        "max_format": major,
+        "max_format": hi,
     }}
 #: Commands per `part/NNNN` function, which is also what sets how many game
 #: ticks the paced build takes — and therefore how the build *looks*. At 2,000
@@ -556,10 +561,10 @@ ticks to arrive — it is a very deep machine.
 The gadgets
 -----------
 /function {ns}:move/gear hands you a rod, a carrot on a stick and a compass.
-Cast the rod at something up to 96 blocks away and it pulls you there — it is a
-real pull, not a teleport: you ride an invisible mount whose velocity is set
-each tick, so the movement interpolates and you keep your momentum when it lets
-go. Reel in to release. The carrot dashes you 5 blocks where you look, the
+Cast the rod at something up to 96 blocks away and, once the bobber has landed,
+it pulls you there: you ride an invisible mount and the pack moves the mount, so
+the client interpolates the movement instead of receiving twenty teleports a
+second. Reel in to release; there is no momentum, you get slow falling. The carrot dashes you 5 blocks where you look, the
 compass returns you to your mark ({ns}:move/mark). Anything that lets go leaves
 you with slow falling. If you are ever left riding something, {ns}:move/unstick.
 """

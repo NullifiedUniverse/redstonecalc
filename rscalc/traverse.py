@@ -13,19 +13,18 @@ been stable for years. There is no Minecraft in this repository's test rig, so
 what cannot be executed can only be reasoned about, and the way to keep that
 honest is to lean on old dull commands rather than the newest component syntax:
 
-* the pull does **not** teleport. The first version did — `tp @s` once a tick —
-  and the report from a real world was exact: *it just teleports the player
-  around*. A player's position set by the server twenty times a second is twenty
-  corrections the client has to swallow: no interpolation, no momentum, and
-  letting go leaves you hanging because a teleport has no velocity to inherit.
-  You cannot set a player's velocity from a command, but you can set an
-  entity's, and a rider moves with its vehicle — smoothly, because the client
-  interpolates a vehicle between ticks. So the hook mounts you on an invisible
-  marker armor stand and steers that;
-* the direction is a unit vector obtained without trigonometry, by letting the
-  game do it: `facing entity` aims the execution context, `positioned ^ ^ ^1`
-  steps one block that way, and the difference between that point and where you
-  stand *is* the unit vector;
+* the pull does not teleport *you*. The first version did — `tp @s` once a
+  tick — and the report from a real world was exact: *it just teleports the
+  player around*. A player's position set by the server twenty times a second is
+  twenty corrections the client has to swallow. So the hook mounts you on an
+  invisible marker armor stand and moves **that**, with `tp`: an entity's
+  positions are sent to the client, which interpolates them, and a rider is
+  repositioned from its vehicle every tick. (The second version wrote the
+  stand's `Motion` instead, and could never have moved: a Marker or NoGravity
+  stand does not run `travel`. DESIGN §40 has the bytecode.);
+* the direction needs no trigonometry, because the game does it: `facing entity`
+  aims the execution context at the bobber and a local `^ ^ ^d` steps `d`
+  blocks along that line;
 * the trigger for the dash is `minecraft.used:minecraft.carrot_on_a_stick`, a
   statistic objective, which is the oldest reliable "player right-clicked this"
   signal in the game;
@@ -108,10 +107,14 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
     hover = f"{ns}_hover"
     obj_vec = f"{ns}_vec"
     ride = f"{ns}_ride"
-    aim = f"{ns}_aim"
     bobber = (f"@e[type=fishing_bobber,limit=1,sort=nearest,"
               f"distance=..{REACH}]")
     near = lambda d: f"@e[type=fishing_bobber,limit=1,sort=nearest,distance=..{d}]"
+    # a bobber that has come to rest. `OnGround` is saved by every entity, and a
+    # rod cast at a block lands and stays until it despawns (1200 ticks)
+    landed = (f"@e[type=fishing_bobber,limit=1,sort=nearest,distance=..{REACH},"
+              f"nbt={{OnGround:1b}}]")
+    hooked = f"{ns}_hooked"
     out = {}
 
     def fn(name, lines):
@@ -204,47 +207,96 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         f"scoreboard players remove @a[scores={{{obj_fall}=1..}}] {obj_fall} 1",
         f"execute as @a[tag={hover}] run "
         f"effect give @s minecraft:slow_falling 2 0 true",
-        # a mount whose rider let go, logged out or died would otherwise drift
-        # away forever with the motion it was last given
-        f"execute as @e[type=armor_stand,tag={ride}] at @s "
-        f"unless entity @a[distance=..2] run kill @s",
+        # a mount nobody is sitting on — the rider logged out, died or sneaked
+        # off — would hang in the air for ever
+        f"execute as @e[type=armor_stand,tag={ride}] run "
+        f"function {ns}:{p}/sweep",
+    ])
+    fn("sweep", [
+        f"scoreboard players set #has {obj_vec} 0",
+        f"execute on passengers run scoreboard players set #has {obj_vec} 1",
+        f"execute if score #has {obj_vec} matches 0 run kill @s",
     ])
 
     # --- the pull ----------------------------------------------------------
     #
-    # This is the second design. The first moved the player with `tp @s` once a
-    # tick, and the report from a real world was exact: *it just teleports the
-    # player around*. That is what it was. A player's position set by the server
-    # twenty times a second is twenty corrections the client has to swallow —
-    # there is no interpolation, no momentum, and letting go leaves you hanging
-    # in the air because a teleport has no velocity to inherit.
+    # Three designs, and the third is the one that is verified.
     #
-    # You cannot set a player's velocity from a command; the client owns it. But
-    # you *can* set an entity's, and a player riding an entity moves with it —
-    # smoothly, because the client interpolates a vehicle between ticks, and
-    # with momentum, because the motion is real. So the hook mounts you on an
-    # invisible marker armor stand and steers that.
+    # The first moved the player with `tp @s` once a tick, and the report from a
+    # real world was exact: *it just teleports the player around*. A player's
+    # position set by the server twenty times a second is twenty corrections the
+    # client has to swallow, with no interpolation and no momentum.
     #
-    # The direction is a unit vector, and the way to get one without
-    # trigonometry is to let the game do it: `facing entity` aims the execution
-    # context, `positioned ^ ^ ^1` steps one block that way, and the difference
-    # between that point and where you are standing *is* the unit vector. A
-    # marker is summoned there for one tick because a position has to belong to
-    # an entity before `data get` can read it.
+    # The second mounted the player on an invisible armour stand and set its
+    # `Motion`, on the reasoning that a rider moves with its vehicle and that a
+    # vehicle's velocity, unlike a player's, can be written. **It could never
+    # have moved at all.** The game's own code (ArmorStand, 26.2, read with
+    # javap) is:
+    #
+    #     private boolean hasPhysics() { return !isMarker() && !isNoGravity(); }
+    #     public  void    travel(Vec3 v) { if (!hasPhysics()) return; super.travel(v); }
+    #
+    # and the stand was summoned with `Marker:1b` *and* `NoGravity:1b`. For such
+    # a stand `travel` returns before doing anything, so `Motion` is written and
+    # never read. The rider sat in one place, held there by a mount that ignored
+    # every instruction.
+    #
+    # So the vehicle is moved the way the datapack community has always moved a
+    # custom mount: `tp` on the *vehicle*. That is the right use of the command,
+    # and the opposite of the first design: it is an entity, not a player, so the
+    # client is *sent* its positions and interpolates between them, and the
+    # rider — whose position the game recomputes from the vehicle's every tick —
+    # goes with it. No physics is involved, so nothing here depends on how a
+    # stand with or without gravity behaves.
+    #
+    # The direction is free. `facing entity` aims the execution context at the
+    # bobber and a local `^ ^ ^d` steps `d` blocks along that line, so there is
+    # no trigonometry and no scoreboard vector — the second design needed
+    # twenty-odd commands a tick to feed `Motion`, and this needs one.
+    #
+    # The offset is not free. A rider's position is the vehicle's plus the
+    # vehicle's passenger attachment minus the *rider's* vehicle attachment, and
+    # for a player that is (0, 0.6, 0) — `Avatar.DEFAULT_VEHICLE_ATTACHMENT` —
+    # while a Marker stand is zero tall, so its rider sits 0.6 blocks *below* it.
+    # The stand is therefore summoned 0.6 up, which puts the player's feet where
+    # they were.
     fn("grapple", [
-        f"execute unless entity {bobber} run function {ns}:{p}/release",
+        # nothing cast: let go — of our own mount, and only if we are on it. This
+        # used to run `ride @s dismount` for everyone, every tick, which threw
+        # you off every horse and boat the moment you mounted one.
+        f"execute unless entity {bobber} if entity @s[tag={hooked}] run "
+        f"function {ns}:{p}/release",
         f"execute unless entity {bobber} run return fail",
+        # a cast that has not landed is not a grapple yet. Without this you are
+        # dragged after a projectile still in the air.
+        f"execute unless entity @s[tag={hooked}] unless entity {landed} run "
+        f"return fail",
         f"execute if entity {near(STOP)} run function {ns}:{p}/arrive",
         f"execute if entity {near(STOP)} run return fail",
-        # stop against a wall rather than being dragged through it: the mount
-        # is a marker and has no collision of its own
+        # stop against a wall rather than being dragged through it. Both the
+        # foot cell and the head cell one block along the line have to be free:
+        # the stand has no collision of its own, and you are 1.8 tall
+        f"scoreboard players set #free {obj_vec} 1",
         f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 "
-        f"unless block ~ ~ ~ #{ns}:passable run function {ns}:{p}/arrive",
+        f"unless block ~ ~ ~ #{ns}:passable run "
+        f"scoreboard players set #free {obj_vec} 0",
         f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 "
-        f"unless block ~ ~ ~ #{ns}:passable run return fail",
+        f"unless block ~ ~1 ~ #{ns}:passable run "
+        f"scoreboard players set #free {obj_vec} 0",
+        f"execute if score #free {obj_vec} matches 0 run "
+        f"function {ns}:{p}/arrive",
+        f"execute if score #free {obj_vec} matches 0 run return fail",
         f"scoreboard players set @s {obj_fall} {SAFE_FALL}",
-        f"execute unless entity @e[type=armor_stand,tag={ride},distance=..3] "
-        f"run function {ns}:{p}/mount",
+        f"execute unless entity @s[tag={hooked}] run function {ns}:{p}/mount",
+        # still on our own mount? Sneaking dismounts, and so does a mount that
+        # failed (`/ride` refuses if you are already riding a horse) — either
+        # way that is you letting go, not a reason to keep pulling a stand
+        f"scoreboard players set #riding {obj_vec} 0",
+        f"execute on vehicle if entity @s[tag={ride}] run "
+        f"scoreboard players set #riding {obj_vec} 1",
+        f"execute if score #riding {obj_vec} matches 0 run "
+        f"function {ns}:{p}/release",
+        f"execute if score #riding {obj_vec} matches 0 run return fail",
         # ease in over eight ticks, and ease off as the hook comes close
         f"scoreboard players add @s {obj_speed} {PULL_RAMP}",
         f"execute if score @s {obj_speed} matches {PULL_MAX}.. run "
@@ -252,46 +304,28 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         f"execute if entity {near(EASE_AT)} if score @s {obj_speed} matches "
         f"{PULL_EASED + 1}.. run scoreboard players set @s {obj_speed} "
         f"{PULL_EASED}",
-        f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 run "
-        f'summon marker ~ ~ ~ {{Tags:["{aim}"]}}',
-        f"function {ns}:{p}/thrust",
-        f"kill @e[type=marker,tag={aim}]",
+        f"execute store result storage {ns}:{p} d double 0.01 run "
+        f"scoreboard players get @s {obj_speed}",
+        f"function {ns}:{p}/pull with storage {ns}:{p}",
         f"function {ns}:{p}/rope",
     ])
 
     fn("mount", [
-        f"summon minecraft:armor_stand ~ ~ ~ {{Invisible:1b,NoGravity:1b,"
-        f'Marker:1b,Silent:1b,Tags:["{ride}","{ride}_new"]}}',
+        f"summon minecraft:armor_stand ~ ~0.6 ~ {{Invisible:1b,NoGravity:1b,"
+        f"Marker:1b,Silent:1b,Invulnerable:1b,"
+        f'Tags:["{ride}","{ride}_new"]}}',
+        f"tag @s add {hooked}",
         f"ride @s mount @e[type=armor_stand,tag={ride}_new,limit=1]",
         f"tag @e[type=armor_stand,tag={ride}_new] remove {ride}_new",
         f"playsound minecraft:entity.arrow.hit player @s ~ ~ ~ 0.4 1.9",
     ])
 
-    # unit vector times speed, in thousandths, straight onto the vehicle
-    axes = list(enumerate("xyz"))
-    fn("thrust", [
-        f"scoreboard players set #c100 {obj_vec} 100",
-        f"scoreboard players operation #spd {obj_vec} = @s {obj_speed}",
-    ] + [
-        line
-        for i, ax in axes
-        for line in (
-            f"execute store result score #d{ax} {obj_vec} run data get entity "
-            f"@e[type=marker,tag={aim},limit=1] Pos[{i}] 1000",
-            f"execute store result score #p{ax} {obj_vec} run data get entity "
-            f"@s Pos[{i}] 1000",
-            f"scoreboard players operation #d{ax} {obj_vec} -= #p{ax} {obj_vec}",
-            f"scoreboard players operation #d{ax} {obj_vec} *= #spd {obj_vec}",
-            f"scoreboard players operation #d{ax} {obj_vec} /= #c100 {obj_vec}",
-            f"execute store result storage {ns}:{p} m{ax} double 0.001 run "
-            f"scoreboard players get #d{ax} {obj_vec}",
-        )
-    ] + [
-        f"function {ns}:{p}/motion with storage {ns}:{p}",
-    ])
-    fn("motion", [
-        f"$execute as @s on vehicle run data merge entity @s "
-        f"{{Motion:[$(mx)d,$(my)d,$(mz)d]}}",
+    # One command. `on vehicle` makes the stand the executor, `at @s` puts the
+    # execution point on the stand (not on you, 0.6 lower), and the local step
+    # is taken from there. The speed arrives through a macro, in blocks a tick.
+    fn("pull", [
+        f"$execute on vehicle at @s facing entity {bobber} feet run "
+        f"tp @s ^ ^ ^$(d)",
     ])
 
     # The rope. Without it the hook is an invisible force and the whole gadget
@@ -303,26 +337,29 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         for d in (1, 2, 3, 4, 5, 6)
     ])
 
+    # Letting go kills *our* mount — the one `on vehicle` finds under us and
+    # only if it carries our tag — and killing a vehicle dismounts its rider.
+    # It never touches anyone else's stand, and never a horse.
     fn("release", [
         f"scoreboard players set @s {obj_speed} 0",
-        f"ride @s dismount",
-        f"kill @e[type=armor_stand,tag={ride},distance=..6]",
+        f"execute on vehicle if entity @s[tag={ride}] run kill @s",
+        f"tag @s remove {hooked}",
     ])
     fn("arrive", [
-        f"scoreboard players set @s {obj_speed} 0",
+        f"function {ns}:{p}/release",
         f"scoreboard players set @s {obj_fall} {SAFE_FALL}",
-        f"ride @s dismount",
-        f"kill @e[type=armor_stand,tag={ride},distance=..6]",
         f"particle minecraft:cloud ~ ~ ~ 0.2 0.2 0.2 0.01 8 normal @a",
         f"playsound minecraft:entity.arrow.hit player @s ~ ~ ~ 0.5 1.8",
     ])
 
     # An escape hatch, because "you are stuck riding something invisible" is the
-    # one failure of this design that a player cannot fix themselves.
+    # one failure of this design that a player cannot fix themselves. This one
+    # is deliberately blunt: it is a command somebody typed on purpose.
     fn("unstick", [
         f"ride @s dismount",
         f"kill @e[type=armor_stand,tag={ride},distance=..32]",
         f"scoreboard players set @s {obj_speed} 0",
+        f"tag @s remove {hooked}",
         say("dismounted and cleaned up.", "yellow"),
     ])
 
@@ -445,7 +482,7 @@ GO_HELP = {
 }
 
 
-def attach(outdir, ns, paced):
+def attach(outdir, ns, paced, description=None):
     """Wire the gadgets into a machine pack. One pack, assembled in one place.
 
     Two tools write this pack: `tools/build_world.py` writes the one you
@@ -455,6 +492,10 @@ def attach(outdir, ns, paced):
     the bundle, which is the same copy, so four differences sat there unseen:
     the page's pack had no world-start hook, no pace note, no landmark
     descriptions and a stale `go/...` phrasing. This is that code, once.
+
+    It also finishes the pack: with everything in place it asks the game's own
+    grammar which versions load it (`mccheck.floors`) and writes `pack.mcmeta`
+    from the answer, so the format range is a measurement and not a claim.
 
     `paced` is what `mcbuild.write_paced_entry` returned.
     """
@@ -495,4 +536,34 @@ def attach(outdir, ns, paced):
     # last, so it mirrors everything both halves wrote. See LEGACY_DIRS: this is
     # what makes one file work on a 1.20.x world and a 1.21+ one.
     move["legacy_files"] = mcbuild.mirror_legacy_layout(outdir)
+    move["measured"] = _measure_and_write_meta(
+        outdir, ns, description, optional=[f"{ns}:{f}" for f in pet.OPTIONAL])
     return move
+
+
+def _measure_and_write_meta(outdir, ns, description, optional):
+    """Ask the game's grammar which versions load this pack; write the range.
+
+    Returns the `mccheck.floors` result (or ``None`` if there is no vendored
+    grammar to ask, in which case `pack.mcmeta` is left as the exporter wrote
+    it). The range is exactly what was measured: from the oldest version whose
+    grammar accepts every required part, to the newest version checked clean.
+    """
+    from . import mccheck
+    if not os.path.isdir(mccheck.VENDOR) or not mccheck.versions():
+        return None
+    meta_path = os.path.join(outdir, "pack.mcmeta")
+    if description is None:
+        try:
+            with open(meta_path) as f:
+                description = json.load(f)["pack"]["description"]
+        except (OSError, KeyError, ValueError):
+            description = ns
+    res = mccheck.floors(outdir, optional=optional)
+    if res["core"] and res["newest"]:
+        meta = mcbuild.pack_meta(description,
+                                 lo=mccheck.format_of(res["core"]),
+                                 hi=mccheck.format_of(res["newest"]))
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=1)
+    return res

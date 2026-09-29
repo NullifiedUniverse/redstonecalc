@@ -31,6 +31,7 @@ FAST = [
     ("test_mcbuild.py", "Minecraft build output"),
     ("test_traverse.py", "the grappling hook and movement pack"),
     ("test_pet.py", "the pet head that follows your path"),
+    ("test_mccheck.py", "the pack against the game's own command grammar"),
     ("test_export.py", "the blob the page loads, decoded as the page decodes it"),
     ("test_tools.py", "the tools' arguments, defaults and --help"),
     ("test_docs.py", "the prose against the machine it describes"),

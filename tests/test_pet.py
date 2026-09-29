@@ -214,6 +214,14 @@ def test_the_pet_walks_rather_than_flying_through_walls():
         for line in moves:
             assert f"#{NS}:passable" in line, \
                 f"a step that does not check where it lands: {line}"
+            # `positioned ^ ^ ^d` shifts the execution point, so the destination
+            # has to be `~ ~ ~` *there*: the cell that was checked. A second `^`
+            # step from the shifted point tested 0.22 ahead and moved 0.44 —
+            # twice the speed claimed, into a cell nobody looked at
+            dest = line.split(" run tp @s ", 1)[1].split(" ")[0:3]
+            assert "^" not in " ".join(dest), (
+                f"the step moves relative to a point it already shifted, so it "
+                f"lands somewhere other than the block it checked: {line}")
         assert any("~1 ~" in l for l in moves), \
             "nothing lets it climb a single step, so a kerb stops it forever"
         # and it must not be a marker, or the world stops holding it up

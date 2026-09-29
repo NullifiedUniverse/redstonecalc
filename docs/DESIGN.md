@@ -3228,6 +3228,11 @@ to prove the check bites.
 
 ### The hook was a teleporter, because it was one
 
+> **Superseded by §40.** The `Motion` mechanism described below could not move
+> anything: a Marker or NoGravity armour stand never runs `travel`, so the
+> velocity was written and never read. The diagnosis of the first design stands;
+> the replacement did not work, and §40 has the one that does.
+
 The old pull was `tp @s` once a tick towards the bobber. That is not a fast
 teleport that looks like movement; it is a teleport, twenty times a second. The
 client is told the player is somewhere else and snaps there — no interpolation,
@@ -3614,3 +3619,200 @@ degrading; losing the head is the pet not existing.
 `tests/test_traverse.py` pins the movement floor at 1.20.3, so raising it is a
 decision somebody makes on purpose rather than a component someone adds for the
 look of it.
+
+## 40. Asking the game — **measured**
+
+Four rounds of "Unknown function", then "the grappling hook is completely
+broken" a third time. Every one had the same shape: something that could only be
+settled by running Minecraft, in a repository with no Minecraft in it, so the
+answer each round was a guess written with confidence. §38 says so in as many
+words. This section is what happened when the guessing was replaced by asking.
+
+### Mojang ships the answer
+
+The server jar carries a data generator that needs no EULA and no world.
+`--reports` writes `commands.json` — the complete Brigadier tree, every literal
+and every typed argument — plus every block's state properties and every
+registry; `--server` adds the data-driven registries (damage types, enchantments)
+and the vanilla tag names. `tools/mc_reports.py` runs it for each version that
+matters, checks the jar against the sha1 Mojang publishes for it, and distils the
+result into `vendor/mc/<version>.json.gz`:
+
+| version | data format | why it is there |
+|---|---|---|
+| 1.20.2 | 18 | first with function macros |
+| 1.20.3 | 26 | first with `return fail` — the pack's floor |
+| 1.20.5 | 41 | item components replaced item NBT |
+| 1.21 | 48 | what the pack was first written against |
+| 1.21.11 | 94.1 | the last 1.x |
+| 26.2 | 107.1 | what the launcher calls 1.26.2 |
+| 26.3 | **121** | the newest release |
+
+About forty to fifty kilobytes each, committed, so nothing downstream needs a
+network. The formats come from the game's own `version.json` and agree with the
+table `mcbuild` had been carrying from memory — that table was right. What it
+could not have known is the last row: **26.3 is data format 121**, and the pack
+declared a ceiling of 107, so on the newest release it would have been offered
+as "made for an older version".
+
+### The checker
+
+`rscalc/mccheck.py` walks a command through that tree the way the game does:
+literals, then typed arguments, redirects for `execute … run`. It has real
+parsers for the argument types this pack uses — selectors and their options,
+coordinates, SNBT, block states checked against the property tables, item
+components, text components, NBT paths, registry ids — and skims the rest,
+saying which (one type: `slot_source`).
+
+Run over the assembled pack it says, for every command and every tag file:
+
+| version | refused |
+|---|---|
+| 1.20.2 | `return fail` (added in 1.20.3), and the pet's skin |
+| 1.20.3 | the pet's skin only |
+| 1.20.5 → 26.3 | **nothing** |
+
+So the floor is now a measurement instead of a table someone typed. The machine
+and the gadgets load from **1.20.3**; the pet wears your skin from 1.20.5 and
+wears a plain head before that, because the profile component lives alone in
+`pet/head` and `pet/get` fits a plain head first. `traverse.attach` writes
+`pack.mcmeta` from the same measurement — oldest version that loads every
+required part, newest version checked clean — so the range is an output and not a
+claim: data formats 26 to 121, where it was 48 to 107.
+
+The old hand-kept `NEEDS` table in `packlint` is gone. It had said the same
+thing, but it was a second opinion nobody could referee.
+
+### The oracle
+
+A checker is still this project's reading of the grammar. Since 26.1 Mojang ships
+the game **unobfuscated**, and that turns out to be enough to ask the real thing.
+`tools/oracle/Oracle.java` boots the game's registries, builds its real command
+dispatcher, and hands each function file to `CommandFunction.fromLines` — the call
+the server makes when a datapack loads — instantiating macro functions with the
+arguments they would really receive. It never starts a server and never reads
+`eula.txt`.
+
+| | |
+|---|---|
+| functions the game loaded on 26.2 | **all of them**, macro functions included |
+| functions the game loaded on 26.3 | **all of them** |
+| the `aqua` boss-bar bug, put back | `rscalc:build` refused: *"Whilst parsing command on line 20: Incorrect argument for command at position 34"* — the report, to the character |
+
+That last row is the one that matters. An oracle that cannot fail proves
+nothing, and this one reproduces the failure that cost four rounds.
+
+### Checking the checker
+
+The oracle also answers one line at a time, so `mccheck` was tested against it
+directly: every distinct command the pack emits, plus tens of thousands of
+mutations — junk substituted for a token, tokens deleted, swapped, truncated and
+duplicated, single characters edited — each asked of both.
+
+| corpus | commands | agreement | what it was |
+|---|---|---|---|
+| A | 35,133 | 98.14% → 100.00% | token junk. The first run found rules I had not modelled |
+| B | 43,980 | 99.95% → 100.00% | new seed, new junk |
+| C | 17,451 | 99.60% → 99.83% | new *operators*: character edits. Found a crash |
+| D | 64,784 | **99.95%, 0 false accepts** | fresh seed, checker untouched |
+
+A and B were fixed against, so they prove less than the numbers say. C found a
+crash — a double space put a parser at a space character and it called
+`.group()` on `None` — which is the class of bug a checker must not have: it is
+now a refusal, and `internal error` is asserted absent across a mutation corpus.
+D is the honest one.
+
+What the game knew that this project did not:
+
+- an entity argument that is not a selector is a **name of 1–16 characters or a
+  UUID**: `kill ~` and `clear rscalc:tick` are refused, which was 306 of the first
+  corpus's disagreements on its own
+- `execute if score <holder>` takes exactly one holder, and `@e` is not one
+- a `$` macro line with no `$(…)` in it is refused outright
+- scoreboard criteria are a closed set, and `minecraft.used:minecraft.<item>`
+  must name a real item
+- `summon` takes an id, never a `#tag`
+- a text component is a string, a list or an object that says what it contains:
+  `-1`, `0` and `{}` are refused
+- SNBT numbers have no leading zeros: `Silent:01b` is not a byte
+- `word` arguments cannot be quoted; a time can be `-0` but not `-1`
+- `@n` is the nearest *entity*, so it is no more player-only than `@e`
+
+What remains different, all in the safe direction: 28 of the last 31 refusals are
+stray double spaces, which some argument types tolerate and the pack never
+writes; the rest are trailing commas, which an older grammar may not tolerate,
+and a `$(…)` on a line with no `$`, which the game accepts as literal text and
+which is a real bug class. `tests/data/oracle_26.2.json.gz` holds twelve thousand
+of the game's own verdicts, so `tests/test_mccheck.py` re-checks all of this
+offline, without a JDK: **zero false accepts is a hard requirement**.
+
+### And it found things
+
+Being able to read the game meant the mechanism I could not test could finally
+be read instead.
+
+**The vehicle can never move.** §37's hook mounted the player on an armour stand
+and wrote its `Motion`. `ArmorStand`, 26.2, `javap -c`:
+
+```java
+private boolean hasPhysics() { return !isMarker() && !isNoGravity(); }
+public  boolean isEffectiveAi() { return super.isEffectiveAi() && hasPhysics(); }
+public  void    travel(Vec3 v) { if (!hasPhysics()) return; super.travel(v); }
+```
+
+The stand was summoned with `Marker:1b` **and** `NoGravity:1b`. For it `travel`
+returns before doing anything; `Motion` is written and never read. The rewrite
+meant to fix a hook that "just teleports the player" produced one that could not
+move the player at all — and no command-level check, this section's included,
+could have said so, because every command in it parses.
+
+**It dismounted you from everything.** `grapple` runs every tick for every player
+carrying the gear, and its first line called `release` for anyone with no bobber
+out — nearly everyone, nearly always — which ran `ride @s dismount`. Put the
+gadgets on and you were thrown off every horse and boat the moment you mounted.
+
+**The pet moved twice as fast as it looked.** It tested the block at
+`positioned ^ ^ ^0.22` and then teleported to `^ ^ ^0.22` *from the shifted
+point*: checked 0.22 ahead, moved 0.44, into a cell nobody had looked at.
+
+### The hook, rebuilt on what was read
+
+| fact, from the game's code | consequence |
+|---|---|
+| a Marker or NoGravity stand never runs `travel` | nothing writes `Motion`; the vehicle is moved by `tp` |
+| `Entity.teleport` calls `stopRiding` only for an entity teleported *as a passenger* | teleporting the vehicle keeps its rider, whose position is recomputed from the vehicle every tick |
+| `RideCommand` refuses only: already riding, a player as vehicle, a loop, another dimension | nothing rejects a Marker stand; and a player already on a horse fails the mount, which is now "you let go", not an error |
+| rider position = vehicle + passenger attachment − rider vehicle attachment; `Avatar.DEFAULT_VEHICLE_ATTACHMENT` = (0, **0.6**, 0); a Marker stand is zero tall | the stand is summoned 0.6 up, or the player starts 0.6 into the ground |
+| `Entity` saves `OnGround`; a bobber's `FishingHook.tick` counts `onGround` towards its 1200-tick life | `nbt={OnGround:1b}` finds a bobber that has landed; a cast still in flight no longer drags you after it |
+
+`tp` is the right verb here for the opposite reason it was wrong in §36's first
+design: that moved a *player*, twenty corrections a second the client has to
+swallow; this moves an *entity*, whose positions the client is sent and
+interpolates. The direction is free — `facing entity` aims the execution
+context and a local `^ ^ ^d` steps along it — so the pull is one command where the
+`Motion` design needed twenty-odd a tick to build a vector. Release removes only
+the mount found under you that carries this pack's tag, and killing a vehicle
+dismounts its rider; it can no longer touch a horse, or anyone else's stand.
+
+### What is and is not verified
+
+| | |
+|---|---|
+| every command parses on 26.2 and 26.3, in the game's own compiler | **verified** |
+| every command parses on the versions in between, by grammar | **verified**, 0 false accepts on 64,784 |
+| the vehicle is moved by something the game actually runs | **verified**, from bytecode |
+| rider offset, `/ride` acceptance, teleport keeping the rider | **verified**, from bytecode |
+| the client interpolates the vehicle's teleports smoothly | **not verified** — client behaviour |
+| the pull feels good: ramp, easing, the stop distance | **not verified** — and cannot be here |
+| the skin resolves on the pet's head | **not verified** — needs a session server |
+
+That last block is the honest edge. None of it can be settled without a client,
+and this section does not pretend to. What it does is move the question from
+"does the hook do anything" — which it did not — to "does it feel right", which
+only a player can answer.
+
+To reproduce all of it: `python3 tools/mc_reports.py` refreshes the grammar,
+`python3 tools/oracle.py pack <pack dir> --jdk <JDK 25>` asks the game,
+`python3 tools/oracle.py compare --pack <pack dir> --jdk <JDK 25>` re-runs the
+differential test with a fresh seed, and `python3 tests/test_mccheck.py` needs
+neither.

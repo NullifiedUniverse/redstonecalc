@@ -120,25 +120,27 @@ def test_the_pack_does_not_quietly_raise_the_version_it_needs():
     whether the pack works is whether the game can parse its commands, and a
     command from the future is a parse error that takes its whole function down
     — "Unknown function" for a file that is plainly in the zip, which is the
-    failure §38 chased twice.
+    failure DESIGN §38 chased twice.
 
-    The floor is pinned so that raising it is a decision somebody makes on
-    purpose. It was 1.20.5 for a while, entirely because three `give` lines
-    carried decorative `custom_name` components that the pack never read.
+    The floor is *measured* against each version's own command grammar
+    (`mccheck.floors`), and pinned so that raising it is a decision somebody
+    makes on purpose. It was 1.20.5 for a while, entirely because three `give`
+    lines carried decorative `custom_name` components the pack never read.
     """
+    from rscalc import mccheck
     d, _ = _built()
     try:
-        floor, needs = packlint.requires(d)
-        assert floor == "1.20.3", (
-            f"the gadgets now need {floor}, raised by "
-            f"{needs[floor]} — every player below that loses the whole "
-            f"function, not the feature")
+        res = mccheck.floors(d)
+        assert res["core"] == "1.20.3", (
+            f"the gadgets now need {res['core']}: "
+            f"{[p for p in res['per_version'][res['core']]][:2]} — every "
+            f"player below that loses the whole function, not the feature")
         for line in open(os.path.join(d, "data", NS, "function",
                                       traverse.PREFIX, "gear.mcfunction")):
             if line.startswith("give "):
                 assert "[" not in line, (
                     f"an item component on a give that nothing reads: {line!r}")
-        print(f"  the movement half needs Minecraft {floor} and no more, and "
+        print(f"  the movement half loads from Minecraft {res['core']} and "
               f"the gear is plain items: OK")
     finally:
         shutil.rmtree(d)
@@ -150,7 +152,11 @@ def test_the_hook_never_moves_you_into_a_block():
     A grappling hook that pulls you inside terrain is not a rough edge, it is
     suffocation. The rule is mechanical and worth stating mechanically: no `tp`
     in this pack may run unguarded, except the waypoint recall, which goes to a
-    place the player was standing in.
+    place the player was standing in — and the pull, whose guard cannot sit on
+    the same line as its `tp` because that runs *on the vehicle*, 0.6 blocks off
+    the player, and so lives in `grapple` instead. That is checked separately
+    and precisely: both the foot cell and the head cell one block along the
+    line must be free, and the function must have returned before it pulls.
     """
     d, _ = _built()
     try:
@@ -161,50 +167,127 @@ def test_the_hook_never_moves_you_into_a_block():
                 s = line.strip().lstrip("$")
                 if " tp @" not in f" {s}" and not s.startswith("tp @"):
                     continue
-                if name == "recall_at.mcfunction":
+                if name in ("recall_at.mcfunction", "pull.mcfunction"):
                     continue
                 if f"if block ~ ~ ~ #{NS}:passable" not in s:
                     unguarded.append(f"{name}:{n}: {s}")
         assert not unguarded, "\n  ".join([""] + unguarded)
-        print(f"  every teleport but the waypoint is gated on a passable "
-              f"destination: OK")
+
+        grapple = open(os.path.join(fdir, "grapple.mcfunction")).read().splitlines()
+        pull_at = next(i for i, l in enumerate(grapple)
+                       if l.startswith(f"function {NS}:{traverse.PREFIX}/pull"))
+        guards = [i for i, l in enumerate(grapple)
+                  if "#free" in l and "unless block" in l]
+        foot = [l for l in grapple if "unless block ~ ~ ~ " in l and "#free" in l]
+        head = [l for l in grapple if "unless block ~ ~1 ~ " in l and "#free" in l]
+        assert foot and head, "the pull checks the foot cell or the head cell, not both"
+        stop = next(i for i, l in enumerate(grapple)
+                    if "#free" in l and "matches 0" in l and "return fail" in l)
+        assert max(guards) < stop < pull_at, (
+            "the wall guard has to run, and return, before anything is pulled")
+        print("  every teleport but the waypoint is gated on a passable "
+              "destination, and the pull is gated on foot AND head cells before "
+              "it runs: OK")
     finally:
         shutil.rmtree(d)
 
 
-def test_the_pull_moves_you_rather_than_teleporting_you():
-    """The report from a real world was exact: *it just teleports the player*.
+def test_the_pull_moves_the_vehicle_by_tp_and_never_relies_on_motion():
+    """The vehicle cannot be moved by `Motion`; the game's own code says so.
 
-    It did. `tp @s` once a tick is twenty position corrections a second for the
-    client to swallow — no interpolation, no momentum, and letting go leaves you
-    hanging, because a teleport has no velocity to inherit.
+    ArmorStand, Minecraft 26.2, from `javap -c`:
 
-    You cannot set a player's velocity from a command. You can set an entity's,
-    and a rider moves with its vehicle, so the hook mounts you on an invisible
-    marker armor stand and steers that instead. This pins the mechanism: the
-    grapple path must contain no teleport at all, and must set Motion on
-    whatever the player is riding.
+        private boolean hasPhysics() { return !isMarker() && !isNoGravity(); }
+        public  void    travel(Vec3 v) { if (!hasPhysics()) return; super.travel(v); }
+
+    The second design summoned its mount with `Marker:1b` and `NoGravity:1b` and
+    then wrote `Motion` onto it. For that stand `travel` returns before doing
+    anything, so `Motion` is written and never read: the player was mounted on
+    something that ignored every instruction, and the rewrite meant to fix a
+    hook that "just teleports the player" produced one that did not move them.
+
+    So nothing in the gadgets may write `Motion`; the vehicle is moved by `tp`,
+    on the vehicle, which is entity movement (interpolated by the client) and
+    not player movement (twenty corrections a second); and the stand is
+    summoned 0.6 up, because a player's vehicle attachment is (0, 0.6, 0) and
+    a Marker stand is zero tall, so an un-offset rider sits 0.6 below it.
     """
     d, _ = _built()
     try:
         fdir = os.path.join(d, "data", NS, "function", traverse.PREFIX)
-        pull = ""
-        for name in ("grapple", "thrust", "motion", "mount"):
-            with open(os.path.join(fdir, f"{name}.mcfunction")) as f:
-                pull += f.read()
-        assert " tp @" not in pull and not pull.startswith("tp @"), \
-            "the pull teleports again — that is the bug this replaced"
-        assert "ride @s mount" in pull, "nothing puts the player on a vehicle"
-        assert "on vehicle run data merge entity @s {Motion:[" in pull, \
-            "nothing gives the vehicle a velocity"
-        # and the vehicle has to be cleaned up, or you are stuck on it forever
-        for name in ("release", "arrive", "unstick"):
-            with open(os.path.join(fdir, f"{name}.mcfunction")) as f:
-                body = f.read()
-            assert "ride @s dismount" in body, name
-            assert f"kill @e[type=armor_stand,tag={NS}_ride" in body, name
-        print("  the pull sets Motion on a ridden entity and never teleports, "
-              "and every exit dismounts and cleans up: OK")
+        text = {n: open(os.path.join(fdir, n)).read()
+                for n in sorted(os.listdir(fdir))}
+
+        for name, body in text.items():
+            assert "Motion" not in body, (
+                f"{name} writes Motion. A Marker or NoGravity armour stand "
+                f"never reads it (ArmorStand.hasPhysics), so it moves nothing")
+
+        pull = text["pull.mcfunction"]
+        assert pull.startswith("$execute on vehicle at @s facing entity"), pull
+        assert " run tp @s ^ ^ ^$(d)" in pull, pull
+        assert "on vehicle" in pull and "tp @s" in pull
+
+        # the player is never the thing being teleported by the pull
+        for name in ("grapple.mcfunction", "pull.mcfunction", "mount.mcfunction",
+                     "release.mcfunction", "arrive.mcfunction"):
+            for line in text[name].splitlines():
+                assert " tp @s" not in f" {line}" or "on vehicle" in line, \
+                    f"{name}: teleports the player: {line}"
+
+        mount = text["mount.mcfunction"]
+        assert "summon minecraft:armor_stand ~ ~0.6 ~" in mount, (
+            "the stand is not lifted by the rider's vehicle attachment (0.6)")
+        assert "Marker:1b" in mount and "NoGravity:1b" in mount
+        assert "ride @s mount @e[type=armor_stand," in mount
+        assert "limit=1" in mount.split("ride @s mount")[1].split("\n")[0]
+
+        # every way out is by killing OUR stand: dismounting is a consequence
+        for name in ("release.mcfunction", "arrive.mcfunction"):
+            body = text[name]
+            assert "ride @s dismount" not in body, (
+                f"{name} dismounts unconditionally — that throws you off every "
+                f"horse and boat, every tick")
+        assert (f"execute on vehicle if entity @s[tag={NS}_ride] run kill @s"
+                in text["release.mcfunction"])
+        assert "ride @s dismount" in text["unstick.mcfunction"]
+        print("  the pull is one `tp` on the vehicle, nothing writes Motion, the "
+              "stand is lifted 0.6, and only our own stand is ever removed: OK")
+    finally:
+        shutil.rmtree(d)
+
+
+def test_the_hook_only_lets_go_of_its_own_mount():
+    """`grapple` runs every tick for every player carrying the gear.
+
+    Its first two lines used to be `release` — which ran `ride @s dismount` —
+    for anyone with no bobber out, which is nearly everyone nearly always. Put
+    the gadgets on and you were thrown off every horse, boat and minecart the
+    instant you mounted it.
+
+    Release is now gated on a tag that only `mount` sets, and what it removes is
+    the mount found *under you* carrying this pack's tag.
+    """
+    d, _ = _built()
+    try:
+        fdir = os.path.join(d, "data", NS, "function", traverse.PREFIX)
+        grapple = open(os.path.join(fdir, "grapple.mcfunction")).read().splitlines()
+        first = grapple[0]
+        assert "function" in first and "/release" in first
+        assert f"if entity @s[tag={NS}_hooked]" in first, (
+            "release runs for everyone, not just for someone actually hooked")
+        mount = open(os.path.join(fdir, "mount.mcfunction")).read()
+        assert f"tag @s add {NS}_hooked" in mount
+        release = open(os.path.join(fdir, "release.mcfunction")).read()
+        assert f"tag @s remove {NS}_hooked" in release
+        # a hook that never landed must not start pulling: it would drag you
+        # after a projectile that is still in the air
+        landed = [l for l in grapple if "OnGround:1b" in l]
+        assert landed and "return fail" in landed[0], grapple
+        # and a stand nobody is sitting on is cleaned up
+        assert "on passengers" in open(os.path.join(fdir, "sweep.mcfunction")).read()
+        print("  release only happens to a hooked player, only removes their own "
+              "mount, and waits for the bobber to land: OK")
     finally:
         shutil.rmtree(d)
 

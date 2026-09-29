@@ -290,8 +290,17 @@ def test_the_page_gets_its_minecraft_table_from_the_exporter():
     assert mc, "the bundle carries no Minecraft table, so the page cannot " \
                "write a datapack without inventing one"
     import json
-    assert mc["pack_meta"] == mcbuild.pack_meta(mc["pack_meta"]["pack"]
-                                                ["description"])
+    # The range in pack.mcmeta is *measured* (mccheck.floors, in traverse.attach)
+    # rather than typed in, so what is checked here is that the bundle's copy is
+    # the one the exporter would write for that measured range — and that the
+    # range really is the game's own data-pack formats for the oldest version
+    # that loads it and the newest one checked.
+    from rscalc import mccheck
+    meta = mc["pack_meta"]["pack"]
+    assert mc["pack_meta"] == mcbuild.pack_meta(
+        meta["description"], lo=meta["min_format"], hi=meta["max_format"])
+    assert meta["min_format"] == mccheck.format_of("1.20.3"), meta
+    assert meta["max_format"] == mccheck.format_of(mccheck.versions()[-1]), meta
     # The same argument covers the pack's *shape*, not just its blocks — and it
     # is settled differently now. The page used to write its own copy of the
     # control functions, and force-loading went into the exporter alone: the

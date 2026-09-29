@@ -248,10 +248,17 @@ def _mc_table(world, name, landmarks=None, signs=()):
         # world-start hook, no pace note and stale landmark descriptions into
         # the bundle while every check still passed — they all compared the
         # page against the bundle, which is this copy.
-        move = traverse.attach(d, ns, paced)
-        meta = mcbuild.pack_meta(f"{name} — a redstone calculator")
+        # `attach` also measures which versions load the pack and writes
+        # pack.mcmeta from the answer. The description goes in first so it has
+        # something to keep; writing the file *after* attach would replace the
+        # measured range with the conservative default, which is a second
+        # implementation of the same file again.
+        description = f"{name} — a redstone calculator"
         with open(os.path.join(d, "pack.mcmeta"), "w") as f:
-            json.dump(meta, f, indent=1)
+            json.dump(mcbuild.pack_meta(description), f, indent=1)
+        move = traverse.attach(d, ns, paced, description=description)
+        with open(os.path.join(d, "pack.mcmeta")) as f:
+            meta = json.load(f)
         with open(os.path.join(d, "README.txt"), "w") as f:
             f.write(mcbuild.pack_readme(
                 name, ns, len(world.blocks),

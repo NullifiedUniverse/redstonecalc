@@ -84,6 +84,14 @@ PREY_OPTIONAL = [
 ]
 
 
+#: Functions that may fail to load on an older game without the pet being
+#: broken. `pet/head` carries the profile component (1.20.5), so on 1.20.3 it is
+#: rejected and `pet/get` has already fitted a plain head: the pet loses your
+#: face, not its existence. `mccheck.floors` is told so, and reports the floor
+#: for the parts that are required separately from the floor for the skin.
+OPTIONAL = [f"{PREFIX}/head"]
+
+
 def _prey():
     return {"values": PREY_CERTAIN +
             [{"id": i, "required": False} for i in PREY_OPTIONAL]}
@@ -312,13 +320,22 @@ def build(outdir, ns=mcbuild.NAMESPACE):
     # way it never was for the player — this is an entity, and the client
     # interpolates entity positions between the updates it is sent.
     fn("step", [
+        # `positioned ^ ^ ^d` moves the execution point, so the destination is
+        # `~ ~ ~` there — the very cell that was just checked. This used to say
+        # `tp @s ^ ^ ^d` again *after* `positioned`, which stepped from the
+        # shifted point: it tested the block 0.22 ahead and then moved 0.44,
+        # twice the speed it claimed and past the cell it had looked at.
         f"execute facing entity @e[type=marker,tag={target},limit=1] feet "
         f"positioned ^ ^ ^{SPEED} if block ~ ~ ~ #{ns}:passable "
-        f"run tp @s ^ ^ ^{SPEED}",
-        # blocked at foot level by a single step: rise over it
+        f"run tp @s ~ ~ ~ facing entity "
+        f"@e[type=marker,tag={target},limit=1] feet",
+        # blocked at foot level by a single step: rise over it, if there is room
+        # for the head above the step as well
         f"execute facing entity @e[type=marker,tag={target},limit=1] feet "
         f"positioned ^ ^ ^{SPEED} unless block ~ ~ ~ #{ns}:passable "
-        f"if block ~ ~1 ~ #{ns}:passable run tp @s ^ ^0.55 ^{SPEED}",
+        f"if block ~ ~1 ~ #{ns}:passable if block ~ ~2 ~ #{ns}:passable "
+        f"run tp @s ~ ~1 ~ facing entity "
+        f"@e[type=marker,tag={target},limit=1] feet",
     ])
 
     fn("catch_up", [

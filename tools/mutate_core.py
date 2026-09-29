@@ -108,6 +108,43 @@ MUTATIONS = [
      '        "max_format": major,',
      '        "max_format": [major, 0],',
      "a pack.mcmeta format written as a pair rather than an integer"),
+    # ---- DESIGN §40: the vehicle, and the game's own grammar ------------------
+    ("traverse.hook-motion", "rscalc/traverse.py",
+     '        f"tp @s ^ ^ ^$(d)",',
+     '        f"data merge entity @s {{Motion:[$(d)d,0d,0d]}}",',
+     "the pull writing Motion onto a Marker armour stand, which the game "
+     "never reads (ArmorStand.hasPhysics)"),
+    ("traverse.dismount-everyone", "rscalc/traverse.py",
+     '        f"execute unless entity {bobber} if entity @s[tag={hooked}] run "',
+     '        f"execute unless entity {bobber} run "',
+     "release running for every player every tick, throwing you off every "
+     "horse and boat"),
+    ("traverse.mount-offset", "rscalc/traverse.py",
+     '        f"summon minecraft:armor_stand ~ ~0.6 ~ {{Invisible:1b,NoGravity:1b,"',
+     '        f"summon minecraft:armor_stand ~ ~ ~ {{Invisible:1b,NoGravity:1b,"',
+     "the mount not lifted by the rider's 0.6 vehicle attachment, so the "
+     "player starts 0.6 blocks inside the ground"),
+    ("traverse.release-any-vehicle", "rscalc/traverse.py",
+     '        f"execute on vehicle if entity @s[tag={ride}] run kill @s",',
+     '        f"execute on vehicle run kill @s",',
+     "releasing by killing whatever you are riding, horse included"),
+    ("pet.double-step", "rscalc/pet.py",
+     '        f"run tp @s ~ ~ ~ facing entity "',
+     '        f"run tp @s ^ ^ ^{SPEED} facing entity "',
+     "the pet checking the block 0.22 ahead and then moving 0.44"),
+    ("mccheck.run-redirect", "rscalc/mccheck.py",
+     '        if not kids and not node.get("executable"):',
+     '        if False:',
+     "`execute ... run` no longer starting a new command, so every run line "
+     "in the pack looks like a syntax error"),
+    ("mccheck.single-entity", "rscalc/mccheck.py",
+     '        if single and (limit is None or limit > 1):',
+     '        if False:',
+     "a selector that can match many accepted where the game wants exactly one"),
+    ("mccheck.macro-placeholder", "rscalc/mccheck.py",
+     '            if not _MACRO.search(s):',
+     '            if False:',
+     "a `$` line with nothing to substitute accepted; the game refuses it"),
     # a construct newer than the pack's floor deletes the function that uses it
     # on every older world — see DESIGN §39
     ("traverse.gear-components", "rscalc/traverse.py",
