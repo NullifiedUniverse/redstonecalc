@@ -100,6 +100,27 @@ def test_the_trail_is_capped_by_a_count_and_not_by_a_limit():
         shutil.rmtree(d)
 
 
+def test_the_pet_never_mistakes_the_nearest_player_for_its_owner():
+    """`@p` is the nearest player to *whoever is running the command* — here the
+    armour stand. With two players about it is not necessarily the owner, so a
+    pet that has fallen behind was teleported to a stranger, and a bite could be
+    credited to one. The owner is tagged every tick precisely so nothing has to
+    guess."""
+    d, _ = _built()
+    try:
+        for name in ("catch_up", "bite", "drive", "fight", "walk", "step"):
+            for line in _text(d, name).splitlines():
+                assert " @p" not in f" {line}" and "@p " not in line \
+                    and not line.endswith("@p"), (
+                        f"{name} uses @p, the nearest player, not the owner: {line}")
+        assert f"tp @s @a[tag={NS}_boss,limit=1]" in _text(d, "catch_up")
+        assert f"from @a[tag={NS}_boss,limit=1]" in _text(d, "bite")
+        print("  the pet goes back to, and credits kills to, its own owner and "
+              "nobody nearer: OK")
+    finally:
+        shutil.rmtree(d)
+
+
 def test_the_pet_keeps_fighting_when_it_has_caught_up():
     """The moment it is standing beside you is when it most needs to bite.
 

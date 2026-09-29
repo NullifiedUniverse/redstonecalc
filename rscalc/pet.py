@@ -340,7 +340,10 @@ def build(outdir, ns=mcbuild.NAMESPACE):
 
     fn("catch_up", [
         f"kill @e[type=marker,tag={mine}]",
-        f"tp @s @p",
+        # the owner, not `@p`: the nearest player to the *stand* is not
+        # necessarily whose pet it is, and a pet that hops to a stranger the
+        # moment its owner is out of range is not a pet
+        f"tp @s @a[tag={boss},limit=1]",
         f"particle minecraft:poof ~ ~0.2 ~ 0.2 0.2 0.2 0.01 6 normal @a",
     ])
 
@@ -352,12 +355,14 @@ def build(outdir, ns=mcbuild.NAMESPACE):
         f"if entity @e[type=#{ns}:prey,distance=..{BITE_REACH}] run "
         f"function {ns}:{p}/bite",
     ])
-    # `by @s from @p`: the pet deals it, the player *causes* it, which is what
-    # sends the drops and the experience to the person the pet belongs to. The
-    # pet is the only thing near enough for `@p` to be anyone else.
+    # `by @s from <owner>`: the pet deals it, the player *causes* it, which is
+    # what sends the drops and the experience to the person the pet belongs to.
+    # The owner is named, not guessed: `@p` is the nearest player to the *pet*,
+    # and with two players about that is not necessarily whose pet it is.
     fn("bite", [
         f"damage @e[type=#{ns}:prey,distance=..{BITE_REACH},limit=1,"
-        f"sort=nearest] {BITE_DAMAGE} minecraft:mob_attack by @s from @p",
+        f"sort=nearest] {BITE_DAMAGE} minecraft:mob_attack by @s from "
+        f"@a[tag={boss},limit=1]",
         f"execute facing entity @e[type=#{ns}:prey,distance=..{BITE_REACH},"
         f"limit=1,sort=nearest] feet positioned ^ ^0.3 ^0.6 run "
         f"particle minecraft:crit ~ ~ ~ 0.1 0.1 0.1 0.05 6 normal @a",

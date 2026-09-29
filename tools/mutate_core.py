@@ -145,6 +145,18 @@ MUTATIONS = [
      '            if not _MACRO.search(s):',
      '            if False:',
      "a `$` line with nothing to substitute accepted; the game refuses it"),
+    ("traverse.arrival-spam", "rscalc/traverse.py",
+     '        f"execute if entity {near(STOP)} if entity @s[tag={hooked}] run "',
+     '        f"execute if entity {near(STOP)} run "',
+     "arrive firing for anyone near a landed bobber, every tick"),
+    ("traverse.leash", "rscalc/traverse.py",
+     '        f"execute if entity @s[tag={spent}] run return fail",',
+     '        f"execute if entity @s[tag={spent}] run scoreboard players set #x {obj_vec} 0",',
+     "a finished cast pulling you back the moment you walk away from it"),
+    ("pet.nearest-player", "rscalc/pet.py",
+     '        f"tp @s @a[tag={boss},limit=1]",',
+     '        f"tp @s @p",',
+     "the pet teleporting to whichever player is nearest it, not to its owner"),
     # a construct newer than the pack's floor deletes the function that uses it
     # on every older world — see DESIGN §39
     ("traverse.gear-components", "rscalc/traverse.py",

@@ -3868,6 +3868,29 @@ To reproduce all of it: `python3 tools/mc_reports.py` refreshes the grammar,
 differential test with a fresh seed, and `python3 tests/test_mccheck.py` needs
 neither.
 
+### The lifecycle, once it could run
+
+A hook that does not move cannot show what happens *after* it moves you, so the
+states around the pull had never been exercised at all. Walking through them:
+
+- **`arrive` fired every tick.** Once you stood within reach of a landed bobber,
+  the arrival sound and particles repeated for as long as you stayed. It now only
+  happens to a player who is actually hooked.
+- **A finished cast pulled you back.** Walk away from the bobber you had just
+  arrived at and you were dragged straight back to it. A cast is now *spent* when
+  it ends — arrived, sneaked off, reeled in — and stays spent until the bobber is
+  gone, which is what makes the next cast a new grapple.
+- **`off` could strand you.** It removed the tag that runs the hook without
+  letting go first, so switching the gadgets off mid-pull left you riding a stand
+  nothing steered. It releases first now.
+- **The pet used `@p`.** The nearest player to the *stand* is not necessarily its
+  owner, so with two players about a pet that fell behind was teleported to a
+  stranger and a bite could be credited to one. The owner is tagged every tick and
+  is named instead.
+
+Each has a test and a mutation: `traverse.arrival-spam`, `traverse.leash`,
+`pet.nearest-player`.
+
 ### Smaller things that fell out of it
 
 **One source of truth for "does it parse".** `packlint` used to carry its own list

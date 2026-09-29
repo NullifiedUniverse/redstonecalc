@@ -286,6 +286,31 @@ def test_the_hook_only_lets_go_of_its_own_mount():
         assert landed and "return fail" in landed[0], grapple
         # and a stand nobody is sitting on is cleaned up
         assert "on passengers" in open(os.path.join(fdir, "sweep.mcfunction")).read()
+
+        # The lifecycle, which nothing could have shown while the pull did not
+        # move: a cast that has done its job stays done until it is reeled in.
+        # Without that, standing beside the bobber you arrived at fires the
+        # arrival sound and particles every tick, and walking away yanks you
+        # straight back.
+        for line in grapple:
+            if "function" in line and "/arrive" in line:
+                assert f"if entity @s[tag={NS}_hooked]" in line, (
+                    f"arrive fires for someone who is not hooked, so it repeats "
+                    f"every tick while they stand near the bobber: {line}")
+        spent_idx = next(i for i, l in enumerate(grapple)
+                         if f"if entity @s[tag={NS}_spent] run return fail" in l)
+        land_idx = next(i for i, l in enumerate(grapple) if "OnGround:1b" in l)
+        assert spent_idx < land_idx, "a spent cast is checked after the landing test"
+        assert any(f"unless entity" in l and f"remove {NS}_spent" in l
+                   for l in grapple), "reeling in never clears the spent mark"
+        assert f"tag @s add {NS}_spent" in release, (
+            "letting go does not mark the cast as finished, so it re-hooks")
+        # turning the gadgets off lets go first: once the `on` tag is gone
+        # `grapple` never runs again, and a hook left mid-pull is a player riding
+        # a stand nothing steers
+        off = open(os.path.join(fdir, "off.mcfunction")).read().splitlines()
+        assert off[0] == f"function {NS}:{traverse.PREFIX}/release", off
+        assert f"tag @s remove {NS}_on" in off
         print("  release only happens to a hooked player, only removes their own "
               "mount, and waits for the bobber to land: OK")
     finally:

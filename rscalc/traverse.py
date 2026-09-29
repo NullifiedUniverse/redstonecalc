@@ -114,7 +114,8 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
     # rod cast at a block lands and stays until it despawns (1200 ticks)
     landed = (f"@e[type=fishing_bobber,limit=1,sort=nearest,distance=..{REACH},"
               f"nbt={{OnGround:1b}}]")
-    hooked = f"{ns}_hooked"
+    hooked = f"{ns}_hooked"          # currently on the mount
+    spent = f"{ns}_spent"            # this cast has done its job
     out = {}
 
     def fn(name, lines):
@@ -171,6 +172,8 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
     ])
 
     fn("on", [
+        f"tag @s remove {hooked}",
+        f"tag @s remove {spent}",
         f"tag @s add {on}",
         f"scoreboard players set @s {obj_dash} 0",
         f"scoreboard players set @s {obj_recall} 0",
@@ -179,6 +182,11 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
             "charm to dash, the compass to recall.", "aqua"),
     ])
     fn("off", [
+        # let go first: once the `on` tag is gone `grapple` never runs for this
+        # player again, and a hook left mid-pull would leave them riding a stand
+        # that nothing is steering
+        f"function {ns}:{p}/release",
+        f"tag @s remove {spent}",
         f"tag @s remove {on}",
         f"tag @s remove {hover}",
         say("hook and dash off."),
@@ -266,12 +274,19 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         # you off every horse and boat the moment you mounted one.
         f"execute unless entity {bobber} if entity @s[tag={hooked}] run "
         f"function {ns}:{p}/release",
+        # reeling in is what makes the next cast a new grapple
+        f"execute unless entity {bobber} run tag @s remove {spent}",
         f"execute unless entity {bobber} run return fail",
+        # a cast that has done its job stays done until it is reeled in: without
+        # this, walking away from the bobber you arrived at yanks you straight
+        # back, and standing beside it fires the arrival sound every tick
+        f"execute if entity @s[tag={spent}] run return fail",
         # a cast that has not landed is not a grapple yet. Without this you are
         # dragged after a projectile still in the air.
         f"execute unless entity @s[tag={hooked}] unless entity {landed} run "
         f"return fail",
-        f"execute if entity {near(STOP)} run function {ns}:{p}/arrive",
+        f"execute if entity {near(STOP)} if entity @s[tag={hooked}] run "
+        f"function {ns}:{p}/arrive",
         f"execute if entity {near(STOP)} run return fail",
         # stop against a wall rather than being dragged through it. Both the
         # foot cell and the head cell one block along the line have to be free:
@@ -283,8 +298,8 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         f"execute at @s facing entity {bobber} feet positioned ^ ^ ^1 "
         f"unless block ~ ~1 ~ #{ns}:passable run "
         f"scoreboard players set #free {obj_vec} 0",
-        f"execute if score #free {obj_vec} matches 0 run "
-        f"function {ns}:{p}/arrive",
+        f"execute if score #free {obj_vec} matches 0 if entity "
+        f"@s[tag={hooked}] run function {ns}:{p}/arrive",
         f"execute if score #free {obj_vec} matches 0 run return fail",
         f"scoreboard players set @s {obj_fall} {SAFE_FALL}",
         f"execute unless entity @s[tag={hooked}] run function {ns}:{p}/mount",
@@ -344,6 +359,9 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         f"scoreboard players set @s {obj_speed} 0",
         f"execute on vehicle if entity @s[tag={ride}] run kill @s",
         f"tag @s remove {hooked}",
+        # whichever way it ended — arrived, sneaked off, reeled in — this cast is
+        # finished. `grapple` clears the mark once the bobber is gone.
+        f"tag @s add {spent}",
     ])
     fn("arrive", [
         f"function {ns}:{p}/release",
@@ -360,6 +378,7 @@ def build(outdir, ns=mcbuild.NAMESPACE, machine_help=(), machine_notes=()):
         f"kill @e[type=armor_stand,tag={ride},distance=..32]",
         f"scoreboard players set @s {obj_speed} 0",
         f"tag @s remove {hooked}",
+        f"tag @s add {spent}",
         say("dismounted and cleaned up.", "yellow"),
     ])
 
